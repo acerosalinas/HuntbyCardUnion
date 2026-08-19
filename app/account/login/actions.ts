@@ -12,7 +12,7 @@ export async function login(_prevState: { error: string | null }, formData: Form
     return { error: "Enter your email and password." };
   }
 
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {

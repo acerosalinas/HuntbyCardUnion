@@ -10,7 +10,7 @@ export interface CurrentBuyer {
 
 /** Resolves the signed-in buyer (email + profile) from the session cookie, or null. */
 export async function getCurrentBuyer(): Promise<CurrentBuyer | null> {
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await supabase.auth.getUser();

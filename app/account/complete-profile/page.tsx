@@ -2,13 +2,15 @@ import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { CompleteProfileForm } from "./CompleteProfileForm";
 
+export const dynamic = "force-dynamic";
+
 export default async function CompleteProfilePage({
   searchParams,
 }: {
   searchParams: Promise<{ from?: string }>;
 }) {
   const { from = "/" } = await searchParams;
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await supabase.auth.getUser();

@@ -1,4 +1,4 @@
-import { LayoutGrid, DollarSign, Clock, HandCoins } from "lucide-react";
+import { LayoutGrid, PhilippinePeso, Clock, HandCoins } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 interface Metrics {
@@ -11,7 +11,7 @@ interface Metrics {
 export function MetricCards({ metrics }: { metrics: Metrics }) {
   const items = [
     { label: "Active Listings", value: metrics.activeListings.toString(), icon: LayoutGrid },
-    { label: "Total Sales Value", value: formatCurrency(metrics.totalSalesValue), icon: DollarSign },
+    { label: "Total Sales Value", value: formatCurrency(metrics.totalSalesValue), icon: PhilippinePeso },
     { label: "Pending Payments", value: metrics.pendingPayments.toString(), icon: Clock },
     { label: "Open Offers", value: metrics.openOffers.toString(), icon: HandCoins },
   ];

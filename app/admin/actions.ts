@@ -452,7 +452,7 @@ export async function resolveDispute(disputeId: string, resolution: "REFUND" | "
 }
 
 export async function logout() {
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("admin");
   await supabase.auth.signOut();
   redirect("/admin/login");
 }
@@ -482,6 +482,28 @@ export async function uploadCardImages(formData: FormData): Promise<string[]> {
   }
 
   return urls;
+}
+
+/** Uploads a seller's avatar image, reusing the public card-images bucket (same upload path/policy). */
+export async function uploadAvatarImage(formData: FormData): Promise<string> {
+  await requireAdmin();
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file provided.");
+
+  const { bytes, contentType } = await validateImageFile(file);
+
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `avatars/${crypto.randomUUID()}.${ext}`;
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
+    contentType,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 export interface CreateCardInput {

@@ -37,7 +37,7 @@ export async function signup(_prevState: { error: string | null }, formData: For
     return { error: "That handle is already taken." };
   }
 
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const { error } = await supabase.auth.signUp({
     email,
     password,

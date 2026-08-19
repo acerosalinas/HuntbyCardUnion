@@ -1,9 +1,12 @@
 "use client";
 
-import { FormEvent, useState, useTransition } from "react";
+import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
+import { Store, Upload } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { updateSellerProfile, SellerProfileInput } from "@/app/admin/actions";
+import { FRANCHISES } from "@/lib/franchises";
+import { updateSellerProfile, uploadAvatarImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
 
 export function SellerProfileForm({ profile }: { profile: SellerProfile | null }) {
@@ -11,13 +14,32 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl ?? "");
-  const [tags, setTags] = useState(profile?.tags.join(", ") ?? "");
+  const [sells, setSells] = useState(profile?.tags[0] ?? FRANCHISES[0].slug);
   const [facebookUrl, setFacebookUrl] = useState(profile?.facebookUrl ?? "");
   const [instagramUrl, setInstagramUrl] = useState(profile?.instagramUrl ?? "");
   const [messengerUsername, setMessengerUsername] = useState(profile?.messengerUsername ?? "");
+  const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      setAvatarUrl(await uploadAvatarImage(formData));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload image");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -29,7 +51,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       displayName,
       bio,
       avatarUrl,
-      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      tags: [sells],
       facebookUrl,
       instagramUrl,
       messengerUsername,
@@ -70,15 +92,41 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       </div>
       <div className="sm:col-span-2">
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
-          Avatar Image URL
+          Avatar Image
         </label>
-        <Input value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://..." />
+        <div className="flex items-center gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gold bg-navy-950 text-gold">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset
+              <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <Store size={20} />
+            )}
+          </div>
+          <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <Upload size={14} />
+            {uploading ? "Uploading..." : avatarUrl ? "Change Image" : "Upload Image"}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={handleAvatarSelected}
+            className="hidden"
+          />
+        </div>
       </div>
       <div className="sm:col-span-2">
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
-          What do you sell? <span className="normal-case text-foreground-muted/70">(comma-separated tags, e.g. pokemon, one-piece, sports)</span>
+          What do you sell?
         </label>
-        <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="pokemon, one-piece" />
+        <Select value={sells} onChange={(e) => setSells(e.target.value)}>
+          {FRANCHISES.map((f) => (
+            <option key={f.slug} value={f.slug}>
+              {f.label}
+            </option>
+          ))}
+        </Select>
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">

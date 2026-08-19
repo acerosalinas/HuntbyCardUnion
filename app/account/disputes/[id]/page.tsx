@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DisputeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await supabase.auth.getUser();

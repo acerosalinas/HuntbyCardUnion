@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/account/login", origin));
   }
 
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !data.user) {

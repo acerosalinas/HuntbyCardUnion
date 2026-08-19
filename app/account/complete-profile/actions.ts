@@ -17,7 +17,7 @@ export async function completeProfile(_prevState: { error: string | null }, form
     return { error: "Handle must be 3-20 letters, numbers, or underscores." };
   }
 
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await supabase.auth.getUser();

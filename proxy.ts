@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
+import { ADMIN_AUTH_COOKIE_NAME, BUYER_AUTH_COOKIE_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 // Routes reachable without a session - everything needed to create one.
 const PUBLIC_PATHS = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
@@ -21,7 +21,14 @@ export async function proxy(request: NextRequest) {
     return isAdminRoute ? NextResponse.redirect(new URL("/admin/login", request.url)) : response;
   }
 
+  // Buyer and admin sessions live in separate cookies (see
+  // lib/supabase/config.ts) so one browser can hold both at once - each
+  // route branch below must only ever read the cookie for the identity it
+  // actually cares about.
+  const cookieName = isAdminRoute ? ADMIN_AUTH_COOKIE_NAME : BUYER_AUTH_COOKIE_NAME;
+
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookieOptions: { name: cookieName },
     cookies: {
       getAll() {
         return request.cookies.getAll();

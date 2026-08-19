@@ -8,7 +8,7 @@ import { DisputeRow, disputeFromRow } from "@/types/marketplace";
 export const dynamic = "force-dynamic";
 
 export default async function MyDisputesPage() {
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await supabase.auth.getUser();

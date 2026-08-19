@@ -16,7 +16,7 @@ import { DisputeStatus } from "@/types/marketplace";
  * at an unvalidated file by calling a database function directly.
  */
 export async function uploadDisputeEvidence(disputeId: string, note: string, file?: File | null) {
-  const authClient = await createAuthServerClient();
+  const authClient = await createAuthServerClient("buyer");
   const {
     data: { user },
   } = await authClient.auth.getUser();

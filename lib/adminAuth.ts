@@ -16,7 +16,7 @@ function roleFromMetadata(appMetadata: Record<string, unknown> | undefined): Adm
 
 /** Resolves the signed-in admin from the Supabase Auth session cookie, or null if not signed in / not an admin. */
 export async function getCurrentAdmin(): Promise<CurrentAdmin | null> {
-  const supabase = await createAuthServerClient();
+  const supabase = await createAuthServerClient("admin");
   const {
     data: { user },
   } = await supabase.auth.getUser();
