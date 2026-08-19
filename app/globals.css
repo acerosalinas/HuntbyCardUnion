@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8f9fa;
+  --background-elevated: #ffffff;
+  --foreground: #0b132b;
+  --foreground-muted: #4a5578;
+  --border: #e2e5ed;
+  --card: #ffffff;
+  --card-border: #e2e5ed;
+
+  --navy-950: #0b132b;
+  --navy-800: #1c2541;
+
+  --gold: #d4af37;
+  --gold-bright: #ffd700;
+  --ivory: #fffff0;
+  --ivory-alt: #f8f9fa;
+
+  --status-available: #10b981;
+  --status-available-bg: #ecfdf5;
+  --status-pending: #f59e0b;
+  --status-pending-bg: #fffbeb;
+  --status-sold: #dc143c;
+  --status-sold-bg: #fdf1f3;
+}
+
+:root.dark {
+  --background: #0b132b;
+  --background-elevated: #141c3a;
+  --foreground: #fffff0;
+  --foreground-muted: #a6adc6;
+  --border: rgba(212, 175, 55, 0.22);
+  --card: #1c2541;
+  --card-border: rgba(212, 175, 55, 0.25);
+
+  --status-available: #34d399;
+  --status-available-bg: rgba(16, 185, 129, 0.12);
+  --status-pending: #fbbf24;
+  --status-pending-bg: rgba(245, 158, 11, 0.12);
+  --status-sold: #f4536a;
+  --status-sold-bg: rgba(220, 20, 60, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+
+  --color-navy-950: var(--navy-950);
+  --color-navy-800: var(--navy-800);
+  --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
+  --color-ivory: var(--ivory);
+  --color-ivory-alt: var(--ivory-alt);
+
+  --color-available: var(--status-available);
+  --color-available-bg: var(--status-available-bg);
+  --color-pending: var(--status-pending);
+  --color-pending-bg: var(--status-pending-bg);
+  --color-sold: var(--status-sold);
+  --color-sold-bg: var(--status-sold-bg);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+.glass {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--color-background-elevated) 72%, transparent);
+}
+
+.glow-gold {
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 0 24px -6px rgba(212, 175, 55, 0.45);
+}
+
+.bg-dot-grid {
+  background-image: radial-gradient(color-mix(in srgb, var(--color-gold) 35%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.75);
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+::selection {
+  background: var(--color-gold);
+  color: var(--color-navy-950);
+}
