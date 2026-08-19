@@ -9,15 +9,22 @@ import { CategoryFilters } from "@/components/CategoryFilters";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CartNavLink } from "@/components/CartNavLink";
 import { AccountNavLink } from "@/components/AccountNavLink";
+import { useNavPending } from "@/components/NavPendingProvider";
 
 const AUTH_PATH_PREFIXES = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
 
 export function Navbar() {
   const pathname = usePathname();
+  const { pending, markPending } = useNavPending();
   const isAdmin = pathname?.startsWith("/admin");
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
+  // Hides Marketplace/Cart/Account the instant one of them is clicked, rather
+  // than leaving the previous page's items on screen while a redirect-chained
+  // navigation (e.g. a logged-out click bouncing through to /account/login)
+  // is still in flight - see NavPendingProvider.
+  const hideBuyerNavItems = isAuthPage || pending;
 
   return (
     <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
@@ -36,10 +43,11 @@ export function Navbar() {
                 <span className="sm:hidden">Marketplace</span>
                 <span className="hidden sm:inline">View Marketplace</span>
               </Link>
-            ) : isAuthPage ? null : (
+            ) : hideBuyerNavItems ? null : (
               <>
                 <Link
                   href="/marketplace"
+                  onClick={markPending}
                   className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground sm:px-3"
                 >
                   <LayoutGrid size={18} />

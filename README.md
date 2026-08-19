@@ -134,10 +134,11 @@ Next.js (App Router), Tailwind CSS, and Supabase (Postgres + Realtime).
   on every `/admin/*` request. Each admin's role (`ADMIN` or `SUPER_ADMIN`)
   lives in that user's `app_metadata`, set via the service-role Admin API —
   see `lib/adminAuth.ts`. Buyers and admins share the same Supabase Auth user
-  pool (distinguished by the presence/absence of that role claim), so they
-  also share one browser cookie namespace — signing in as one signs the
-  other out in the same browser profile. Use separate browser profiles when
-  testing both roles at once.
+  pool (distinguished by the presence/absence of that role claim), but each
+  gets its own session cookie (`BUYER_AUTH_COOKIE_NAME` /
+  `ADMIN_AUTH_COOKIE_NAME` in `lib/supabase/config.ts`), so one browser can
+  hold a signed-in buyer and a signed-in admin at the same time without
+  either knocking the other's session out.
 - **Multi-admin scoping**: every card has an `admin_id` (the admin who
   created it). Regular `ADMIN` accounts only ever see/manage their own
   listings — Pending Payments, Incoming Offers, Inventory, and the Sales Log

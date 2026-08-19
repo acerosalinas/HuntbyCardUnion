@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { getStoredCartIds, setStoredCartIds } from "@/lib/cart";
+import { getStoredCartIds, getStoredCartOwner, setStoredCartIds, setStoredCartOwner } from "@/lib/cart";
+import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 
 interface CartContextValue {
   cardIds: string[];
@@ -14,12 +15,25 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const { buyer } = useBuyerIdentity();
   const [cardIds, setCardIds] = useState<string[]>([]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating the persisted cart from localStorage on mount
+    // The cart is buyer-scoped but localStorage isn't - without this check a
+    // cart survives logout (signOut only clears the auth cookie) and would
+    // leak into whichever buyer signs in next on the same browser. Whenever
+    // the signed-in identity doesn't match whoever the stored cart last
+    // belonged to, drop it instead of carrying it over.
+    const ownerId = buyer?.id ?? null;
+    if (getStoredCartOwner() !== ownerId) {
+      setStoredCartOwner(ownerId);
+      setStoredCartIds([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing a cart that belonged to a different (or no) signed-in identity
+      setCardIds([]);
+      return;
+    }
     setCardIds(getStoredCartIds());
-  }, []);
+  }, [buyer?.id]);
 
   const addToCart = (cardId: string) => {
     setCardIds((prev) => {

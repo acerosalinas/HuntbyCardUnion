@@ -3,9 +3,13 @@
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import { useCart } from "@/components/CartProvider";
+import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 
 export function CartNavLink() {
   const { cardIds } = useCart();
+  const { buyer } = useBuyerIdentity();
+
+  if (!buyer) return null;
 
   return (
     <Link
