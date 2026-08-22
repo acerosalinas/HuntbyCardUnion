@@ -15,6 +15,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   const [bio, setBio] = useState(profile?.bio ?? "");
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl ?? "");
   const [sells, setSells] = useState(profile?.tags[0] ?? FRANCHISES[0].slug);
+  const [liveModeSeconds, setLiveModeSeconds] = useState(profile?.liveModeSeconds ?? 4);
   const [facebookUrl, setFacebookUrl] = useState(profile?.facebookUrl ?? "");
   const [instagramUrl, setInstagramUrl] = useState(profile?.instagramUrl ?? "");
   const [messengerUsername, setMessengerUsername] = useState(profile?.messengerUsername ?? "");
@@ -52,6 +53,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       bio,
       avatarUrl,
       tags: [sells],
+      liveModeSeconds,
       facebookUrl,
       instagramUrl,
       messengerUsername,
@@ -127,6 +129,19 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
             </option>
           ))}
         </Select>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+          Live Mode Speed <span className="normal-case text-foreground-muted/70">(seconds per card)</span>
+        </label>
+        <Input
+          type="number"
+          min={1}
+          max={30}
+          step={1}
+          value={liveModeSeconds}
+          onChange={(e) => setLiveModeSeconds(Number(e.target.value))}
+        />
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">

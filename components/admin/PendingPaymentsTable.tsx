@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Users } from "lucide-react";
+import { AlertTriangle, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { formatRelativeTime, formatCurrency } from "@/lib/utils";
+import { cn, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 import { confirmPaid, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
@@ -78,8 +78,21 @@ export function PendingPaymentsTable({
                     )}
                   </td>
                   <td className="px-4 py-3">{formatCurrency(card.price)}</td>
-                  <td className="px-4 py-3 text-foreground-muted">
-                    {card.claimedAt ? formatRelativeTime(card.claimedAt) : "—"}
+                  <td className="px-4 py-3">
+                    {card.claimedAt ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1",
+                          isStalePending(card.claimedAt) ? "font-medium text-pending" : "text-foreground-muted",
+                        )}
+                        title={isStalePending(card.claimedAt) ? "Claimed over 24 hours ago" : undefined}
+                      >
+                        {isStalePending(card.claimedAt) && <AlertTriangle size={14} />}
+                        {formatRelativeTime(card.claimedAt)}
+                      </span>
+                    ) : (
+                      <span className="text-foreground-muted">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {queueCount > 0 ? (

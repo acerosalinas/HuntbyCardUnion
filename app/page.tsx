@@ -41,7 +41,7 @@ export default async function HomePage() {
         </span>
 
         <span className="mb-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-gold">
-          Welcome to
+          Card Union
         </span>
         <h1 className="mb-2 text-center text-3xl font-bold text-foreground sm:text-4xl">
           Meet Our Sellers

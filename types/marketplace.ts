@@ -1,9 +1,21 @@
-export type CardStatus = "AVAILABLE" | "PENDING" | "SOLD";
+export type CardStatus = "DRAFT" | "AVAILABLE" | "PENDING" | "SOLD";
 export type OfferStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
 export type QueueStatus = "WAITING" | "PROMOTED" | "CANCELLED";
 export type DisputeStatus = "OPEN" | "SELLER_RESPONDED" | "UNDER_REVIEW" | "RESOLVED_REFUND" | "RESOLVED_DISMISSED";
 export type DisputeReason = "ITEM_NOT_RECEIVED" | "NOT_AS_DESCRIBED" | "DAMAGED_IN_TRANSIT" | "OTHER";
 export type DisputeEvidenceUploaderRole = "BUYER" | "ADMIN";
+export type NotificationType =
+  | "offer_received"
+  | "offer_countered"
+  | "card_claimed"
+  | "queue_promoted"
+  | "payment_confirmed"
+  | "listing_cancelled"
+  | "dispute_opened"
+  | "dispute_withdrawn"
+  | "dispute_response"
+  | "dispute_under_review"
+  | "dispute_resolved";
 
 export interface CardItem {
   id: string;
@@ -196,6 +208,8 @@ export interface SellerProfile {
   instagramUrl: string | null;
   messengerUsername: string | null;
   priceReviewedAt: number;
+  /** Seconds each card shows for in Live Mode on this seller's storefront - seller-controlled, 1-30. */
+  liveModeSeconds: number;
   createdAt: number;
 }
 
@@ -210,6 +224,7 @@ export interface SellerProfileRow {
   instagram_url: string | null;
   messenger_username: string | null;
   price_reviewed_at: string;
+  live_mode_seconds: number;
   created_at: string;
 }
 
@@ -225,6 +240,7 @@ export function sellerProfileFromRow(row: SellerProfileRow): SellerProfile {
     instagramUrl: row.instagram_url,
     messengerUsername: row.messenger_username,
     priceReviewedAt: new Date(row.price_reviewed_at).getTime(),
+    liveModeSeconds: row.live_mode_seconds,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
@@ -318,6 +334,42 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
     buyerHandle: row.buyer_handle,
     buyerId: row.buyer_id,
     status: row.status,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+export interface AppNotification {
+  id: string;
+  recipientId: string;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  /** null = unread. */
+  readAt: number | null;
+  createdAt: number;
+}
+
+export interface NotificationRow {
+  id: string;
+  recipient_id: string;
+  type: NotificationType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export function notificationFromRow(row: NotificationRow): AppNotification {
+  return {
+    id: row.id,
+    recipientId: row.recipient_id,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    link: row.link,
+    readAt: row.read_at ? new Date(row.read_at).getTime() : null,
     createdAt: new Date(row.created_at).getTime(),
   };
 }

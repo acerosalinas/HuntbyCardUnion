@@ -10,7 +10,12 @@
 
 create extension if not exists "pgcrypto";
 
-create type card_status as enum ('AVAILABLE', 'PENDING', 'SOLD');
+-- DRAFT: a bulk-uploaded card whose details haven't been filled in yet (see
+-- Bulk Upload / Rapid Fill, app/admin/(dashboard)/inventory/bulk-upload) -
+-- placeholder values only, never shown to buyers (see the "cards are
+-- publicly readable" policy below). Publishing moves DRAFT -> AVAILABLE;
+-- nothing transitions back into DRAFT - see lib/cardStatus.ts.
+create type card_status as enum ('DRAFT', 'AVAILABLE', 'PENDING', 'SOLD');
 create type offer_status as enum ('PENDING', 'ACCEPTED', 'DECLINED', 'SUPERSEDED');
 create type queue_status as enum ('WAITING', 'PROMOTED', 'CANCELLED');
 
@@ -169,7 +174,7 @@ alter table orders enable row level security;
 alter table profiles enable row level security;
 
 -- Public read access (private-marketplace-by-obscurity; no buyer accounts).
-create policy "cards are publicly readable" on cards for select using (true);
+create policy "cards are publicly readable" on cards for select using (status <> 'DRAFT');
 create policy "offers are publicly readable" on offers for select using (true);
 create policy "dibs queue is publicly readable" on dibs_queue for select using (true);
 create policy "orders are publicly readable" on orders for select using (true);
@@ -179,6 +184,71 @@ create policy "profiles are self-readable" on profiles for select using (auth.ui
 -- authenticated roles: all writes go through the security-definer RPCs
 -- below, the handle_new_user trigger, or the service-role key used by admin
 -- Server Actions (which bypasses RLS).
+
+-- ---------------------------------------------------------------------------
+-- In-app notifications. One table serves both buyers and admins - both are
+-- plain auth.users rows, distinguished only by app_metadata.role, so
+-- recipient_id needs no role column. Defined here (early, before any RPC)
+-- because submit_offer/place_order/open_dispute/withdraw_dispute below all
+-- insert into it directly. `type` is a text + check constraint rather than a
+-- real enum (unlike card_status/offer_status/dispute_status elsewhere in
+-- this file): this list grows every time a new event needs a notification,
+-- and enums can't gain values inside the same transaction as other DDL,
+-- which this idempotent-migration style relies on. No insert policy - every
+-- insert comes from a security-definer RPC or the service-role client in
+-- app/admin/actions.ts, both of which bypass RLS, same convention as every
+-- other table here. The update policy (mark as read) is the one new
+-- pattern: a buyer/admin can flip read_at on their own row directly,
+-- without going through a Server Action or RPC.
+-- ---------------------------------------------------------------------------
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references auth.users (id) on delete cascade,
+  type text not null check (type in (
+    'offer_received', 'offer_countered', 'card_claimed', 'queue_promoted',
+    'payment_confirmed', 'listing_cancelled', 'dispute_opened',
+    'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved'
+  )),
+  title text not null,
+  body text,
+  link text,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists notifications_recipient_unread_idx
+  on notifications (recipient_id, created_at desc) where read_at is null;
+create index if not exists notifications_recipient_id_idx
+  on notifications (recipient_id, created_at desc);
+
+alter table notifications enable row level security;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'notifications' and policyname = 'users can view their own notifications'
+  ) then
+    create policy "users can view their own notifications" on notifications
+      for select using (auth.uid() = recipient_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'notifications' and policyname = 'users can mark their own notifications read'
+  ) then
+    create policy "users can mark their own notifications read" on notifications
+      for update using (auth.uid() = recipient_id) with check (auth.uid() = recipient_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table notifications;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- submit_offer: validates the 75%-100% price band and inserts the offer.
@@ -638,6 +708,20 @@ begin
     values (p_card_id, v_buyer_id, v_handle, p_offered_amount, p_note)
     returning * into v_offer;
 
+  if v_card.admin_id is not null then
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        values (
+          v_card.admin_id,
+          'offer_received',
+          'New offer received',
+          v_handle || ' offered ' || p_offered_amount || ' on "' || v_card.title || '".',
+          '/admin/offers'
+        );
+    exception when others then null;
+    end;
+  end if;
+
   return v_offer;
 end;
 $$;
@@ -736,6 +820,23 @@ begin
     update offers
       set status = 'SUPERSEDED'
       where card_id = any(v_claimed_ids) and status = 'PENDING';
+
+    -- One notification per admin whose card(s) got claimed in this order, not
+    -- one per card - mirrors the existing "one consolidated Messenger
+    -- message per seller" behavior for a cart spanning multiple cards.
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        select
+          c.admin_id,
+          'card_claimed',
+          count(*) || ' card(s) claimed',
+          v_handle || ' claimed ' || count(*) || ' card(s) from your listings.',
+          '/admin'
+        from cards c
+        where c.id = any(v_claimed_ids) and c.admin_id is not null
+        group by c.admin_id;
+    exception when others then null;
+    end;
   end if;
 
   return jsonb_build_object('orderId', v_order_id, 'total', v_claimed_total, 'items', v_results);
@@ -966,6 +1067,20 @@ begin
     raise exception 'You already have an open dispute for this item.';
   end;
 
+  if v_card.admin_id is not null then
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        values (
+          v_card.admin_id,
+          'dispute_opened',
+          'New dispute opened',
+          'A buyer opened a dispute on "' || v_card.title || '".',
+          '/admin/disputes/' || v_dispute.id::text
+        );
+    exception when others then null;
+    end;
+  end if;
+
   return v_dispute;
 end;
 $$;
@@ -1003,6 +1118,20 @@ begin
   update disputes
     set status = 'RESOLVED_DISMISSED', resolution_note = 'Withdrawn by buyer', resolved_at = now()
     where id = p_dispute_id;
+
+  if v_dispute.seller_admin_id is not null then
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        values (
+          v_dispute.seller_admin_id,
+          'dispute_withdrawn',
+          'Dispute withdrawn',
+          'The buyer withdrew their dispute.',
+          '/admin/disputes/' || p_dispute_id::text
+        );
+    exception when others then null;
+    end;
+  end if;
 end;
 $$;
 
@@ -1056,9 +1185,26 @@ create table if not exists seller_profiles (
   -- this is older than 7 days (see lib/priceReview.ts). No cron needed -
   -- purely computed on read.
   price_reviewed_at timestamptz not null default now(),
+  -- Seconds each card shows for in "Live Mode" (components/LiveModeStack.tsx)
+  -- on the seller's public storefront - a seller-controlled visual aid for
+  -- live-selling streams, not something viewers can adjust themselves.
+  live_mode_seconds int not null default 4 check (live_mode_seconds between 1 and 30),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- create table if not exists is a no-op on an already-existing seller_profiles
+-- table (from before Live Mode shipped), so the new column needs its own
+-- guard for projects that already ran MIGRATION 5.
+alter table seller_profiles add column if not exists live_mode_seconds int not null default 4;
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'seller_profiles_live_mode_seconds_check'
+  ) then
+    alter table seller_profiles
+      add constraint seller_profiles_live_mode_seconds_check check (live_mode_seconds between 1 and 30);
+  end if;
+end $$;
 
 create index if not exists seller_profiles_handle_idx on seller_profiles (handle);
 

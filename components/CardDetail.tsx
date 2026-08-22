@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Hourglass, ImageOff, ShoppingCart, Store } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Hourglass, ImageOff, ShoppingCart, Store } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -205,6 +205,47 @@ export function CardDetail({
               Make Offer
             </Button>
           </div>
+
+          {initialSellerProfile && (
+            <Link
+              href={`/sellers/${initialSellerProfile.handle}`}
+              className="group relative mt-2 overflow-hidden rounded-2xl border border-card-border bg-gradient-to-br from-navy-950 to-gold/10 transition-colors hover:border-gold/50"
+            >
+              <div className="relative flex items-center gap-4 p-5">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gold bg-navy-950 text-gold">
+                  {initialSellerProfile.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URL
+                    <img src={initialSellerProfile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <Store size={24} />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">Sold by</p>
+                  <p className="truncate text-lg font-bold text-ivory">{initialSellerProfile.displayName}</p>
+                  {initialSellerProfile.bio && (
+                    <p className="line-clamp-2 text-sm text-ivory/70">{initialSellerProfile.bio}</p>
+                  )}
+                  {initialSellerProfile.tags.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {initialSellerProfile.tags.slice(0, 3).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-navy-950/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <ArrowRight
+                  size={18}
+                  className="shrink-0 text-gold opacity-0 transition-opacity group-hover:opacity-100"
+                />
+              </div>
+            </Link>
+          )}
         </div>
       </div>
 

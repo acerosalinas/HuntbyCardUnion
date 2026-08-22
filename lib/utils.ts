@@ -43,3 +43,11 @@ export function formatRelativeTime(timestampMs: number): string {
   if (abs < 86400) return rtf.format(Math.round(diffSeconds / 3600), "hour");
   return rtf.format(Math.round(diffSeconds / 86400), "day");
 }
+
+export const STALE_PENDING_THRESHOLD_HOURS = 24;
+
+/** True once a card has been claimed (PENDING) longer than the stale threshold, for flagging on the admin Pending Payments tab. */
+export function isStalePending(claimedAt: number | null, thresholdHours = STALE_PENDING_THRESHOLD_HOURS): boolean {
+  if (!claimedAt) return false;
+  return Date.now() - claimedAt > thresholdHours * 60 * 60 * 1000;
+}

@@ -8,7 +8,22 @@ import { assertOwnsOrSuper, requireAdmin, AdminRole } from "@/lib/adminAuth";
 import { sendOrderConfirmedEmail } from "@/lib/email";
 import { validateImageFile } from "@/lib/imageValidation";
 import { canTransitionDispute } from "@/lib/disputeStatus";
-import { DisputeStatus, SellerProfile, SellerProfileRow, sellerProfileFromRow } from "@/types/marketplace";
+import { canTransitionCardStatus } from "@/lib/cardStatus";
+import { notifyUser } from "@/lib/notify";
+import { formatCurrency } from "@/lib/utils";
+import { FRANCHISES } from "@/lib/franchises";
+import {
+  AppNotification,
+  CardItem,
+  CardRow,
+  DisputeStatus,
+  NotificationRow,
+  SellerProfile,
+  SellerProfileRow,
+  cardFromRow,
+  notificationFromRow,
+  sellerProfileFromRow,
+} from "@/types/marketplace";
 
 function revalidateAdmin() {
   revalidatePath("/admin");
@@ -35,6 +50,48 @@ async function cancelQueue(supabase: ReturnType<typeof createAdminClient>, cardI
     .update({ status: "CANCELLED" })
     .eq("card_id", cardId)
     .eq("status", "WAITING");
+}
+
+/**
+ * Admin's most recent notifications, polled client-side (AdminNotificationBell)
+ * rather than pushed via Realtime - see lib/notify.ts / supabase/schema.sql
+ * for how rows get created. Scoped to `.eq("recipient_id", admin.id)` even
+ * though the service-role client could read any row, so one admin can never
+ * see another's notifications.
+ */
+export async function getMyNotifications(): Promise<AppNotification[]> {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("recipient_id", admin.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+  return ((data as NotificationRow[] | null) ?? []).map(notificationFromRow);
+}
+
+export async function markNotificationRead(notificationId: string) {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", notificationId)
+    .eq("recipient_id", admin.id);
+  if (error) throw new Error(error.message);
+}
+
+export async function markAllNotificationsRead() {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("recipient_id", admin.id)
+    .is("read_at", null);
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -116,6 +173,13 @@ export async function confirmPaid(cardId: string) {
       title: card.title,
       price: card.price,
     });
+    await notifyUser(supabase, {
+      recipientId: card.claimant_id,
+      type: "payment_confirmed",
+      title: "Payment confirmed",
+      body: `Your payment for "${card.title}" has been confirmed.`,
+      link: "/account/dibs",
+    });
   }
 }
 
@@ -125,7 +189,7 @@ export async function cancelRelist(cardId: string) {
 
   const { data: card, error: cardFetchError } = await supabase
     .from("cards")
-    .select("admin_id, list_price")
+    .select("admin_id, list_price, title, claimant_id")
     .eq("id", cardId)
     .single();
   if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
@@ -158,6 +222,14 @@ export async function cancelRelist(cardId: string) {
 
   await cancelQueue(supabase, cardId);
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: card.claimant_id,
+    type: "listing_cancelled",
+    title: "Listing cancelled",
+    body: `"${card.title}" was cancelled and re-listed by the seller.`,
+    link: "/marketplace",
+  });
 }
 
 /**
@@ -226,6 +298,15 @@ export async function promoteNextInQueue(cardId: string) {
   if (queueError) throw new Error(queueError.message);
 
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: next.buyer_id,
+    type: "queue_promoted",
+    title: "You're up next",
+    body: "A card you were waiting on is now yours to pay for - the seller will message you.",
+    link: "/account/dibs",
+  });
+
   return { promoted: true as const, buyerHandle: next.buyer_handle as string };
 }
 
@@ -296,7 +377,7 @@ export async function counterOffer(offerId: string, counterAmount: number) {
 
   const { data: offer, error: fetchError } = await supabase
     .from("offers")
-    .select("card_id")
+    .select("card_id, buyer_id")
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
@@ -312,6 +393,14 @@ export async function counterOffer(offerId: string, counterAmount: number) {
     .eq("id", offerId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: offer.buyer_id,
+    type: "offer_countered",
+    title: "Seller countered your offer",
+    body: `New offer: ${formatCurrency(counterAmount)}`,
+    link: "/account/dibs",
+  });
 }
 
 export async function declineOffer(offerId: string) {
@@ -344,11 +433,11 @@ export async function declineOffer(offerId: string) {
 async function getDisputeOwner(supabase: ReturnType<typeof createAdminClient>, disputeId: string) {
   const { data, error } = await supabase
     .from("disputes")
-    .select("seller_admin_id, status")
+    .select("seller_admin_id, status, buyer_id")
     .eq("id", disputeId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Dispute not found");
-  return data as { seller_admin_id: string | null; status: DisputeStatus };
+  return data as { seller_admin_id: string | null; status: DisputeStatus; buyer_id: string };
 }
 
 /**
@@ -398,6 +487,13 @@ export async function respondToDispute(disputeId: string, note: string, file?: F
 
   if (dispute.status === "OPEN" && canTransitionDispute(dispute.status, "SELLER_RESPONDED")) {
     await supabase.from("disputes").update({ status: "SELLER_RESPONDED" }).eq("id", disputeId);
+    await notifyUser(supabase, {
+      recipientId: dispute.buyer_id,
+      type: "dispute_response",
+      title: "Seller responded to your dispute",
+      body: note.trim() || "The seller added a photo response.",
+      link: `/account/disputes/${disputeId}`,
+    });
   }
 
   revalidateAdmin();
@@ -416,6 +512,13 @@ export async function markDisputeUnderReview(disputeId: string) {
   const { error } = await supabase.from("disputes").update({ status: "UNDER_REVIEW" }).eq("id", disputeId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: dispute.buyer_id,
+    type: "dispute_under_review",
+    title: "Your dispute is under review",
+    link: `/account/disputes/${disputeId}`,
+  });
 }
 
 /**
@@ -449,12 +552,22 @@ export async function resolveDispute(disputeId: string, resolution: "REFUND" | "
     .eq("id", disputeId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: dispute.buyer_id,
+    type: "dispute_resolved",
+    title: resolution === "REFUND" ? "Dispute resolved - refund" : "Dispute resolved",
+    body: resolutionNote.trim() || undefined,
+    link: `/account/disputes/${disputeId}`,
+  });
 }
 
 export async function logout() {
   const supabase = await createAuthServerClient("admin");
   await supabase.auth.signOut();
-  redirect("/admin/login");
+  // Not "/admin/login" - that's just a thin redirect stub now; go straight
+  // to the one shared sign-in page (see app/account/login/actions.ts).
+  redirect("/account/login");
 }
 
 export async function uploadCardImages(formData: FormData): Promise<string[]> {
@@ -567,6 +680,75 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
 }
 
 // ---------------------------------------------------------------------------
+// Bulk Upload / Rapid Fill (app/admin/(dashboard)/inventory/bulk-upload).
+// Uploading photos happens through the existing uploadCardImages() above;
+// filling in a card's real details during Rapid Fill happens through the
+// existing updateCard() above (it never touches status, so a draft stays a
+// draft while its fields get overwritten) - these two actions only cover
+// creating the placeholder rows and publishing them once ready.
+// ---------------------------------------------------------------------------
+
+const DRAFT_PLACEHOLDER_PRICE = 0.01;
+
+/** One placeholder DRAFT row per uploaded image URL, owned by the calling admin. Never visible to buyers - see the "cards are publicly readable" RLS policy in supabase/schema.sql. */
+export async function createDraftCards(imageUrls: string[]): Promise<CardItem[]> {
+  const admin = await requireAdmin();
+  if (imageUrls.length === 0) return [];
+
+  const supabase = createAdminClient();
+  const { data: profile } = await supabase
+    .from("seller_profiles")
+    .select("handle, messenger_username, tags")
+    .eq("admin_id", admin.id)
+    .maybeSingle();
+
+  const rows = imageUrls.map((url) => ({
+    title: "Untitled card",
+    set_name: "Unknown Set",
+    price: DRAFT_PLACEHOLDER_PRICE,
+    list_price: DRAFT_PLACEHOLDER_PRICE,
+    condition_grade: "Raw NM",
+    images: [url],
+    seller_handle: profile?.handle ?? admin.email,
+    seller_messenger: profile?.messenger_username ?? "",
+    franchise: profile?.tags?.[0] ?? FRANCHISES[0].slug,
+    is_flash_sale: false,
+    status: "DRAFT" as const,
+    admin_id: admin.id,
+  }));
+
+  const { data, error } = await supabase.from("cards").insert(rows).select("*");
+  if (error) throw new Error(error.message);
+  revalidateAdmin();
+  return ((data as CardRow[] | null) ?? []).map(cardFromRow);
+}
+
+/** Publishes DRAFT -> AVAILABLE for the given card ids. Ignores any id that isn't actually a DRAFT the caller owns (or any draft, for a super admin) - see lib/cardStatus.ts. */
+export async function publishDrafts(cardIds: string[]): Promise<{ published: number }> {
+  const admin = await requireAdmin();
+  if (cardIds.length === 0) return { published: 0 };
+
+  const supabase = createAdminClient();
+  const { data, error: fetchError } = await supabase
+    .from("cards")
+    .select("id, status, admin_id")
+    .in("id", cardIds);
+  if (fetchError) throw new Error(fetchError.message);
+
+  const publishableIds = ((data ?? []) as { id: string; status: string; admin_id: string | null }[])
+    .filter((row) => admin.role === "SUPER_ADMIN" || row.admin_id === admin.id)
+    .filter((row) => canTransitionCardStatus(row.status as CardItem["status"], "AVAILABLE"))
+    .map((row) => row.id);
+
+  if (publishableIds.length === 0) return { published: 0 };
+
+  const { error } = await supabase.from("cards").update({ status: "AVAILABLE" }).in("id", publishableIds);
+  if (error) throw new Error(error.message);
+  revalidateAdmin();
+  return { published: publishableIds.length };
+}
+
+// ---------------------------------------------------------------------------
 // Admin account management (super admin only).
 // ---------------------------------------------------------------------------
 
@@ -656,6 +838,7 @@ export interface SellerProfileInput {
   facebookUrl: string;
   instagramUrl: string;
   messengerUsername: string;
+  liveModeSeconds: number;
 }
 
 const HANDLE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -682,6 +865,7 @@ export async function updateSellerProfile(input: SellerProfileInput) {
   if (!input.displayName.trim()) {
     throw new Error("Display name is required.");
   }
+  const liveModeSeconds = Math.min(30, Math.max(1, Math.round(input.liveModeSeconds) || 4));
 
   const supabase = createAdminClient();
   const { error } = await supabase.from("seller_profiles").upsert(
@@ -695,6 +879,7 @@ export async function updateSellerProfile(input: SellerProfileInput) {
       facebook_url: input.facebookUrl.trim() || null,
       instagram_url: input.instagramUrl.trim() || null,
       messenger_username: input.messengerUsername.trim() || null,
+      live_mode_seconds: liveModeSeconds,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "admin_id" },

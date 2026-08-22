@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ExternalLink, MessageCircle, Store } from "lucide-react";
-import { CardGrid } from "@/components/CardGrid";
+import { SellerListingsView } from "@/components/SellerListingsView";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
@@ -100,8 +100,7 @@ export default async function SellerProfilePage({ params }: PageProps<"/sellers/
         </div>
       </div>
 
-      <h2 className="mb-4 text-lg font-bold text-foreground">Listings</h2>
-      <CardGrid cards={cards} />
+      <SellerListingsView cards={cards} liveModeSeconds={profile.liveModeSeconds} />
     </div>
   );
 }
