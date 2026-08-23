@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 // import { GoogleSignInButton } from "@/components/GoogleSignInButton"; // temporarily disabled
 import { signup } from "./actions";
@@ -30,8 +31,7 @@ function SignupForm() {
         <Input name="fullName" placeholder="Full name" required autoComplete="name" />
         <Input type="email" name="email" placeholder="you@example.com" required autoComplete="email" />
         <Input name="handle" placeholder="@yourhandle" required autoComplete="off" />
-        <Input
-          type="password"
+        <PasswordInput
           name="password"
           placeholder="Password (min. 8 characters)"
           required

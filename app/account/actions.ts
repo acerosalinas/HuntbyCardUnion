@@ -22,6 +22,11 @@ export interface UpdateBuyerProfileInput {
   email: string;
   /** Empty string means "leave unchanged" - not every save is a password change. */
   newPassword: string;
+  /** Saved shipping default - checkout (CartContents) pre-fills from these instead of asking every order. */
+  shipName: string;
+  shipPhone: string;
+  shipAddress: string;
+  shipZip: string;
 }
 
 /**
@@ -60,7 +65,14 @@ export async function updateBuyerProfile(input: UpdateBuyerProfileInput): Promis
 
   const { error: profileError } = await adminClient
     .from("profiles")
-    .update({ handle, full_name: fullName })
+    .update({
+      handle,
+      full_name: fullName,
+      ship_name: input.shipName.trim() || null,
+      ship_phone: input.shipPhone.trim() || null,
+      ship_address: input.shipAddress.trim() || null,
+      ship_zip: input.shipZip.trim() || null,
+    })
     .eq("id", buyer.id);
   if (profileError) throw new Error(profileError.message);
 

@@ -147,6 +147,13 @@ create table profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   handle text not null check (handle ~ '^@[A-Za-z0-9_]{3,20}$'),
   full_name text not null,
+  -- Saved shipping default, editable from /account/edit - checkout
+  -- (place_order) pre-fills from these instead of asking every order, but
+  -- a buyer can still override per-order without changing this default.
+  ship_name text,
+  ship_phone text,
+  ship_address text,
+  ship_zip text,
   created_at timestamptz not null default now()
 );
 

@@ -9,6 +9,11 @@ export interface Buyer {
   email: string;
   handle: string;
   fullName: string;
+  /** Saved shipping default, editable at /account/edit - checkout pre-fills from these. */
+  shipName: string | null;
+  shipPhone: string | null;
+  shipAddress: string | null;
+  shipZip: string | null;
 }
 
 interface BuyerIdentityContextValue {
@@ -68,11 +73,24 @@ export function BuyerIdentityProvider({
       }
       const { data: profile } = await supabase
         .from("profiles")
-        .select("handle, full_name")
+        .select("handle, full_name, ship_name, ship_phone, ship_address, ship_zip")
         .eq("id", userId)
         .maybeSingle();
       if (!active) return;
-      setBuyer(profile ? { id: userId, email, handle: profile.handle, fullName: profile.full_name } : null);
+      setBuyer(
+        profile
+          ? {
+              id: userId,
+              email,
+              handle: profile.handle,
+              fullName: profile.full_name,
+              shipName: profile.ship_name,
+              shipPhone: profile.ship_phone,
+              shipAddress: profile.ship_address,
+              shipZip: profile.ship_zip,
+            }
+          : null,
+      );
     }
 
     // Every event - including the first ("INITIAL_SESSION") - reconciles

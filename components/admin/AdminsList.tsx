@@ -5,7 +5,7 @@ import { KeyRound, Power } from "lucide-react";
 import { AdminAccount, resetAdminPassword, setAdminActive } from "@/app/admin/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export function AdminsList({ admins }: { admins: AdminAccount[] }) {
   const [pending, startTransition] = useTransition();
@@ -122,8 +122,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                     <tr className="border-t border-card-border bg-card">
                       <td colSpan={5} className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Input
-                            type="password"
+                          <PasswordInput
                             placeholder="New password (min 6 characters)"
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}

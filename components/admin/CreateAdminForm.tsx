@@ -2,6 +2,7 @@
 
 import { FormEvent, useState, useTransition } from "react";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { createAdminAccount } from "@/app/admin/actions";
@@ -50,8 +51,7 @@ export function CreateAdminForm() {
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
           Password *
         </label>
-        <Input
-          type="password"
+        <PasswordInput
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           minLength={6}
