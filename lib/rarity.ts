@@ -12,6 +12,7 @@ const POKEMON_RARITIES = [
   "Rare",
   "Double Rare",
   "Ultra Rare",
+  "Art Rare",
   "Illustration Rare",
   "Special Illustration Rare",
   "Hyper Rare",

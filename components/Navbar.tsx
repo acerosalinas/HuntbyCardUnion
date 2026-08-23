@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FRANCHISES } from "@/lib/franchises";
 import { Logo } from "@/components/Logo";
 import { SearchBar } from "@/components/SearchBar";
 import { CategoryFilters } from "@/components/CategoryFilters";
@@ -27,6 +28,11 @@ export function Navbar() {
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
+  // /marketplace shows every franchise mixed (no scope); /[franchise] pages
+  // (e.g. /pokemon, /one-piece) are scoped to just that game - the rarity
+  // filter's option list follows the same scoping, see RarityFilter.
+  const pathSegment = pathname?.split("/")[1];
+  const currentFranchiseSlug = FRANCHISES.some((f) => f.slug === pathSegment) ? (pathSegment ?? null) : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
@@ -81,7 +87,7 @@ export function Navbar() {
             <SearchBar className="md:hidden" />
             <div className="flex flex-wrap items-center gap-2">
               <CategoryFilters />
-              <RarityFilter className="w-auto" />
+              <RarityFilter franchiseSlug={currentFranchiseSlug} className="w-auto" />
             </div>
           </>
         )}
