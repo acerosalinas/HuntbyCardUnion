@@ -6,6 +6,7 @@ import { ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { canTransitionDispute, isDisputeResolved } from "@/lib/disputeStatus";
+import { extractErrorMessage } from "@/lib/utils";
 import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { markDisputeUnderReview, resolveDispute, respondToDispute } from "@/app/admin/actions";
 
@@ -24,7 +25,7 @@ export function DisputeActionsPanel({ dispute, evidence }: { dispute: Dispute; e
         await action();
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Action failed");
+        setError(extractErrorMessage(err) ?? "Action failed");
       }
     });
   };

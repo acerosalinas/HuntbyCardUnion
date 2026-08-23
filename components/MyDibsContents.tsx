@@ -8,7 +8,7 @@ import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { buildMessengerUrl, cn, formatCurrency } from "@/lib/utils";
+import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import {
   CardItem,
   CardOffer,
@@ -179,7 +179,7 @@ export function MyDibsContents() {
       }
       window.open(buildMessengerUrl(claim.card.sellerMessenger, message), "_blank", "noopener,noreferrer");
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to cancel");
+      setActionError(extractErrorMessage(err) ?? "Failed to cancel");
     } finally {
       setBusyClaimId(null);
     }
@@ -196,7 +196,7 @@ export function MyDibsContents() {
         prev.map((c) => (c.claimId === claim.claimId ? { ...c, receivedAt: Date.now() } : c)),
       );
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update");
+      setActionError(extractErrorMessage(err) ?? "Failed to update");
     } finally {
       setBusyClaimId(null);
     }

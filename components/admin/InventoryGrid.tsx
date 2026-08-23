@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardItem } from "@/types/marketplace";
 import { deleteCard } from "@/app/admin/actions";
@@ -29,7 +29,7 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
       try {
         await deleteCard(card.id);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to remove listing");
+        setError(extractErrorMessage(err) ?? "Failed to remove listing");
       } finally {
         setBusyId(null);
       }

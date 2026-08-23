@@ -10,7 +10,7 @@ import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { buildMessengerUrl, cn, formatCurrency } from "@/lib/utils";
+import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { CardItem, CardRow, cardFromRow, PlaceOrderResult } from "@/types/marketplace";
 
 type FulfillmentMethod = "SHIP" | "STASH";
@@ -190,7 +190,7 @@ export function CartContents() {
       setResultSummary(summary);
       clearCart();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to place order");
+      setError(extractErrorMessage(err) ?? "Failed to place order");
     } finally {
       setPlacing(false);
     }

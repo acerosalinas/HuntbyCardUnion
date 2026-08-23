@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
+import { cn, extractErrorMessage } from "@/lib/utils";
 import { uploadCardImages, createDraftCards } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
 
@@ -34,7 +34,7 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
       const drafts = await createDraftCards(urls);
       onCreated(drafts);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(extractErrorMessage(err) ?? "Upload failed");
     } finally {
       setUploading(false);
       setProgress(null);

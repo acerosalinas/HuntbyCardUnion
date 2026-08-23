@@ -6,6 +6,7 @@ import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { updateBuyerProfile } from "@/app/account/actions";
 import { Buyer } from "@/components/BuyerIdentityProvider";
+import { extractErrorMessage } from "@/lib/utils";
 
 export function EditProfileForm({ buyer }: { buyer: Buyer }) {
   const [fullName, setFullName] = useState(buyer.fullName);
@@ -44,7 +45,7 @@ export function EditProfileForm({ buyer }: { buyer: Buyer }) {
             : "Profile saved.",
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save profile");
+        setError(extractErrorMessage(err) ?? "Failed to save profile");
       }
     });
   };

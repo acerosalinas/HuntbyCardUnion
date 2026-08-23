@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { AlertTriangle, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { cn, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
+import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
 import { confirmPaid, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
@@ -39,7 +39,7 @@ export function PendingPaymentsTable({
       try {
         await action();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Action failed");
+        setError(extractErrorMessage(err) ?? "Action failed");
       } finally {
         setBusyId(null);
       }
