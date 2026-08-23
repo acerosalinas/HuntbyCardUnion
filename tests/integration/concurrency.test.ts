@@ -82,12 +82,11 @@ test(
       const results = await Promise.all(
         buyerClients.map((client, i) =>
           client.rpc("place_order", {
-            p_items: [{ card_id: card.id, quantity: REQUESTED_QUANTITIES[i] }],
+            p_items: [{ card_id: card.id, quantity: REQUESTED_QUANTITIES[i], fulfillment_method: "STASH" }],
             p_ship_name: `Test Buyer ${i}`,
             p_ship_phone: "09170000000",
             p_ship_address: "",
             p_ship_zip: "",
-            p_fulfillment_method: "STASH",
           }),
         ),
       );

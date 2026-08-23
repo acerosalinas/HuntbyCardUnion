@@ -1,9 +1,13 @@
+import { FulfillmentMethod } from "@/types/marketplace";
+
 const CART_STORAGE_KEY = "dibs_cart";
 const CART_OWNER_STORAGE_KEY = "dibs_cart_owner";
 
 export interface StoredCartItem {
   cardId: string;
   quantity: number;
+  /** Chosen at Add to Cart, locked in once ordered - see supabase/schema.sql's card_claims.fulfillment_method. */
+  fulfillmentMethod: FulfillmentMethod;
 }
 
 export function getStoredCartItems(): StoredCartItem[] {
@@ -15,7 +19,12 @@ export function getStoredCartItems(): StoredCartItem[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((item): item is StoredCartItem => item && typeof item.cardId === "string")
-      .map((item) => ({ cardId: item.cardId, quantity: Math.max(1, Math.round(item.quantity) || 1) }));
+      .map((item) => ({
+        cardId: item.cardId,
+        quantity: Math.max(1, Math.round(item.quantity) || 1),
+        // Defaults to SHIP for a cart saved before this field existed.
+        fulfillmentMethod: item.fulfillmentMethod === "STASH" ? "STASH" : "SHIP",
+      }));
   } catch {
     return [];
   }

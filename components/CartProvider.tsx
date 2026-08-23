@@ -3,12 +3,13 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getStoredCartItems, getStoredCartOwner, setStoredCartItems, setStoredCartOwner, StoredCartItem } from "@/lib/cart";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { FulfillmentMethod } from "@/types/marketplace";
 
 interface CartContextValue {
   items: StoredCartItem[];
   isInCart: (cardId: string) => boolean;
   getQuantity: (cardId: string) => number;
-  addToCart: (cardId: string, quantity?: number) => void;
+  addToCart: (cardId: string, quantity: number, fulfillmentMethod: FulfillmentMethod) => void;
   setQuantity: (cardId: string, quantity: number) => void;
   removeFromCart: (cardId: string) => void;
   clearCart: () => void;
@@ -37,10 +38,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems(getStoredCartItems());
   }, [buyer?.id]);
 
-  const addToCart = (cardId: string, quantity = 1) => {
+  const addToCart = (cardId: string, quantity: number, fulfillmentMethod: FulfillmentMethod) => {
     setItems((prev) => {
       if (prev.some((item) => item.cardId === cardId)) return prev;
-      const next = [...prev, { cardId, quantity: Math.max(1, Math.round(quantity) || 1) }];
+      const next = [...prev, { cardId, quantity: Math.max(1, Math.round(quantity) || 1), fulfillmentMethod }];
       setStoredCartItems(next);
       return next;
     });

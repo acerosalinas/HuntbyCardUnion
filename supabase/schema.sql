@@ -97,6 +97,10 @@ create table dibs_queue (
   -- buyer's full ask when fewer than that many are currently available
   -- (all-or-nothing; no partial-fulfil-plus-queue-the-rest).
   requested_quantity integer not null default 1 check (requested_quantity > 0),
+  -- Carried forward into the new card_claims row when promoteNextInQueue
+  -- (app/admin/actions.ts) turns this queue entry into a real claim - see
+  -- card_claims.fulfillment_method below.
+  fulfillment_method text not null default 'SHIP' check (fulfillment_method in ('SHIP', 'STASH')),
   status queue_status not null default 'WAITING',
   created_at timestamptz not null default now()
 );
@@ -121,16 +125,19 @@ create table orders (
   buyer_id uuid references auth.users (id) on delete set null,
   total_amount numeric(10, 2) not null default 0,
   confirmed_at timestamptz,
-  -- Fulfillment, collected at checkout (see place_order below) and shown to
-  -- the seller in the consolidated Messenger message. Nullable at the
-  -- column level - historical orders predate this and can't be backfilled -
-  -- but place_order requires them for every new order. STASH doesn't need a
-  -- real address, so ship_address/ship_zip are only meaningful for SHIP.
+  -- Shipping contact, collected once at checkout (see place_order below) and
+  -- shared by every claim in the order regardless of fulfillment method -
+  -- the buyer's address doesn't change per item, only whether a given claim
+  -- needs one at all (see card_claims.fulfillment_method, which replaced a
+  -- single whole-order fulfillment_method column here once a cart could mix
+  -- Ship and Stash items). Nullable at the column level - historical orders
+  -- predate this and can't be backfilled - but place_order requires
+  -- name/phone for every new order, and address/zip whenever the order
+  -- contains at least one Ship item.
   ship_name text,
   ship_phone text,
   ship_address text,
   ship_zip text,
-  fulfillment_method text check (fulfillment_method in ('SHIP', 'STASH')),
   created_at timestamptz not null default now()
 );
 
@@ -161,7 +168,12 @@ create table card_claims (
   -- Buyer-set via mark_claim_received() once shipped = true - the final
   -- stage of the My Dibs order tracker (Pending Payment -> Paid -> Shipped ->
   -- Received), ahead of leaving a review (see reviews table further below).
-  received_at timestamptz
+  received_at timestamptz,
+  -- Chosen per card at Add to Cart (not per order) - a single checkout can
+  -- mix Ship and Stash claims, which is why this lives here instead of on
+  -- `orders` (see the comment there). Locked in once placed; no buyer-facing
+  -- way to change it after the fact.
+  fulfillment_method text not null default 'SHIP' check (fulfillment_method in ('SHIP', 'STASH'))
 );
 
 create index card_claims_card_id_idx on card_claims (card_id, status);
@@ -786,17 +798,18 @@ $$;
 
 -- Dropped explicitly: create or replace can't change an existing function's
 -- parameter list (it would just create a second overload alongside the old
--- one instead of replacing it), and both the single-param place_order(uuid[])
--- and the pre-quantity 6-param version (p_card_ids uuid[], ...) have to
--- actually be gone before the p_items-jsonb version below takes over the
--- name.
+-- one instead of replacing it), and every prior signature this name has had
+-- has to actually be gone before the current one takes over the name.
 drop function if exists place_order(uuid[]);
 drop function if exists place_order(uuid[], text, text, text, text, text);
+drop function if exists place_order(jsonb, text, text, text, text, text);
 
 -- ---------------------------------------------------------------------------
 -- place_order: the cart checkout. p_items is a jsonb array of
--- {"card_id": uuid, "quantity": int} objects (a flat uuid[] of ids can't
--- carry a per-item quantity). For each item: claims that many units if
+-- {"card_id": uuid, "quantity": int, "fulfillment_method": "SHIP"|"STASH"}
+-- objects - fulfillment is chosen per card at Add to Cart, not once for the
+-- whole order, so one checkout can mix Ship and Stash claims (see
+-- card_claims.fulfillment_method). For each item: claims that many units if
 -- quantity_available covers the full request, or joins the queue for the
 -- buyer's full requested quantity otherwise (all-or-nothing - no partial
 -- claim + queue the remainder, so a buyer's queue position always means
@@ -815,8 +828,7 @@ create or replace function place_order(
   p_ship_name text,
   p_ship_phone text,
   p_ship_address text,
-  p_ship_zip text,
-  p_fulfillment_method text
+  p_ship_zip text
 )
 returns json
 language plpgsql
@@ -829,13 +841,16 @@ declare
   v_item jsonb;
   v_card_id uuid;
   v_qty int;
+  v_fulfillment text;
   v_card cards;
   v_position int;
   v_results jsonb := '[]'::jsonb;
   v_claim_card_ids uuid[] := '{}';
   v_claim_quantities int[] := '{}';
   v_claim_prices numeric[] := '{}';
+  v_claim_fulfillments text[] := '{}';
   v_claimed_total numeric := 0;
+  v_needs_shipping boolean := false;
   v_order_id uuid;
   v_recent_count int;
   i int;
@@ -859,16 +874,8 @@ begin
     raise exception 'Cart is empty';
   end if;
 
-  if p_fulfillment_method not in ('SHIP', 'STASH') then
-    raise exception 'Choose Ship Out or Stash With Us before checking out.';
-  end if;
   if p_ship_name is null or trim(p_ship_name) = '' or p_ship_phone is null or trim(p_ship_phone) = '' then
     raise exception 'Name and phone number are required to check out.';
-  end if;
-  if p_fulfillment_method = 'SHIP' and (
-    p_ship_address is null or trim(p_ship_address) = '' or p_ship_zip is null or trim(p_ship_zip) = ''
-  ) then
-    raise exception 'Shipping address and zip code are required to ship your cards.';
   end if;
 
   select count(*) into v_recent_count
@@ -881,6 +888,10 @@ begin
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_card_id := (v_item ->> 'card_id')::uuid;
     v_qty := greatest(1, coalesce((v_item ->> 'quantity')::int, 1));
+    v_fulfillment := coalesce(v_item ->> 'fulfillment_method', 'SHIP');
+    if v_fulfillment not in ('SHIP', 'STASH') then
+      v_fulfillment := 'SHIP';
+    end if;
 
     select * into v_card from cards where id = v_card_id for update;
 
@@ -904,7 +915,11 @@ begin
       v_claim_card_ids := v_claim_card_ids || v_card_id;
       v_claim_quantities := v_claim_quantities || v_qty;
       v_claim_prices := v_claim_prices || v_card.price;
+      v_claim_fulfillments := v_claim_fulfillments || v_fulfillment;
       v_claimed_total := v_claimed_total + (v_card.price * v_qty);
+      if v_fulfillment = 'SHIP' then
+        v_needs_shipping := true;
+      end if;
       v_results := v_results || jsonb_build_object(
         'cardId', v_card_id, 'title', v_card.title, 'result', 'claimed', 'price', v_card.price, 'quantity', v_qty
       );
@@ -914,8 +929,8 @@ begin
         where card_id = v_card_id and buyer_id = v_buyer_id and status = 'WAITING'
       ) then
         select count(*) + 1 into v_position from dibs_queue where card_id = v_card_id and status = 'WAITING';
-        insert into dibs_queue (card_id, buyer_id, buyer_handle, requested_quantity)
-          values (v_card_id, v_buyer_id, v_handle, v_qty);
+        insert into dibs_queue (card_id, buyer_id, buyer_handle, requested_quantity, fulfillment_method)
+          values (v_card_id, v_buyer_id, v_handle, v_qty, v_fulfillment);
       else
         select count(*) into v_position
           from dibs_queue q
@@ -933,18 +948,27 @@ begin
   end loop;
 
   if array_length(v_claim_card_ids, 1) > 0 then
+    if v_needs_shipping and (
+      p_ship_address is null or trim(p_ship_address) = '' or p_ship_zip is null or trim(p_ship_zip) = ''
+    ) then
+      raise exception 'Shipping address and zip code are required to ship your cards.';
+    end if;
+
     insert into orders (
       buyer_id, buyer_handle, total_amount,
-      ship_name, ship_phone, ship_address, ship_zip, fulfillment_method
+      ship_name, ship_phone, ship_address, ship_zip
     )
       values (
         v_buyer_id, v_handle, v_claimed_total,
-        p_ship_name, p_ship_phone, p_ship_address, p_ship_zip, p_fulfillment_method
+        p_ship_name, p_ship_phone, p_ship_address, p_ship_zip
       ) returning id into v_order_id;
 
     for i in 1..array_length(v_claim_card_ids, 1) loop
-      insert into card_claims (card_id, order_id, buyer_id, buyer_handle, quantity, unit_price, status)
-        values (v_claim_card_ids[i], v_order_id, v_buyer_id, v_handle, v_claim_quantities[i], v_claim_prices[i], 'PENDING');
+      insert into card_claims (card_id, order_id, buyer_id, buyer_handle, quantity, unit_price, status, fulfillment_method)
+        values (
+          v_claim_card_ids[i], v_order_id, v_buyer_id, v_handle,
+          v_claim_quantities[i], v_claim_prices[i], 'PENDING', v_claim_fulfillments[i]
+        );
     end loop;
 
     update offers
@@ -1010,8 +1034,8 @@ $$;
 revoke execute on function submit_offer(uuid, numeric, text) from public;
 grant execute on function submit_offer(uuid, numeric, text) to authenticated;
 
-revoke execute on function place_order(jsonb, text, text, text, text, text) from public;
-grant execute on function place_order(jsonb, text, text, text, text, text) to authenticated;
+revoke execute on function place_order(jsonb, text, text, text, text) from public;
+grant execute on function place_order(jsonb, text, text, text, text) to authenticated;
 
 revoke execute on function try_claim_order_confirmation(uuid) from public;
 
@@ -1442,7 +1466,12 @@ create table if not exists card_claims (
   -- Buyer-set via mark_claim_received() once shipped = true - the final
   -- stage of the My Dibs order tracker (Pending Payment -> Paid -> Shipped ->
   -- Received), ahead of leaving a review (see reviews table further below).
-  received_at timestamptz
+  received_at timestamptz,
+  -- Chosen per card at Add to Cart (not per order) - a single checkout can
+  -- mix Ship and Stash claims, which is why this lives here instead of on
+  -- `orders` (see the comment there). Locked in once placed; no buyer-facing
+  -- way to change it after the fact.
+  fulfillment_method text not null default 'SHIP' check (fulfillment_method in ('SHIP', 'STASH'))
 );
 
 create index if not exists card_claims_card_id_idx on card_claims (card_id, status);
@@ -1769,6 +1798,206 @@ $$;
 
 revoke execute on function submit_review(uuid, int, text) from public;
 grant execute on function submit_review(uuid, int, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- MIGRATION 8: per-card Ship/Stash choice. Safe to run once on an existing
+-- project; no-ops on re-run. Fulfillment method moves from a single
+-- whole-order column to a per-claim (and per-queue-entry) column, since a
+-- cart can now mix Ship and Stash items in one checkout - see the comments
+-- on card_claims.fulfillment_method and orders in the primary blocks above.
+-- ---------------------------------------------------------------------------
+
+alter table dibs_queue add column if not exists fulfillment_method text not null default 'SHIP';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'dibs_queue_fulfillment_method_check') then
+    alter table dibs_queue add constraint dibs_queue_fulfillment_method_check check (fulfillment_method in ('SHIP', 'STASH'));
+  end if;
+end $$;
+
+alter table card_claims add column if not exists fulfillment_method text;
+update card_claims cc set fulfillment_method = o.fulfillment_method
+  from orders o
+  where cc.order_id = o.id and cc.fulfillment_method is null and o.fulfillment_method is not null;
+update card_claims set fulfillment_method = 'SHIP' where fulfillment_method is null;
+alter table card_claims alter column fulfillment_method set not null;
+alter table card_claims alter column fulfillment_method set default 'SHIP';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'card_claims_fulfillment_method_check') then
+    alter table card_claims add constraint card_claims_fulfillment_method_check check (fulfillment_method in ('SHIP', 'STASH'));
+  end if;
+end $$;
+
+alter table orders drop column if exists fulfillment_method;
+
+drop function if exists place_order(jsonb, text, text, text, text, text);
+
+create or replace function place_order(
+  p_items jsonb,
+  p_ship_name text,
+  p_ship_phone text,
+  p_ship_address text,
+  p_ship_zip text
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_buyer_id uuid := auth.uid();
+  v_handle text;
+  v_item jsonb;
+  v_card_id uuid;
+  v_qty int;
+  v_fulfillment text;
+  v_card cards;
+  v_position int;
+  v_results jsonb := '[]'::jsonb;
+  v_claim_card_ids uuid[] := '{}';
+  v_claim_quantities int[] := '{}';
+  v_claim_prices numeric[] := '{}';
+  v_claim_fulfillments text[] := '{}';
+  v_claimed_total numeric := 0;
+  v_needs_shipping boolean := false;
+  v_order_id uuid;
+  v_recent_count int;
+  i int;
+begin
+  if v_buyer_id is null then
+    raise exception 'Not signed in.';
+  end if;
+
+  select handle into v_handle from profiles where id = v_buyer_id;
+  if not found then
+    raise exception 'Buyer profile not found.';
+  end if;
+
+  if not exists (
+    select 1 from auth.users where id = v_buyer_id and email_confirmed_at is not null
+  ) then
+    raise exception 'Please confirm your email before placing an order.';
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'Cart is empty';
+  end if;
+
+  if p_ship_name is null or trim(p_ship_name) = '' or p_ship_phone is null or trim(p_ship_phone) = '' then
+    raise exception 'Name and phone number are required to check out.';
+  end if;
+
+  select count(*) into v_recent_count
+    from orders
+    where buyer_id = v_buyer_id and created_at > now() - interval '1 minute';
+  if v_recent_count >= 5 then
+    raise exception 'Too many orders placed - please wait a moment and try again';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_card_id := (v_item ->> 'card_id')::uuid;
+    v_qty := greatest(1, coalesce((v_item ->> 'quantity')::int, 1));
+    v_fulfillment := coalesce(v_item ->> 'fulfillment_method', 'SHIP');
+    if v_fulfillment not in ('SHIP', 'STASH') then
+      v_fulfillment := 'SHIP';
+    end if;
+
+    select * into v_card from cards where id = v_card_id for update;
+
+    if not found or v_card.status = 'DRAFT' then
+      v_results := v_results || jsonb_build_object('cardId', v_card_id, 'result', 'not_found');
+      continue;
+    end if;
+
+    if v_card.quantity_available >= v_qty then
+      update cards
+        set quantity_available = quantity_available - v_qty,
+            status = (case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end)::card_status
+        where id = v_card_id;
+
+      v_claim_card_ids := v_claim_card_ids || v_card_id;
+      v_claim_quantities := v_claim_quantities || v_qty;
+      v_claim_prices := v_claim_prices || v_card.price;
+      v_claim_fulfillments := v_claim_fulfillments || v_fulfillment;
+      v_claimed_total := v_claimed_total + (v_card.price * v_qty);
+      if v_fulfillment = 'SHIP' then
+        v_needs_shipping := true;
+      end if;
+      v_results := v_results || jsonb_build_object(
+        'cardId', v_card_id, 'title', v_card.title, 'result', 'claimed', 'price', v_card.price, 'quantity', v_qty
+      );
+    else
+      if not exists (
+        select 1 from dibs_queue
+        where card_id = v_card_id and buyer_id = v_buyer_id and status = 'WAITING'
+      ) then
+        select count(*) + 1 into v_position from dibs_queue where card_id = v_card_id and status = 'WAITING';
+        insert into dibs_queue (card_id, buyer_id, buyer_handle, requested_quantity, fulfillment_method)
+          values (v_card_id, v_buyer_id, v_handle, v_qty, v_fulfillment);
+      else
+        select count(*) into v_position
+          from dibs_queue q
+          where q.card_id = v_card_id and q.status = 'WAITING'
+            and q.created_at <= (
+              select created_at from dibs_queue
+              where card_id = v_card_id and buyer_id = v_buyer_id and status = 'WAITING'
+              limit 1
+            );
+      end if;
+      v_results := v_results || jsonb_build_object(
+        'cardId', v_card_id, 'title', v_card.title, 'result', 'queued', 'position', v_position, 'quantity', v_qty
+      );
+    end if;
+  end loop;
+
+  if array_length(v_claim_card_ids, 1) > 0 then
+    if v_needs_shipping and (
+      p_ship_address is null or trim(p_ship_address) = '' or p_ship_zip is null or trim(p_ship_zip) = ''
+    ) then
+      raise exception 'Shipping address and zip code are required to ship your cards.';
+    end if;
+
+    insert into orders (
+      buyer_id, buyer_handle, total_amount,
+      ship_name, ship_phone, ship_address, ship_zip
+    )
+      values (
+        v_buyer_id, v_handle, v_claimed_total,
+        p_ship_name, p_ship_phone, p_ship_address, p_ship_zip
+      ) returning id into v_order_id;
+
+    for i in 1..array_length(v_claim_card_ids, 1) loop
+      insert into card_claims (card_id, order_id, buyer_id, buyer_handle, quantity, unit_price, status, fulfillment_method)
+        values (
+          v_claim_card_ids[i], v_order_id, v_buyer_id, v_handle,
+          v_claim_quantities[i], v_claim_prices[i], 'PENDING', v_claim_fulfillments[i]
+        );
+    end loop;
+
+    update offers
+      set status = 'SUPERSEDED'
+      where card_id = any(v_claim_card_ids) and status = 'PENDING';
+
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        select
+          c.admin_id,
+          'card_claimed',
+          count(*) || ' card(s) claimed',
+          v_handle || ' claimed ' || count(*) || ' card(s) from your listings.',
+          '/admin'
+        from cards c
+        where c.id = any(v_claim_card_ids) and c.admin_id is not null
+        group by c.admin_id;
+    exception when others then null;
+    end;
+  end if;
+
+  return jsonb_build_object('orderId', v_order_id, 'total', v_claimed_total, 'items', v_results);
+end;
+$$;
+
+revoke execute on function place_order(jsonb, text, text, text, text) from public;
+grant execute on function place_order(jsonb, text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only

@@ -296,6 +296,7 @@ export async function promoteNextInQueue(cardId: string) {
     quantity: next.requested_quantity,
     unit_price: card.list_price,
     status: "PENDING",
+    fulfillment_method: next.fulfillment_method,
   });
   if (claimError) throw new Error(claimError.message);
 
@@ -374,6 +375,10 @@ export async function acceptOffer(offerId: string) {
   // (what any other buyer pays for the remaining stock) is left untouched,
   // unlike the old single-claimant model where accepting an offer discounted
   // the whole listing for whoever claimed it next.
+  // Offers have no fulfillment concept of their own (buyers don't pick
+  // Ship/Stash when making one) - defaults to SHIP, same as the column's
+  // own default; the seller and buyer sort out delivery via Messenger same
+  // as everything else in an offer negotiation.
   const { error: claimError } = await supabase.from("card_claims").insert({
     card_id: offer.card_id,
     buyer_id: offer.buyer_id,
@@ -381,6 +386,7 @@ export async function acceptOffer(offerId: string) {
     quantity: 1,
     unit_price: offer.offered_amount,
     status: "PENDING",
+    fulfillment_method: "SHIP",
   });
   if (claimError) throw new Error(claimError.message);
 

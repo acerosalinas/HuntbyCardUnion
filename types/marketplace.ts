@@ -44,6 +44,9 @@ export interface CardItem {
 
 export type ClaimStatus = "PENDING" | "SOLD" | "CANCELLED";
 
+/** Chosen per card at Add to Cart, not once per order - see supabase/schema.sql's card_claims/dibs_queue tables. */
+export type FulfillmentMethod = "SHIP" | "STASH";
+
 /** One buyer's claim on some quantity of a card's stock - see supabase/schema.sql's card_claims table. */
 export interface CardClaim {
   id: string;
@@ -59,6 +62,7 @@ export interface CardClaim {
   shipped: boolean;
   /** Buyer-set via mark_claim_received() - the final stage of the My Dibs order tracker, ahead of leaving a review. */
   receivedAt: number | null;
+  fulfillmentMethod: FulfillmentMethod;
 }
 
 export interface CardClaimRow {
@@ -74,6 +78,7 @@ export interface CardClaimRow {
   confirmed_at: string | null;
   shipped: boolean;
   received_at: string | null;
+  fulfillment_method: FulfillmentMethod;
 }
 
 export function cardClaimFromRow(row: CardClaimRow): CardClaim {
@@ -90,6 +95,7 @@ export function cardClaimFromRow(row: CardClaimRow): CardClaim {
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
     shipped: row.shipped,
     receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
+    fulfillmentMethod: row.fulfillment_method,
   };
 }
 
@@ -133,6 +139,7 @@ export interface PlaceOrderItem {
 export interface PlaceOrderCartItem {
   cardId: string;
   quantity: number;
+  fulfillmentMethod: FulfillmentMethod;
 }
 
 export interface PlaceOrderResult {
@@ -158,6 +165,7 @@ export interface QueueEntry {
   buyerHandle: string;
   buyerId: string | null;
   requestedQuantity: number;
+  fulfillmentMethod: FulfillmentMethod;
   status: QueueStatus;
   createdAt: number;
 }
@@ -384,6 +392,7 @@ export interface QueueEntryRow {
   buyer_handle: string;
   buyer_id: string | null;
   requested_quantity: number;
+  fulfillment_method: FulfillmentMethod;
   status: QueueStatus;
   created_at: string;
 }
@@ -430,6 +439,7 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
     buyerHandle: row.buyer_handle,
     buyerId: row.buyer_id,
     requestedQuantity: row.requested_quantity,
+    fulfillmentMethod: row.fulfillment_method,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
   };
