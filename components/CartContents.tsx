@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ClipboardCheck, ImageOff, PackageCheck, ShoppingCart, Trash2, Truck } from "lucide-react";
@@ -29,6 +29,23 @@ export function CartContents() {
   const [shipAddress, setShipAddress] = useState("");
   const [shipZip, setShipZip] = useState("");
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
+  const shipPrefilled = useRef(false);
+
+  // Pre-fill from the buyer's saved shipping default (set at /account/edit)
+  // so repeat orders don't require retyping name/phone/address/zip every
+  // time - still fully editable per order below, this is just a starting
+  // point. Only runs once per mount, guarded by the ref, so it can't
+  // clobber an in-progress edit if the buyer identity object happens to be
+  // replaced by BuyerIdentityProvider's own reconciliation later.
+  useEffect(() => {
+    if (!buyer || shipPrefilled.current) return;
+    shipPrefilled.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time prefill of the checkout form from the buyer's saved default once their identity resolves
+    if (buyer.shipName) setShipName(buyer.shipName);
+    if (buyer.shipPhone) setShipPhone(buyer.shipPhone);
+    if (buyer.shipAddress) setShipAddress(buyer.shipAddress);
+    if (buyer.shipZip) setShipZip(buyer.shipZip);
+  }, [buyer]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;

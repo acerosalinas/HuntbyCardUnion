@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { KeyRound } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { confirmPasswordReset } from "./actions";
 
@@ -20,16 +20,14 @@ export default function ResetPasswordConfirmPage() {
       </div>
       <h1 className="text-xl font-semibold">Set a New Password</h1>
       <form action={formAction} className="w-full space-y-3">
-        <Input
-          type="password"
+        <PasswordInput
           name="password"
           placeholder="New password"
           required
           autoComplete="new-password"
           autoFocus
         />
-        <Input
-          type="password"
+        <PasswordInput
           name="confirmPassword"
           placeholder="Confirm new password"
           required

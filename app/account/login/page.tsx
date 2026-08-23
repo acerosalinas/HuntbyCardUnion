@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 // import { GoogleSignInButton } from "@/components/GoogleSignInButton"; // temporarily disabled
 import { login } from "./actions";
@@ -33,7 +34,7 @@ function LoginForm() {
       <form action={formAction} className="w-full space-y-3">
         <input type="hidden" name="from" value={from} />
         <Input type="email" name="email" placeholder="you@example.com" required autoComplete="email" />
-        <Input type="password" name="password" placeholder="Password" required autoComplete="current-password" />
+        <PasswordInput name="password" placeholder="Password" required autoComplete="current-password" />
         <div className="flex justify-end">
           <Link href="/account/forgot-password" className="text-xs text-foreground-muted hover:text-gold hover:underline">
             Forgot password?
