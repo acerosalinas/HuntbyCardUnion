@@ -3,19 +3,20 @@ import { ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
+import { RarityBadge } from "@/components/RarityBadge";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNegotiating?: boolean }) {
-  const isPending = card.status === "PENDING";
   const isSold = card.status === "SOLD";
+  const isLowStock = !isSold && card.quantity > 1 && card.quantityAvailable <= Math.ceil(card.quantity * 0.2);
 
   return (
     <Link
       href={`/card/${card.id}`}
       className={cn(
         "group flex flex-col overflow-hidden rounded-2xl border transition-shadow",
-        isPending
+        isLowStock
           ? "border-pending/40 bg-pending-bg"
           : "border-card-border bg-card hover:glow-gold",
       )}
@@ -35,6 +36,7 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
         )}
         <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
           <ConditionBadges conditionGrade={card.conditionGrade} />
+          <RarityBadge rarity={card.rarity} />
           {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
         </div>
       </div>
@@ -56,18 +58,17 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
           <span className="text-xs text-foreground-muted">{card.sellerHandle}</span>
         </div>
 
-        {isPending && card.currentClaimant && (
+        {!isSold && card.quantity > 1 && (
           <div className="rounded-lg bg-background-elevated/60 px-2.5 py-1.5">
             <span className="text-xs text-foreground-muted">
-              Claimed by <span className="font-medium text-foreground">{card.currentClaimant}</span>
+              <span className="font-medium text-foreground">{card.quantityAvailable}</span> of {card.quantity}{" "}
+              available
             </span>
           </div>
         )}
 
         {isSold && (
-          <div className="mt-auto rounded-lg bg-sold-bg px-2.5 py-1.5 text-sm font-medium text-sold">
-            SOLD {card.currentClaimant ? `TO ${card.currentClaimant}` : ""}
-          </div>
+          <div className="mt-auto rounded-lg bg-sold-bg px-2.5 py-1.5 text-sm font-medium text-sold">Sold Out</div>
         )}
       </div>
     </Link>

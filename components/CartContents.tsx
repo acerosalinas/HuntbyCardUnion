@@ -16,7 +16,7 @@ import { CardItem, CardRow, cardFromRow, PlaceOrderResult } from "@/types/market
 type FulfillmentMethod = "SHIP" | "STASH";
 
 export function CartContents() {
-  const { cardIds, removeFromCart, clearCart } = useCart();
+  const { items, setQuantity, removeFromCart, clearCart } = useCart();
   const { buyer, loading: identityLoading } = useBuyerIdentity();
   const router = useRouter();
   const [cards, setCards] = useState<CardItem[]>([]);
@@ -24,6 +24,7 @@ export function CartContents() {
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultSummary, setResultSummary] = useState<string[] | null>(null);
+  const [messengerLinks, setMessengerLinks] = useState<{ sellerMessenger: string; url: string }[]>([]);
   const [shipName, setShipName] = useState("");
   const [shipPhone, setShipPhone] = useState("");
   const [shipAddress, setShipAddress] = useState("");
@@ -47,6 +48,8 @@ export function CartContents() {
     if (buyer.shipZip) setShipZip(buyer.shipZip);
   }, [buyer]);
 
+  const cardIds = items.map((i) => i.cardId);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     if (cardIds.length === 0) {
@@ -64,9 +67,11 @@ export function CartContents() {
         setCards(((data as CardRow[] | null) ?? []).map(cardFromRow));
         setLoading(false);
       });
-  }, [cardIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cardIds is derived from items every render; re-fetching on its stringified identity avoids looping on a fresh array reference
+  }, [cardIds.join(",")]);
 
-  const total = cards.reduce((sum, c) => sum + c.price, 0);
+  const getQty = (cardId: string) => items.find((i) => i.cardId === cardId)?.quantity ?? 1;
+  const total = cards.reduce((sum, c) => sum + c.price * getQty(c.id), 0);
 
   const handlePlaceOrder = async () => {
     // The buyer's session/profile is fetched async on mount - if this fires
@@ -89,11 +94,12 @@ export function CartContents() {
 
     setError(null);
     setResultSummary(null);
+    setMessengerLinks([]);
     setPlacing(true);
     try {
       const supabase = createClient();
       const { data, error: rpcError } = await supabase.rpc("place_order", {
-        p_card_ids: cardIds,
+        p_items: items.map((i) => ({ card_id: i.cardId, quantity: i.quantity })),
         p_ship_name: shipName.trim(),
         p_ship_phone: shipPhone.trim(),
         p_ship_address: fulfillmentMethod === "SHIP" ? shipAddress.trim() : "",
@@ -105,16 +111,20 @@ export function CartContents() {
       const result = data as PlaceOrderResult;
       const claimedItems = result.items.filter((i) => i.result === "claimed");
       const queuedItems = result.items.filter((i) => i.result === "queued");
-      const soldItems = result.items.filter((i) => i.result === "sold" || i.result === "not_found");
+      const missingItems = result.items.filter((i) => i.result === "not_found");
 
       let copiedToClipboard = false;
       if (claimedItems.length > 0) {
-        const bySeller = new Map<string, { title: string; price: number }[]>();
+        const bySeller = new Map<string, { title: string; price: number; quantity: number }[]>();
         for (const item of claimedItems) {
           const card = cards.find((c) => c.id === item.cardId);
           if (!card) continue;
           const list = bySeller.get(card.sellerMessenger) ?? [];
-          list.push({ title: item.title ?? card.title, price: item.price ?? card.price });
+          list.push({
+            title: item.title ?? card.title,
+            price: item.price ?? card.price,
+            quantity: item.quantity ?? 1,
+          });
           bySeller.set(card.sellerMessenger, list);
         }
 
@@ -132,9 +142,12 @@ export function CartContents() {
             ? `Ship to: ${shipName.trim()} · ${shipPhone.trim()} · ${shipAddress.trim()}, ${shipZip.trim()}`
             : `Stashing with seller (no shipping) · Contact: ${shipName.trim()} · ${shipPhone.trim()}`;
 
-        for (const [sellerMessenger, items] of bySeller) {
-          const lines = items.map((i) => `• ${i.title} — ${formatCurrency(i.price)}`).join("\n");
-          const subtotal = items.reduce((sum, i) => sum + i.price, 0);
+        const links: { sellerMessenger: string; url: string }[] = [];
+        for (const [sellerMessenger, sellerItems] of bySeller) {
+          const lines = sellerItems
+            .map((i) => `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}`)
+            .join("\n");
+          const subtotal = sellerItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
           const message = [
             `Hi! I'd like to place an order${orderRef ? ` (${orderRef})` : ""}:`,
             lines,
@@ -149,8 +162,11 @@ export function CartContents() {
           } catch {
             // Non-fatal - the Messenger tab still opens below.
           }
-          window.open(buildMessengerUrl(sellerMessenger, message), "_blank", "noopener,noreferrer");
+          const url = buildMessengerUrl(sellerMessenger, message);
+          links.push({ sellerMessenger, url });
+          window.open(url, "_blank", "noopener,noreferrer");
         }
+        setMessengerLinks(links);
       }
 
       const summary: string[] = [];
@@ -165,11 +181,11 @@ export function CartContents() {
       }
       if (queuedItems.length > 0) {
         summary.push(
-          `${queuedItems.length} item${queuedItems.length === 1 ? "" : "s"} already claimed by someone else — you've been added to the queue.`,
+          `${queuedItems.length} item${queuedItems.length === 1 ? "" : "s"} didn't have enough stock left — you've been added to the queue.`,
         );
       }
-      if (soldItems.length > 0) {
-        summary.push(`${soldItems.length} item${soldItems.length === 1 ? "" : "s"} no longer available and removed.`);
+      if (missingItems.length > 0) {
+        summary.push(`${missingItems.length} item${missingItems.length === 1 ? "" : "s"} no longer available and removed.`);
       }
       setResultSummary(summary);
       clearCart();
@@ -192,6 +208,21 @@ export function CartContents() {
               {line}
             </p>
           ))}
+          {messengerLinks.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {messengerLinks.map((link) => (
+                <a
+                  key={link.sellerMessenger}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+                >
+                  Message {link.sellerMessenger} on Messenger
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -231,6 +262,26 @@ export function CartContents() {
                     <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>
                   </div>
                   <p className="text-sm font-bold text-foreground">{formatCurrency(card.price)}</p>
+                  {card.quantityAvailable > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-[10px] font-medium uppercase tracking-wide text-foreground-muted">
+                        Qty
+                      </label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={card.quantityAvailable}
+                        value={getQty(card.id)}
+                        onChange={(e) =>
+                          setQuantity(
+                            card.id,
+                            Math.max(1, Math.min(card.quantityAvailable, Number(e.target.value) || 1)),
+                          )
+                        }
+                        className="h-8 w-16 px-2 py-1 text-sm"
+                      />
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     className="mt-auto w-full"
@@ -295,7 +346,10 @@ export function CartContents() {
 
           <div className="mt-4 flex flex-col items-stretch gap-3 rounded-2xl border border-card-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <span className="text-sm text-foreground-muted">Total ({cards.length} item{cards.length === 1 ? "" : "s"})</span>
+              <span className="text-sm text-foreground-muted">
+                Total ({cards.reduce((sum, c) => sum + getQty(c.id), 0)} unit
+                {cards.reduce((sum, c) => sum + getQty(c.id), 0) === 1 ? "" : "s"})
+              </span>
               <p className="text-2xl font-bold text-foreground">{formatCurrency(total)}</p>
             </div>
             <div className="sm:text-right">

@@ -2,10 +2,18 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ExternalLink, MessageCircle, Store } from "lucide-react";
 import { SellerListingsView } from "@/components/SellerListingsView";
+import { SellerReviews } from "@/components/SellerReviews";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
-import { CardRow, SellerProfileRow, cardFromRow, sellerProfileFromRow } from "@/types/marketplace";
+import {
+  CardRow,
+  ReviewRow,
+  SellerProfileRow,
+  cardFromRow,
+  reviewFromRow,
+  sellerProfileFromRow,
+} from "@/types/marketplace";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +43,13 @@ export default async function SellerProfilePage({ params }: PageProps<"/sellers/
     .eq("admin_id", profile.adminId)
     .order("created_at", { ascending: false });
   const cards = ((cardRows as CardRow[] | null) ?? []).map(cardFromRow);
+
+  const { data: reviewRows } = await supabase
+    .from("reviews")
+    .select("*")
+    .eq("seller_admin_id", profile.adminId)
+    .order("created_at", { ascending: false });
+  const reviews = ((reviewRows as ReviewRow[] | null) ?? []).map(reviewFromRow);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -101,6 +116,7 @@ export default async function SellerProfilePage({ params }: PageProps<"/sellers/
       </div>
 
       <SellerListingsView cards={cards} liveModeSeconds={profile.liveModeSeconds} />
+      <SellerReviews reviews={reviews} />
     </div>
   );
 }

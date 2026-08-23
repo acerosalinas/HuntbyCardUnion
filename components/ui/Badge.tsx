@@ -11,7 +11,9 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
     | "condition-nm"
     | "condition-yellow"
     | "condition-hp"
-    | "condition-dmg";
+    | "condition-dmg"
+    | "rarity-standard"
+    | "rarity-chase";
 }
 
 const toneClasses: Record<NonNullable<BadgeProps["tone"]>, string> = {
@@ -24,6 +26,8 @@ const toneClasses: Record<NonNullable<BadgeProps["tone"]>, string> = {
   "condition-yellow": "bg-navy-950 text-yellow-400 border border-yellow-400",
   "condition-hp": "bg-navy-950 text-orange-400 border border-orange-400",
   "condition-dmg": "bg-navy-950 text-red-400 border border-red-400",
+  "rarity-standard": "bg-foreground/5 text-foreground-muted border border-card-border",
+  "rarity-chase": "bg-navy-950 text-gold border border-gold",
 };
 
 export function Badge({ tone = "neutral", className, ...props }: BadgeProps) {

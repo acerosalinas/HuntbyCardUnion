@@ -20,26 +20,34 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
   const supabase = createAdminClient();
   const isSuper = admin.role === "SUPER_ADMIN";
 
-  let cardsQuery = supabase.from("cards").select("status, price");
+  let cardsQuery = supabase.from("cards").select("status");
   if (!isSuper) cardsQuery = cardsQuery.eq("admin_id", admin.id);
+
+  // Pending/sold counts and sales value now live on card_claims (a card row
+  // can have some units still available and others claimed at once), not on
+  // cards.status - see supabase/schema.sql's card_claims table.
+  let claimsQuery = supabase.from("card_claims").select("status, quantity, unit_price, cards!inner(admin_id)");
+  if (!isSuper) claimsQuery = claimsQuery.eq("cards.admin_id", admin.id);
 
   let offersQuery = supabase.from("offers").select("status, cards!inner(admin_id)");
   if (!isSuper) offersQuery = offersQuery.eq("cards.admin_id", admin.id);
 
-  const [{ data: cards }, { data: offers }, { data: sellerProfile }] = await Promise.all([
+  const [{ data: cards }, { data: claims }, { data: offers }, { data: sellerProfile }] = await Promise.all([
     cardsQuery,
+    claimsQuery,
     offersQuery,
     supabase.from("seller_profiles").select("price_reviewed_at").eq("admin_id", admin.id).maybeSingle(),
   ]);
 
   const showPriceReviewBanner = !sellerProfile || isPriceReviewStale(sellerProfile.price_reviewed_at as string);
 
+  const soldClaims = (claims ?? []).filter((c) => c.status === "SOLD");
+  const pendingClaims = (claims ?? []).filter((c) => c.status === "PENDING");
+
   const metrics = {
     activeListings: (cards ?? []).filter((c) => c.status !== "SOLD").length,
-    totalSalesValue: (cards ?? [])
-      .filter((c) => c.status === "SOLD")
-      .reduce((sum, c) => sum + Number(c.price), 0),
-    pendingPayments: (cards ?? []).filter((c) => c.status === "PENDING").length,
+    totalSalesValue: soldClaims.reduce((sum, c) => sum + Number(c.unit_price) * c.quantity, 0),
+    pendingPayments: pendingClaims.length,
     openOffers: (offers ?? []).filter((o) => o.status === "PENDING").length,
   };
 

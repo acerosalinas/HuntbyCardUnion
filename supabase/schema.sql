@@ -32,19 +32,24 @@ create table cards (
   -- whatever price the admin actually sets.
   list_price numeric(10, 2) not null check (list_price > 0),
   condition_grade text not null,
+  -- Fixed dropdown vocabulary (see lib/rarity.ts's RARITIES) - plain text,
+  -- no CHECK constraint, same convention as condition_grade above: card
+  -- attribute fields are validated in the TS dropdown, not the database.
+  rarity text not null default 'Other',
   images text[] not null default '{}',
   seller_handle text not null,
   seller_messenger text not null,
   status card_status not null default 'AVAILABLE',
-  current_claimant text,
-  -- The authenticated buyer behind current_claimant, if they have a real
-  -- account (see `profiles` below). Null for historical claims made before
-  -- buyer accounts existed - current_claimant (display text) still works for
-  -- those, they just can't receive account-based notifications.
-  claimant_id uuid references auth.users (id) on delete set null,
-  -- When the current PENDING period started (claim, offer acceptance, or
-  -- queue promotion) - not the same as created_at, which is listing time.
-  claimed_at timestamptz,
+  -- Total units ever listed (admin-editable) and how many remain unclaimed
+  -- right now. Per-buyer claim state (who claimed how many, when, whether
+  -- paid/shipped) lives in card_claims below, not on this row - a listing
+  -- can have several different buyers holding claims on different units of
+  -- the same row at once. status is kept in sync with quantity_available by
+  -- every write path that changes it (place_order, confirmPaid,
+  -- cancelRelist, promoteNextInQueue, acceptOffer): SOLD once it hits 0,
+  -- back to AVAILABLE if a cancelled claim frees stock again.
+  quantity integer not null default 1 check (quantity > 0),
+  quantity_available integer not null default 1 check (quantity_available >= 0),
   is_flash_sale boolean not null default false,
   -- Owning admin (Supabase Auth user). Role lives in that user's
   -- app_metadata ('ADMIN' | 'SUPER_ADMIN'), set via the service-role Admin
@@ -55,15 +60,11 @@ create table cards (
   -- the known list. Drives the homepage pedestal picker and per-franchise
   -- browse pages at /[franchise].
   franchise text,
-  -- Sale tracking for the admin Sales Log tab.
-  sold_at timestamptz,
-  shipped boolean not null default false,
   created_at timestamptz not null default now()
 );
 
 create index cards_admin_id_idx on cards (admin_id);
 create index cards_franchise_idx on cards (franchise);
-create index cards_claimant_id_idx on cards (claimant_id);
 
 create table offers (
   id uuid primary key default gen_random_uuid(),
@@ -81,16 +82,21 @@ create index offers_buyer_id_idx on offers (buyer_id);
 create index cards_status_idx on cards (status);
 
 -- ---------------------------------------------------------------------------
--- dibs_queue: buyers waiting in line for a card that's already PENDING.
--- place_order() adds to this queue instead of failing; the admin's
--- "Next in Queue" action (promoteNextInQueue in app/admin/actions.ts) pops
--- the earliest WAITING entry and makes that buyer the new current_claimant.
+-- dibs_queue: buyers waiting in line for a card that doesn't have enough
+-- units available to cover what they asked for. place_order() adds to this
+-- queue instead of failing; the admin's "Next in Queue" action
+-- (promoteNextInQueue in app/admin/actions.ts) pops the earliest WAITING
+-- entry whose requested_quantity fits and turns it into a new card_claims row.
 -- ---------------------------------------------------------------------------
 create table dibs_queue (
   id uuid primary key default gen_random_uuid(),
   card_id uuid not null references cards (id) on delete cascade,
   buyer_handle text not null,
   buyer_id uuid references auth.users (id) on delete set null,
+  -- How many units this buyer is waiting for - place_order() queues the
+  -- buyer's full ask when fewer than that many are currently available
+  -- (all-or-nothing; no partial-fulfil-plus-queue-the-rest).
+  requested_quantity integer not null default 1 check (requested_quantity > 0),
   status queue_status not null default 'WAITING',
   created_at timestamptz not null default now()
 );
@@ -99,14 +105,15 @@ create index dibs_queue_card_id_idx on dibs_queue (card_id, status);
 create index dibs_queue_buyer_id_idx on dibs_queue (card_id, buyer_id, status);
 
 -- ---------------------------------------------------------------------------
--- orders: a buyer's checkout receipt for one or more cards claimed together
--- via the cart ("Add to Cart" -> "Place Order"). Cards link back via
--- cards.order_id. total_amount is a snapshot of what was actually claimed
--- (cards that were already taken or went to the queue instead aren't
--- included), so it can differ from the sum of everything the buyer put in
--- their cart. confirmed_at is set once by try_claim_order_confirmation() the
--- moment every card in the order has been marked SOLD or detached (canceled)
--- - see that function below for why this needs to be atomic.
+-- orders: a buyer's checkout receipt for one or more claims made together
+-- via the cart ("Add to Cart" -> "Place Order"). card_claims link back via
+-- card_claims.order_id. total_amount is a snapshot of what was actually
+-- claimed (items that didn't have enough stock and went to the queue
+-- instead aren't included), so it can differ from the sum of everything the
+-- buyer put in their cart. confirmed_at is set once by
+-- try_claim_order_confirmation() the moment every claim in the order has
+-- been marked SOLD or cancelled - see that function below for why this
+-- needs to be atomic.
 -- ---------------------------------------------------------------------------
 create table orders (
   id uuid primary key default gen_random_uuid(),
@@ -129,8 +136,41 @@ create table orders (
 
 create index orders_buyer_handle_idx on orders (buyer_handle);
 
-alter table cards add column if not exists order_id uuid references orders (id) on delete set null;
-create index if not exists cards_order_id_idx on cards (order_id);
+-- ---------------------------------------------------------------------------
+-- card_claims: one row per buyer's claim on some quantity of a card's stock.
+-- Replaces the old single current_claimant/claimant_id/claimed_at/order_id/
+-- sold_at/shipped columns that used to live directly on `cards` - those
+-- assumed exactly one buyer per row. cards.quantity_available is
+-- incremented/decremented alongside these rows by place_order/confirmPaid/
+-- cancelRelist/promoteNextInQueue/acceptOffer (see app/admin/actions.ts and
+-- the place_order RPC below) rather than derived on the fly, so every write
+-- path must keep the two in sync inside the same transaction.
+-- ---------------------------------------------------------------------------
+create table card_claims (
+  id uuid primary key default gen_random_uuid(),
+  card_id uuid not null references cards (id) on delete cascade,
+  order_id uuid references orders (id) on delete set null,
+  buyer_handle text not null,
+  buyer_id uuid references auth.users (id) on delete set null,
+  quantity integer not null check (quantity > 0),
+  unit_price numeric(10, 2) not null check (unit_price > 0),
+  status text not null default 'PENDING' check (status in ('PENDING', 'SOLD', 'CANCELLED')),
+  claimed_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  shipped boolean not null default false,
+  -- Buyer-set via mark_claim_received() once shipped = true - the final
+  -- stage of the My Dibs order tracker (Pending Payment -> Paid -> Shipped ->
+  -- Received), ahead of leaving a review (see reviews table further below).
+  received_at timestamptz
+);
+
+create index card_claims_card_id_idx on card_claims (card_id, status);
+create index card_claims_buyer_id_idx on card_claims (buyer_id);
+create index card_claims_order_id_idx on card_claims (order_id);
+
+alter table card_claims enable row level security;
+create policy "buyers can view their own claims" on card_claims for select using (auth.uid() = buyer_id);
+alter publication supabase_realtime add table card_claims;
 
 -- ---------------------------------------------------------------------------
 -- profiles: a buyer's verified identity. Created automatically by the
@@ -138,9 +178,9 @@ create index if not exists cards_order_id_idx on cards (order_id);
 -- supabase.auth.signUp({ email, password, options: { data: { handle,
 -- full_name } } }) - never inserted directly by app code. RLS is
 -- owner-only: every public display site already reads a denormalized
--- buyer_handle/current_claimant TEXT column on cards/offers/dibs_queue/
--- orders, so nothing needs to publicly join profiles, and full_name (real
--- PII, unlike the pseudonymous handle) should never be world-readable.
+-- buyer_handle TEXT column on offers/dibs_queue/orders/card_claims, so
+-- nothing needs to publicly join profiles, and full_name (real PII, unlike
+-- the pseudonymous handle) should never be world-readable.
 -- Admin reads bypass RLS via the service-role client as usual.
 -- ---------------------------------------------------------------------------
 create table profiles (
@@ -224,7 +264,8 @@ create table if not exists notifications (
   type text not null check (type in (
     'offer_received', 'offer_countered', 'card_claimed', 'queue_promoted',
     'payment_confirmed', 'listing_cancelled', 'dispute_opened',
-    'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved'
+    'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
+    'claim_cancelled_by_buyer', 'review_received'
   )),
   title text not null,
   body text,
@@ -745,14 +786,32 @@ $$;
 
 -- Dropped explicitly: create or replace can't change an existing function's
 -- parameter list (it would just create a second overload alongside the old
--- one instead of replacing it), and the single-param place_order(uuid[])
--- from earlier in this file (still current on any project run before
--- shipping/fulfillment collection existed) has to actually be gone before
--- the 6-param version below takes over that name.
+-- one instead of replacing it), and both the single-param place_order(uuid[])
+-- and the pre-quantity 6-param version (p_card_ids uuid[], ...) have to
+-- actually be gone before the p_items-jsonb version below takes over the
+-- name.
 drop function if exists place_order(uuid[]);
+drop function if exists place_order(uuid[], text, text, text, text, text);
 
+-- ---------------------------------------------------------------------------
+-- place_order: the cart checkout. p_items is a jsonb array of
+-- {"card_id": uuid, "quantity": int} objects (a flat uuid[] of ids can't
+-- carry a per-item quantity). For each item: claims that many units if
+-- quantity_available covers the full request, or joins the queue for the
+-- buyer's full requested quantity otherwise (all-or-nothing - no partial
+-- claim + queue the remainder, so a buyer's queue position always means
+-- "waiting for this many units", never a fraction of one order). All
+-- successfully-claimed items are grouped into one `orders` row (only kept if
+-- at least one item was actually claimed), so the client can send a single
+-- consolidated Messenger message instead of one per card. Identity comes
+-- from auth.uid(), same as submit_offer above. Rate-limited per buyer id.
+--
+-- Returns {orderId, total, items: [{cardId, title, result, price?,
+-- quantity?, position?}]} where result is one of:
+-- 'claimed' | 'queued' | 'not_found' (a DRAFT or missing card id).
+-- ---------------------------------------------------------------------------
 create or replace function place_order(
-  p_card_ids uuid[],
+  p_items jsonb,
   p_ship_name text,
   p_ship_phone text,
   p_ship_address text,
@@ -767,14 +826,19 @@ as $$
 declare
   v_buyer_id uuid := auth.uid();
   v_handle text;
+  v_item jsonb;
   v_card_id uuid;
+  v_qty int;
   v_card cards;
   v_position int;
   v_results jsonb := '[]'::jsonb;
-  v_claimed_ids uuid[] := '{}';
+  v_claim_card_ids uuid[] := '{}';
+  v_claim_quantities int[] := '{}';
+  v_claim_prices numeric[] := '{}';
   v_claimed_total numeric := 0;
   v_order_id uuid;
   v_recent_count int;
+  i int;
 begin
   if v_buyer_id is null then
     raise exception 'Not signed in.';
@@ -791,7 +855,7 @@ begin
     raise exception 'Please confirm your email before placing an order.';
   end if;
 
-  if p_card_ids is null or array_length(p_card_ids, 1) is null then
+  if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'Cart is empty';
   end if;
 
@@ -814,25 +878,38 @@ begin
     raise exception 'Too many orders placed - please wait a moment and try again';
   end if;
 
-  foreach v_card_id in array p_card_ids loop
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_card_id := (v_item ->> 'card_id')::uuid;
+    v_qty := greatest(1, coalesce((v_item ->> 'quantity')::int, 1));
+
     select * into v_card from cards where id = v_card_id for update;
 
-    if not found then
+    if not found or v_card.status = 'DRAFT' then
       v_results := v_results || jsonb_build_object('cardId', v_card_id, 'result', 'not_found');
       continue;
     end if;
 
-    if v_card.status = 'SOLD' then
-      v_results := v_results || jsonb_build_object('cardId', v_card_id, 'title', v_card.title, 'result', 'sold');
-    elsif v_card.status = 'PENDING' and v_card.claimant_id = v_buyer_id then
-      v_results := v_results || jsonb_build_object('cardId', v_card_id, 'title', v_card.title, 'result', 'already_yours');
-    elsif v_card.status = 'PENDING' then
+    if v_card.quantity_available >= v_qty then
+      update cards
+        set quantity_available = quantity_available - v_qty,
+            status = case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end
+        where id = v_card_id;
+
+      v_claim_card_ids := v_claim_card_ids || v_card_id;
+      v_claim_quantities := v_claim_quantities || v_qty;
+      v_claim_prices := v_claim_prices || v_card.price;
+      v_claimed_total := v_claimed_total + (v_card.price * v_qty);
+      v_results := v_results || jsonb_build_object(
+        'cardId', v_card_id, 'title', v_card.title, 'result', 'claimed', 'price', v_card.price, 'quantity', v_qty
+      );
+    else
       if not exists (
         select 1 from dibs_queue
         where card_id = v_card_id and buyer_id = v_buyer_id and status = 'WAITING'
       ) then
         select count(*) + 1 into v_position from dibs_queue where card_id = v_card_id and status = 'WAITING';
-        insert into dibs_queue (card_id, buyer_id, buyer_handle) values (v_card_id, v_buyer_id, v_handle);
+        insert into dibs_queue (card_id, buyer_id, buyer_handle, requested_quantity)
+          values (v_card_id, v_buyer_id, v_handle, v_qty);
       else
         select count(*) into v_position
           from dibs_queue q
@@ -843,16 +920,13 @@ begin
               limit 1
             );
       end if;
-      v_results := v_results || jsonb_build_object('cardId', v_card_id, 'title', v_card.title, 'result', 'queued', 'position', v_position);
-    else
-      -- AVAILABLE: claim it as part of this order.
-      v_claimed_ids := v_claimed_ids || v_card_id;
-      v_claimed_total := v_claimed_total + v_card.price;
-      v_results := v_results || jsonb_build_object('cardId', v_card_id, 'title', v_card.title, 'result', 'claimed', 'price', v_card.price);
+      v_results := v_results || jsonb_build_object(
+        'cardId', v_card_id, 'title', v_card.title, 'result', 'queued', 'position', v_position, 'quantity', v_qty
+      );
     end if;
   end loop;
 
-  if array_length(v_claimed_ids, 1) > 0 then
+  if array_length(v_claim_card_ids, 1) > 0 then
     insert into orders (
       buyer_id, buyer_handle, total_amount,
       ship_name, ship_phone, ship_address, ship_zip, fulfillment_method
@@ -862,14 +936,14 @@ begin
         p_ship_name, p_ship_phone, p_ship_address, p_ship_zip, p_fulfillment_method
       ) returning id into v_order_id;
 
-    update cards
-      set status = 'PENDING', current_claimant = v_handle, claimant_id = v_buyer_id,
-          claimed_at = now(), order_id = v_order_id
-      where id = any(v_claimed_ids);
+    for i in 1..array_length(v_claim_card_ids, 1) loop
+      insert into card_claims (card_id, order_id, buyer_id, buyer_handle, quantity, unit_price, status)
+        values (v_claim_card_ids[i], v_order_id, v_buyer_id, v_handle, v_claim_quantities[i], v_claim_prices[i], 'PENDING');
+    end loop;
 
     update offers
       set status = 'SUPERSEDED'
-      where card_id = any(v_claimed_ids) and status = 'PENDING';
+      where card_id = any(v_claim_card_ids) and status = 'PENDING';
 
     -- One notification per admin whose card(s) got claimed in this order, not
     -- one per card - mirrors the existing "one consolidated Messenger
@@ -883,7 +957,7 @@ begin
           v_handle || ' claimed ' || count(*) || ' card(s) from your listings.',
           '/admin'
         from cards c
-        where c.id = any(v_claimed_ids) and c.admin_id is not null
+        where c.id = any(v_claim_card_ids) and c.admin_id is not null
         group by c.admin_id;
     exception when others then null;
     end;
@@ -893,6 +967,23 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- try_claim_order_confirmation: called once per claim from confirmPaid (a
+-- per-claim admin action) after marking that claim SOLD, so a multi-card
+-- order confirmed one claim at a time still only sends ONE consolidated
+-- buyer email - not one per claim. This has to be atomic: a naive "update
+-- order, then separately COUNT remaining unconfirmed siblings" from two
+-- independent round-trips is racy (two claims confirmed in quick succession
+-- can both observe "zero remaining" and both trigger an email). Postgres's
+-- row lock on the `orders` row makes this exactly-once instead: the first
+-- concurrent caller to reach it wins the lock, its WHERE matches
+-- (confirmed_at still null, no PENDING claims left), it commits and returns
+-- true; the second caller blocks on the lock, then re-evaluates against the
+-- now-committed row and matches nothing.
+--
+-- Not granted to anon/authenticated - only called from the service-role
+-- admin client in confirmPaid.
+-- ---------------------------------------------------------------------------
 create or replace function try_claim_order_confirmation(p_order_id uuid)
 returns boolean
 language sql
@@ -901,7 +992,7 @@ set search_path = public
 as $$
   update orders set confirmed_at = now()
     where id = p_order_id and confirmed_at is null
-      and not exists (select 1 from cards where order_id = p_order_id and status = 'PENDING')
+      and not exists (select 1 from card_claims where order_id = p_order_id and status = 'PENDING')
   returning true;
 $$;
 
@@ -913,8 +1004,8 @@ $$;
 revoke execute on function submit_offer(uuid, numeric, text) from public;
 grant execute on function submit_offer(uuid, numeric, text) to authenticated;
 
-revoke execute on function place_order(uuid[], text, text, text, text, text) from public;
-grant execute on function place_order(uuid[], text, text, text, text, text) to authenticated;
+revoke execute on function place_order(jsonb, text, text, text, text, text) from public;
+grant execute on function place_order(jsonb, text, text, text, text, text) to authenticated;
 
 revoke execute on function try_claim_order_confirmation(uuid) from public;
 
@@ -945,9 +1036,16 @@ end $$;
 create table if not exists disputes (
   id uuid primary key default gen_random_uuid(),
   card_id uuid not null references cards (id) on delete cascade,
+  -- The specific claim (some quantity of this card, bought by this buyer)
+  -- the dispute is about - a card can have several buyers each holding
+  -- their own claim, so "this buyer bought this card" alone (card_id +
+  -- buyer_id) is no longer unambiguous once the same buyer can also
+  -- legitimately buy the same card twice in separate orders. Nullable only
+  -- for disputes opened before this column existed.
+  claim_id uuid references card_claims (id) on delete cascade,
   -- Denormalized for display only - never used in any ownership/RLS
   -- decision. One order can span cards from multiple admins; a dispute is
-  -- always scoped to a single card, so seller_admin_id (below) is always
+  -- always scoped to a single claim, so seller_admin_id (below) is always
   -- unambiguous regardless of what order_id points at.
   order_id uuid references orders (id) on delete set null,
   buyer_id uuid not null references auth.users (id) on delete cascade,
@@ -976,9 +1074,12 @@ create index if not exists disputes_status_idx on disputes (status);
 -- open dispute" check is a read-then-write and can't fully prevent two
 -- concurrent calls from both passing it before either commits. This partial
 -- unique index makes the second insert fail instead; open_dispute() catches
--- that as a friendly error rather than a raw constraint violation.
-create unique index if not exists one_open_dispute_per_card_buyer
-  on disputes (card_id, buyer_id)
+-- that as a friendly error rather than a raw constraint violation. Scoped to
+-- claim_id (one purchase), not (card_id, buyer_id) - Postgres unique indexes
+-- treat NULLs as distinct, so historical disputes with no claim_id (opened
+-- before this column existed) are naturally exempt rather than colliding.
+create unique index if not exists one_open_dispute_per_claim
+  on disputes (claim_id)
   where status not in ('RESOLVED_REFUND', 'RESOLVED_DISMISSED');
 
 -- ---------------------------------------------------------------------------
@@ -1049,16 +1150,27 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 -- open_dispute: the only entry point for creating a dispute. Identity comes
 -- from auth.uid() (signed-in, email-confirmed buyer), same as
--- submit_offer/place_order. Eligibility: the card must be SOLD and the
--- caller must be its claimant_id - tracing the rest of this schema, status
--- only ever becomes SOLD via the admin confirmPaid action, so SOLD already
--- implies payment was confirmed; no separate orders.confirmed_at check is
--- needed. Capped at 2 lifetime disputes per (card, buyer) regardless of
--- outcome, to prevent repeat-filing abuse after a dismissal, plus the usual
--- per-buyer rate limit.
+-- submit_offer/place_order. Takes a specific claim (not just a card id),
+-- since a card can now have several buyers each holding their own claim -
+-- and even the same buyer can legitimately hold two separate claims on the
+-- same card from different orders, so "this buyer bought this card" alone
+-- is no longer specific enough to know which purchase the dispute is about.
+-- Eligibility: the claim must be SOLD (tracing the rest of this schema, a
+-- claim only ever becomes SOLD via the admin confirmPaid action, so SOLD
+-- already implies payment was confirmed) and belong to the caller. Capped
+-- at 2 lifetime disputes per claim regardless of outcome, to prevent
+-- repeat-filing abuse after a dismissal, plus the usual per-buyer rate
+-- limit.
+--
+-- Parameter types are unchanged from the pre-quantity version (uuid,
+-- dispute_reason, text) but the name changes (p_card_id -> p_claim_id), and
+-- Postgres won't let create or replace rename a parameter even when the
+-- types match - the function has to be dropped first.
 -- ---------------------------------------------------------------------------
+drop function if exists open_dispute(uuid, dispute_reason, text);
+
 create or replace function open_dispute(
-  p_card_id uuid,
+  p_claim_id uuid,
   p_reason dispute_reason,
   p_description text
 )
@@ -1069,6 +1181,7 @@ set search_path = public
 as $$
 declare
   v_buyer_id uuid := auth.uid();
+  v_claim card_claims;
   v_card cards;
   v_recent_count int;
   v_lifetime_count int;
@@ -1088,16 +1201,18 @@ begin
     raise exception 'Please confirm your email before opening a dispute.';
   end if;
 
-  select * into v_card from cards where id = p_card_id;
-  if not found then
-    raise exception 'Card not found';
-  end if;
-  if v_card.status != 'SOLD' or v_card.claimant_id is distinct from v_buyer_id then
+  select * into v_claim from card_claims where id = p_claim_id;
+  if not found or v_claim.status != 'SOLD' or v_claim.buyer_id is distinct from v_buyer_id then
     raise exception 'You can only open a dispute for an item you bought.';
   end if;
 
+  select * into v_card from cards where id = v_claim.card_id;
+  if not found then
+    raise exception 'Card not found';
+  end if;
+
   select count(*) into v_lifetime_count
-    from disputes where card_id = p_card_id and buyer_id = v_buyer_id;
+    from disputes where claim_id = p_claim_id;
   if v_lifetime_count >= 2 then
     raise exception 'You have reached the maximum number of disputes for this item. Please contact admin directly.';
   end if;
@@ -1110,8 +1225,8 @@ begin
   end if;
 
   begin
-    insert into disputes (card_id, order_id, buyer_id, seller_admin_id, reason, description)
-      values (p_card_id, v_card.order_id, v_buyer_id, v_card.admin_id, p_reason, p_description)
+    insert into disputes (card_id, claim_id, order_id, buyer_id, seller_admin_id, reason, description)
+      values (v_claim.card_id, p_claim_id, v_claim.order_id, v_buyer_id, v_card.admin_id, p_reason, p_description)
       returning * into v_dispute;
   exception when unique_violation then
     raise exception 'You already have an open dispute for this item.';
@@ -1269,13 +1384,393 @@ do $$ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- MIGRATION 6: card stock quantity + card_claims. Safe to run once on an
+-- existing project; no-ops on re-run. Multiple buyers can now each claim
+-- some quantity of a card's stock instead of exactly one buyer claiming the
+-- whole row - see card_claims below, which replaces the old single
+-- current_claimant/claimant_id/claimed_at/order_id/sold_at/shipped columns
+-- that used to live directly on `cards`. Existing PENDING/SOLD cards are
+-- backfilled into one card_claims row each (quantity 1, matching the
+-- single-unit assumption every card had before this migration) so
+-- historical claims/sales survive the cutover, before the now-redundant
+-- columns are dropped from `cards`.
+-- ---------------------------------------------------------------------------
+
+alter table cards add column if not exists quantity integer not null default 1;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cards_quantity_check') then
+    alter table cards add constraint cards_quantity_check check (quantity > 0);
+  end if;
+end $$;
+
+alter table cards add column if not exists quantity_available integer;
+update cards set quantity_available = case when status = 'AVAILABLE' then 1 else 0 end
+  where quantity_available is null;
+alter table cards alter column quantity_available set not null;
+alter table cards alter column quantity_available set default 1;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cards_quantity_available_check') then
+    alter table cards add constraint cards_quantity_available_check check (quantity_available >= 0);
+  end if;
+end $$;
+
+alter table dibs_queue add column if not exists requested_quantity integer not null default 1;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'dibs_queue_requested_quantity_check') then
+    alter table dibs_queue add constraint dibs_queue_requested_quantity_check check (requested_quantity > 0);
+  end if;
+end $$;
+
+create table if not exists card_claims (
+  id uuid primary key default gen_random_uuid(),
+  card_id uuid not null references cards (id) on delete cascade,
+  order_id uuid references orders (id) on delete set null,
+  buyer_handle text not null,
+  buyer_id uuid references auth.users (id) on delete set null,
+  quantity integer not null check (quantity > 0),
+  unit_price numeric(10, 2) not null check (unit_price > 0),
+  status text not null default 'PENDING' check (status in ('PENDING', 'SOLD', 'CANCELLED')),
+  claimed_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  shipped boolean not null default false,
+  -- Buyer-set via mark_claim_received() once shipped = true - the final
+  -- stage of the My Dibs order tracker (Pending Payment -> Paid -> Shipped ->
+  -- Received), ahead of leaving a review (see reviews table further below).
+  received_at timestamptz
+);
+
+create index if not exists card_claims_card_id_idx on card_claims (card_id, status);
+create index if not exists card_claims_buyer_id_idx on card_claims (buyer_id);
+create index if not exists card_claims_order_id_idx on card_claims (order_id);
+
+alter table card_claims enable row level security;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'card_claims' and policyname = 'buyers can view their own claims'
+  ) then
+    create policy "buyers can view their own claims" on card_claims for select using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'card_claims'
+  ) then
+    alter publication supabase_realtime add table card_claims;
+  end if;
+end $$;
+
+-- One claim row per already-claimed card (PENDING or SOLD), synthesized
+-- from the columns being dropped below. Guarded by a not-already-backfilled
+-- check so this whole migration stays safe to paste and run more than once.
+insert into card_claims (card_id, order_id, buyer_handle, buyer_id, quantity, unit_price, status, claimed_at, confirmed_at, shipped)
+select
+  id, order_id, current_claimant, claimant_id, 1, price,
+  case status when 'SOLD' then 'SOLD' else 'PENDING' end,
+  coalesce(claimed_at, created_at),
+  sold_at,
+  shipped
+from cards
+where status in ('PENDING', 'SOLD')
+  and current_claimant is not null
+  and not exists (select 1 from card_claims where card_claims.card_id = cards.id);
+
+alter table cards drop column if exists current_claimant;
+alter table cards drop column if exists claimant_id;
+alter table cards drop column if exists claimed_at;
+alter table cards drop column if exists order_id;
+alter table cards drop column if exists sold_at;
+alter table cards drop column if exists shipped;
+
+alter table disputes add column if not exists claim_id uuid references card_claims (id) on delete cascade;
+
+do $$ begin
+  if exists (select 1 from pg_indexes where indexname = 'one_open_dispute_per_card_buyer') then
+    drop index one_open_dispute_per_card_buyer;
+  end if;
+end $$;
+
+create unique index if not exists one_open_dispute_per_claim
+  on disputes (claim_id)
+  where status not in ('RESOLVED_REFUND', 'RESOLVED_DISMISSED');
+
+-- ---------------------------------------------------------------------------
+-- MIGRATION 7: order receipt tracking, buyer self-cancel, reviews, rarity.
+-- Safe to run once on an existing project; no-ops on re-run.
+-- ---------------------------------------------------------------------------
+
+alter table cards add column if not exists rarity text;
+update cards set rarity = 'Other' where rarity is null;
+alter table cards alter column rarity set not null;
+alter table cards alter column rarity set default 'Other';
+
+alter table card_claims add column if not exists received_at timestamptz;
+
+-- ---------------------------------------------------------------------------
+-- reviews: a buyer's rating + optional comment on one specific purchase
+-- (card_claims row), shown publicly on the seller's profile. Unlike
+-- disputes, this is PUBLIC read (same shape as "offers are publicly
+-- readable"/"dibs queue is publicly readable") - anyone browsing a seller's
+-- profile needs to see these, not just the buyer who wrote them. One review
+-- per claim - a plain unique index, not partial like disputes' - reviews
+-- have no withdraw/reopen lifecycle, so a second row on the same claim is
+-- never legitimate.
+-- ---------------------------------------------------------------------------
+create table if not exists reviews (
+  id uuid primary key default gen_random_uuid(),
+  claim_id uuid not null references card_claims (id) on delete cascade,
+  card_id uuid not null references cards (id) on delete cascade,
+  -- Snapshot of cards.admin_id at review time, same pattern as
+  -- disputes.seller_admin_id - lets the seller profile page query by
+  -- admin_id directly without joining cards.
+  seller_admin_id uuid references auth.users (id) on delete set null,
+  buyer_id uuid not null references auth.users (id) on delete cascade,
+  buyer_handle text not null,
+  rating smallint not null check (rating between 1 and 5),
+  comment text,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists reviews_one_per_claim_idx on reviews (claim_id);
+create index if not exists reviews_seller_admin_id_idx on reviews (seller_admin_id, created_at desc);
+create index if not exists reviews_card_id_idx on reviews (card_id);
+
+alter table reviews enable row level security;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'reviews' and policyname = 'reviews are publicly readable'
+  ) then
+    create policy "reviews are publicly readable" on reviews for select using (true);
+  end if;
+end $$;
+
+-- No insert/update/delete policy - writes only via submit_review() below,
+-- same convention as every other table in this schema.
+
+-- notifications.type gains two values for this batch. Looked up by
+-- pg_constraint rather than a hardcoded guessed name (e.g.
+-- 'notifications_type_check') - Postgres/Supabase's auto-generated
+-- constraint name isn't guaranteed, and guessing wrong would silently no-op.
+do $$
+declare
+  v_conname text;
+begin
+  select conname into v_conname
+    from pg_constraint
+    where conrelid = 'public.notifications'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%type = ANY%';
+  if v_conname is not null then
+    execute format('alter table notifications drop constraint %I', v_conname);
+  end if;
+end $$;
+
+alter table notifications add constraint notifications_type_check check (type in (
+  'offer_received', 'offer_countered', 'card_claimed', 'queue_promoted',
+  'payment_confirmed', 'listing_cancelled', 'dispute_opened',
+  'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
+  'claim_cancelled_by_buyer', 'review_received'
+));
+
+-- ---------------------------------------------------------------------------
+-- cancel_claim: buyer self-cancel of a still-unpaid (PENDING) claim.
+-- SOLD claims aren't self-cancellable that way - once paid, a retraction is
+-- a dispute/refund matter, not a plain cancel. Replicates cancelRelist's
+-- stock-restore logic (app/admin/actions.ts) in PL/pgSQL since RPCs can't
+-- call a Server Action: releases the claimed quantity back to
+-- quantity_available, resets price to list_price, cancels the card's
+-- dibs_queue, and notifies the owning admin.
+-- ---------------------------------------------------------------------------
+create or replace function cancel_claim(p_claim_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_buyer_id uuid := auth.uid();
+  v_claim card_claims;
+  v_card cards;
+  v_new_available int;
+begin
+  if v_buyer_id is null then
+    raise exception 'Not signed in.';
+  end if;
+
+  select * into v_claim from card_claims where id = p_claim_id for update;
+  if not found or v_claim.buyer_id is distinct from v_buyer_id then
+    raise exception 'Claim not found.';
+  end if;
+  if v_claim.status != 'PENDING' then
+    raise exception 'This claim can no longer be cancelled - it has already been paid or cancelled.';
+  end if;
+
+  select * into v_card from cards where id = v_claim.card_id for update;
+  if not found then
+    raise exception 'Card not found.';
+  end if;
+
+  update card_claims set status = 'CANCELLED' where id = p_claim_id;
+
+  v_new_available := v_card.quantity_available + v_claim.quantity;
+  update cards
+    set quantity_available = v_new_available,
+        status = case when v_new_available > 0 then 'AVAILABLE' else 'SOLD' end,
+        price = v_card.list_price
+    where id = v_claim.card_id;
+
+  update dibs_queue set status = 'CANCELLED' where card_id = v_claim.card_id and status = 'WAITING';
+
+  if v_card.admin_id is not null then
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        values (
+          v_card.admin_id,
+          'claim_cancelled_by_buyer',
+          'Buyer cancelled a claim',
+          v_claim.buyer_handle || ' cancelled their claim on "' || v_card.title || '".',
+          '/admin'
+        );
+    exception when others then null;
+    end;
+  end if;
+end;
+$$;
+
+revoke execute on function cancel_claim(uuid) from public;
+grant execute on function cancel_claim(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- mark_claim_received: the buyer confirms receipt - the final stage of the
+-- My Dibs tracker, gating whether they can leave a review. Requires shipped
+-- = true (the admin's "Shipped"/"Stashed" toggle) first, for every
+-- fulfillment method including STASH, so the flow stays consistent.
+-- ---------------------------------------------------------------------------
+create or replace function mark_claim_received(p_claim_id uuid)
+returns card_claims
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_buyer_id uuid := auth.uid();
+  v_claim card_claims;
+begin
+  if v_buyer_id is null then
+    raise exception 'Not signed in.';
+  end if;
+
+  select * into v_claim from card_claims where id = p_claim_id for update;
+  if not found or v_claim.buyer_id is distinct from v_buyer_id then
+    raise exception 'Claim not found.';
+  end if;
+  if v_claim.status != 'SOLD' then
+    raise exception 'This item has not been marked as paid yet.';
+  end if;
+  if not v_claim.shipped then
+    raise exception 'This item has not been marked as shipped yet.';
+  end if;
+  if v_claim.received_at is not null then
+    raise exception 'Already marked as received.';
+  end if;
+
+  update card_claims set received_at = now() where id = p_claim_id returning * into v_claim;
+  return v_claim;
+end;
+$$;
+
+revoke execute on function mark_claim_received(uuid) from public;
+grant execute on function mark_claim_received(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- submit_review: the only entry point for creating a review. Mirrors
+-- open_dispute's shape - identity via auth.uid(), ownership + eligibility
+-- checks, best-effort notification insert. Eligible once a claim has been
+-- marked received (see mark_claim_received above).
+-- ---------------------------------------------------------------------------
+create or replace function submit_review(
+  p_claim_id uuid,
+  p_rating int,
+  p_comment text default null
+)
+returns reviews
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_buyer_id uuid := auth.uid();
+  v_handle text;
+  v_claim card_claims;
+  v_card cards;
+  v_review reviews;
+begin
+  if v_buyer_id is null then
+    raise exception 'Not signed in.';
+  end if;
+
+  select handle into v_handle from profiles where id = v_buyer_id;
+  if not found then
+    raise exception 'Buyer profile not found.';
+  end if;
+
+  if p_rating < 1 or p_rating > 5 then
+    raise exception 'Rating must be between 1 and 5.';
+  end if;
+
+  select * into v_claim from card_claims where id = p_claim_id;
+  if not found or v_claim.buyer_id is distinct from v_buyer_id then
+    raise exception 'You can only review an item you bought.';
+  end if;
+  if v_claim.status != 'SOLD' or v_claim.received_at is null then
+    raise exception 'You can review this item once you have marked it received.';
+  end if;
+
+  select * into v_card from cards where id = v_claim.card_id;
+  if not found then
+    raise exception 'Card not found';
+  end if;
+
+  begin
+    insert into reviews (claim_id, card_id, seller_admin_id, buyer_id, buyer_handle, rating, comment)
+      values (p_claim_id, v_claim.card_id, v_card.admin_id, v_buyer_id, v_handle, p_rating, nullif(trim(p_comment), ''))
+      returning * into v_review;
+  exception when unique_violation then
+    raise exception 'You already left a review for this item.';
+  end;
+
+  if v_card.admin_id is not null then
+    begin
+      insert into notifications (recipient_id, type, title, body, link)
+        values (
+          v_card.admin_id,
+          'review_received',
+          'New review received',
+          v_handle || ' left a ' || p_rating || '-star review on "' || v_card.title || '".',
+          '/admin'
+        );
+    exception when others then null;
+    end;
+  end if;
+
+  return v_review;
+end;
+$$;
+
+revoke execute on function submit_review(uuid, int, text) from public;
+grant execute on function submit_review(uuid, int, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only
 -- runs cleanly on a fresh install (re-running inserts duplicates); skip this
 -- block entirely on an existing project.
 -- ---------------------------------------------------------------------------
-insert into cards (title, set_name, price, list_price, condition_grade, images, seller_handle, seller_messenger, is_flash_sale, franchise)
+insert into cards (title, set_name, price, list_price, condition_grade, rarity, images, seller_handle, seller_messenger, is_flash_sale, franchise)
 values
-  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
-  ('Umbreon VMAX', 'Evolving Skies', 850, 850, 'PSA 9', '{}', '@vault_hobbyist', 'CardUnion1', false, 'pokemon'),
-  ('Monkey D. Luffy', 'Romance Dawn', 1800, 1800, 'Raw NM', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece'),
-  ('Roronoa Zoro', 'Paramount War', 950, 950, 'Raw NM', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece');
+  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', 'Secret Rare', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
+  ('Umbreon VMAX', 'Evolving Skies', 850, 850, 'PSA 9', 'Ultra Rare', '{}', '@vault_hobbyist', 'CardUnion1', false, 'pokemon'),
+  ('Monkey D. Luffy', 'Romance Dawn', 1800, 1800, 'Raw NM', 'Rare', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece'),
+  ('Roronoa Zoro', 'Paramount War', 950, 950, 'Raw NM', 'Uncommon', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece');

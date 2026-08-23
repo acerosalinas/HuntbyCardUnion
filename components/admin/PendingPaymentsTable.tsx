@@ -5,15 +5,26 @@ import { AlertTriangle, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
-import { CardItem } from "@/types/marketplace";
 import { confirmPaid, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
+/** One PENDING card_claims row joined to its card - a card can now have several of these at once, one per buyer. */
+export interface PendingClaimView {
+  id: string;
+  cardId: string;
+  cardTitle: string;
+  buyerHandle: string;
+  orderId: string | null;
+  quantity: number;
+  unitPrice: number;
+  claimedAt: number;
+}
+
 export function PendingPaymentsTable({
-  cards,
+  claims,
   queueCounts,
 }: {
-  cards: CardItem[];
+  claims: PendingClaimView[];
   queueCounts: Record<string, number>;
 }) {
   const negotiatingCardIds = useNegotiatingCardIds();
@@ -35,7 +46,7 @@ export function PendingPaymentsTable({
     });
   };
 
-  if (cards.length === 0) {
+  if (claims.length === 0) {
     return <p className="py-10 text-center text-sm text-foreground-muted">No pending payments.</p>;
   }
 
@@ -43,12 +54,13 @@ export function PendingPaymentsTable({
     <div className="space-y-2">
       {error && <p className="text-sm text-sold">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-card-border">
-        <table className="w-full min-w-180 text-left text-sm">
+        <table className="w-full min-w-200 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
               <th className="px-4 py-3">Card</th>
               <th className="px-4 py-3">Buyer</th>
               <th className="px-4 py-3">Order</th>
+              <th className="px-4 py-3">Qty</th>
               <th className="px-4 py-3">Price</th>
               <th className="px-4 py-3">Claimed</th>
               <th className="px-4 py-3">Queue</th>
@@ -56,43 +68,40 @@ export function PendingPaymentsTable({
             </tr>
           </thead>
           <tbody>
-            {cards.map((card) => {
-              const queueCount = queueCounts[card.id] ?? 0;
-              const busy = pending && busyId === card.id;
+            {claims.map((claim) => {
+              const queueCount = queueCounts[claim.cardId] ?? 0;
+              const busy = pending && busyId === claim.id;
               return (
-                <tr key={card.id} className="border-t border-card-border">
+                <tr key={claim.id} className="border-t border-card-border">
                   <td className="px-4 py-3 font-medium">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {card.title}
-                      {negotiatingCardIds.has(card.id) && <Badge tone="gold">Negotiating</Badge>}
+                      {claim.cardTitle}
+                      {negotiatingCardIds.has(claim.cardId) && <Badge tone="gold">Negotiating</Badge>}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-foreground-muted">{card.currentClaimant}</td>
+                  <td className="px-4 py-3 text-foreground-muted">{claim.buyerHandle}</td>
                   <td className="px-4 py-3">
-                    {card.orderId ? (
-                      <Badge tone="neutral" title={card.orderId}>
-                        Order #{card.orderId.slice(0, 8)}
+                    {claim.orderId ? (
+                      <Badge tone="neutral" title={claim.orderId}>
+                        Order #{claim.orderId.slice(0, 8)}
                       </Badge>
                     ) : (
                       <span className="text-foreground-muted">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3">{formatCurrency(card.price)}</td>
+                  <td className="px-4 py-3">{claim.quantity}</td>
+                  <td className="px-4 py-3">{formatCurrency(claim.unitPrice * claim.quantity)}</td>
                   <td className="px-4 py-3">
-                    {card.claimedAt ? (
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1",
-                          isStalePending(card.claimedAt) ? "font-medium text-pending" : "text-foreground-muted",
-                        )}
-                        title={isStalePending(card.claimedAt) ? "Claimed over 24 hours ago" : undefined}
-                      >
-                        {isStalePending(card.claimedAt) && <AlertTriangle size={14} />}
-                        {formatRelativeTime(card.claimedAt)}
-                      </span>
-                    ) : (
-                      <span className="text-foreground-muted">—</span>
-                    )}
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1",
+                        isStalePending(claim.claimedAt) ? "font-medium text-pending" : "text-foreground-muted",
+                      )}
+                      title={isStalePending(claim.claimedAt) ? "Claimed over 24 hours ago" : undefined}
+                    >
+                      {isStalePending(claim.claimedAt) && <AlertTriangle size={14} />}
+                      {formatRelativeTime(claim.claimedAt)}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     {queueCount > 0 ? (
@@ -109,7 +118,7 @@ export function PendingPaymentsTable({
                       <Button
                         variant="primary"
                         disabled={busy}
-                        onClick={() => run(card.id, () => confirmPaid(card.id))}
+                        onClick={() => run(claim.id, () => confirmPaid(claim.id))}
                       >
                         Confirm Paid
                       </Button>
@@ -117,8 +126,8 @@ export function PendingPaymentsTable({
                         variant="outline"
                         disabled={busy || queueCount === 0}
                         onClick={() =>
-                          run(card.id, async () => {
-                            await promoteNextInQueue(card.id);
+                          run(claim.id, async () => {
+                            await promoteNextInQueue(claim.cardId);
                           })
                         }
                       >
@@ -127,7 +136,7 @@ export function PendingPaymentsTable({
                       <Button
                         variant="danger"
                         disabled={busy}
-                        onClick={() => run(card.id, () => cancelRelist(card.id))}
+                        onClick={() => run(claim.id, () => cancelRelist(claim.id))}
                       >
                         Cancel / Re-list
                       </Button>

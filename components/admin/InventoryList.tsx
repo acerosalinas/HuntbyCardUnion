@@ -51,6 +51,7 @@ export function InventoryList({ cards }: { cards: CardItem[] }) {
               <th className="px-4 py-3">Set</th>
               <th className="px-4 py-3">Grade</th>
               <th className="px-4 py-3">Price</th>
+              <th className="px-4 py-3">Stock</th>
               <th className="px-4 py-3">Seller</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Actions</th>
@@ -70,6 +71,9 @@ export function InventoryList({ cards }: { cards: CardItem[] }) {
                   </div>
                 </td>
                 <td className="px-4 py-3">{formatCurrency(card.price)}</td>
+                <td className="px-4 py-3 text-foreground-muted">
+                  {card.quantityAvailable} / {card.quantity}
+                </td>
                 <td className="px-4 py-3 text-foreground-muted">{card.sellerHandle}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">

@@ -1,13 +1,15 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { getStoredCartIds, getStoredCartOwner, setStoredCartIds, setStoredCartOwner } from "@/lib/cart";
+import { getStoredCartItems, getStoredCartOwner, setStoredCartItems, setStoredCartOwner, StoredCartItem } from "@/lib/cart";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 
 interface CartContextValue {
-  cardIds: string[];
+  items: StoredCartItem[];
   isInCart: (cardId: string) => boolean;
-  addToCart: (cardId: string) => void;
+  getQuantity: (cardId: string) => number;
+  addToCart: (cardId: string, quantity?: number) => void;
+  setQuantity: (cardId: string, quantity: number) => void;
   removeFromCart: (cardId: string) => void;
   clearCart: () => void;
 }
@@ -16,7 +18,7 @@ const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { buyer } = useBuyerIdentity();
-  const [cardIds, setCardIds] = useState<string[]>([]);
+  const [items, setItems] = useState<StoredCartItem[]>([]);
 
   useEffect(() => {
     // The cart is buyer-scoped but localStorage isn't - without this check a
@@ -27,40 +29,53 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const ownerId = buyer?.id ?? null;
     if (getStoredCartOwner() !== ownerId) {
       setStoredCartOwner(ownerId);
-      setStoredCartIds([]);
+      setStoredCartItems([]);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing a cart that belonged to a different (or no) signed-in identity
-      setCardIds([]);
+      setItems([]);
       return;
     }
-    setCardIds(getStoredCartIds());
+    setItems(getStoredCartItems());
   }, [buyer?.id]);
 
-  const addToCart = (cardId: string) => {
-    setCardIds((prev) => {
-      if (prev.includes(cardId)) return prev;
-      const next = [...prev, cardId];
-      setStoredCartIds(next);
+  const addToCart = (cardId: string, quantity = 1) => {
+    setItems((prev) => {
+      if (prev.some((item) => item.cardId === cardId)) return prev;
+      const next = [...prev, { cardId, quantity: Math.max(1, Math.round(quantity) || 1) }];
+      setStoredCartItems(next);
+      return next;
+    });
+  };
+
+  const setQuantity = (cardId: string, quantity: number) => {
+    setItems((prev) => {
+      const next = prev.map((item) =>
+        item.cardId === cardId ? { ...item, quantity: Math.max(1, Math.round(quantity) || 1) } : item,
+      );
+      setStoredCartItems(next);
       return next;
     });
   };
 
   const removeFromCart = (cardId: string) => {
-    setCardIds((prev) => {
-      const next = prev.filter((id) => id !== cardId);
-      setStoredCartIds(next);
+    setItems((prev) => {
+      const next = prev.filter((item) => item.cardId !== cardId);
+      setStoredCartItems(next);
       return next;
     });
   };
 
   const clearCart = () => {
-    setCardIds([]);
-    setStoredCartIds([]);
+    setItems([]);
+    setStoredCartItems([]);
   };
 
-  const isInCart = (cardId: string) => cardIds.includes(cardId);
+  const isInCart = (cardId: string) => items.some((item) => item.cardId === cardId);
+  const getQuantity = (cardId: string) => items.find((item) => item.cardId === cardId)?.quantity ?? 1;
 
   return (
-    <CartContext.Provider value={{ cardIds, isInCart, addToCart, removeFromCart, clearCart }}>
+    <CartContext.Provider
+      value={{ items, isInCart, getQuantity, addToCart, setQuantity, removeFromCart, clearCart }}
+    >
       {children}
     </CartContext.Provider>
   );

@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Hourglass, ImageOff, PackageSearch } from "lucide-react";
-import { StatusBadge } from "@/components/StatusBadge";
+import { Button } from "@/components/ui/Button";
+import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { cn, formatCurrency } from "@/lib/utils";
+import { buildMessengerUrl, cn, formatCurrency } from "@/lib/utils";
 import {
   CardItem,
   CardOffer,
@@ -17,11 +18,30 @@ import {
   offerFromRow,
   QueueEntryRow,
   queueEntryFromRow,
+  ClaimStatus,
 } from "@/types/marketplace";
+
+interface ClaimedCardView {
+  claimId: string;
+  card: CardItem;
+  quantity: number;
+  status: ClaimStatus;
+  shipped: boolean;
+  receivedAt: number | null;
+  fulfillmentMethod: "SHIP" | "STASH" | null;
+}
+
+function claimStage(c: ClaimedCardView): ClaimStage {
+  if (c.status === "PENDING") return "PENDING_PAYMENT";
+  if (c.receivedAt) return "RECEIVED";
+  if (c.shipped) return "SHIPPED";
+  return "PAID";
+}
 
 interface QueuedCardView {
   card: CardItem;
   position: number;
+  requestedQuantity: number;
 }
 
 interface OfferedCardView {
@@ -31,12 +51,25 @@ interface OfferedCardView {
 
 const COUNTERED_PREFIX = "Countered by admin";
 
+interface ClaimJoinRow {
+  id: string;
+  quantity: number;
+  status: ClaimStatus;
+  shipped: boolean;
+  received_at: string | null;
+  cards: CardRow | null;
+  orders: { fulfillment_method: "SHIP" | "STASH" | null } | null;
+}
+
 export function MyDibsContents() {
   const { buyer } = useBuyerIdentity();
-  const [cards, setCards] = useState<CardItem[]>([]);
+  const [claims, setClaims] = useState<ClaimedCardView[]>([]);
   const [queuedCards, setQueuedCards] = useState<QueuedCardView[]>([]);
   const [offeredCards, setOfferedCards] = useState<OfferedCardView[]>([]);
+  const [reviewedClaimIds, setReviewedClaimIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!buyer || !isSupabaseConfigured()) return;
@@ -45,11 +78,32 @@ export function MyDibsContents() {
     const supabase = createClient();
 
     Promise.all([
-      supabase.from("cards").select("*").eq("claimant_id", buyer.id),
+      supabase
+        .from("card_claims")
+        .select("id, quantity, status, shipped, received_at, cards(*), orders(fulfillment_method)")
+        .eq("buyer_id", buyer.id)
+        .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
       supabase.from("offers").select("*").eq("buyer_id", buyer.id).order("created_at", { ascending: false }),
-    ]).then(async ([claimedRes, myQueueRes, myOffersRes]) => {
-      setCards(((claimedRes.data as CardRow[] | null) ?? []).map(cardFromRow));
+      supabase.from("reviews").select("claim_id").eq("buyer_id", buyer.id),
+    ]).then(async ([claimedRes, myQueueRes, myOffersRes, reviewsRes]) => {
+      setClaims(
+        ((claimedRes.data as unknown as ClaimJoinRow[] | null) ?? [])
+          .filter((row): row is ClaimJoinRow & { cards: CardRow } => row.cards !== null)
+          .map((row) => ({
+            claimId: row.id,
+            card: cardFromRow(row.cards),
+            quantity: row.quantity,
+            status: row.status,
+            shipped: row.shipped,
+            receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
+            fulfillmentMethod: row.orders?.fulfillment_method ?? null,
+          })),
+      );
+
+      setReviewedClaimIds(
+        new Set(((reviewsRes.data as { claim_id: string }[] | null) ?? []).map((r) => r.claim_id)),
+      );
 
       const myOfferRows = (myOffersRes.data as OfferRow[] | null) ?? [];
       if (myOfferRows.length > 0) {
@@ -94,20 +148,62 @@ export function MyDibsContents() {
       const allQueue = ((allQueueRes.data as QueueEntryRow[] | null) ?? []).map(queueEntryFromRow);
 
       const result: QueuedCardView[] = [];
-      for (const cardId of cardIds) {
-        const card = cardsById.get(cardId);
+      for (const row of myQueueRows) {
+        const card = cardsById.get(row.card_id);
         if (!card) continue;
-        const group = allQueue.filter((q) => q.cardId === cardId);
+        const group = allQueue.filter((q) => q.cardId === row.card_id);
         const idx = group.findIndex((q) => q.buyerId === buyer.id);
-        result.push({ card, position: idx + 1 });
+        result.push({ card, position: idx + 1, requestedQuantity: row.requested_quantity });
       }
       setQueuedCards(result);
       setLoading(false);
     });
   }, [buyer]);
 
+  const handleCancel = async (claim: ClaimedCardView) => {
+    if (!buyer) return;
+    if (!window.confirm(`Cancel your dibs on "${claim.card.title}"? This can't be undone.`)) return;
+    setActionError(null);
+    setBusyClaimId(claim.claimId);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("cancel_claim", { p_claim_id: claim.claimId });
+      if (error) throw error;
+      setClaims((prev) => prev.filter((c) => c.claimId !== claim.claimId));
+
+      const message = `Hi! I had to cancel my dibs on "${claim.card.title}" - just letting you know directly. — ${buyer.fullName} (${buyer.handle})`;
+      try {
+        await navigator.clipboard.writeText(message);
+      } catch {
+        // Non-fatal - the Messenger tab still opens below.
+      }
+      window.open(buildMessengerUrl(claim.card.sellerMessenger, message), "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to cancel");
+    } finally {
+      setBusyClaimId(null);
+    }
+  };
+
+  const handleMarkReceived = async (claim: ClaimedCardView) => {
+    setActionError(null);
+    setBusyClaimId(claim.claimId);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("mark_claim_received", { p_claim_id: claim.claimId });
+      if (error) throw error;
+      setClaims((prev) =>
+        prev.map((c) => (c.claimId === claim.claimId ? { ...c, receivedAt: Date.now() } : c)),
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setBusyClaimId(null);
+    }
+  };
+
   const isEmpty =
-    !loading && cards.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
+    !loading && claims.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -122,48 +218,74 @@ export function MyDibsContents() {
         </div>
       )}
 
-      {(cards.length > 0 || queuedCards.length > 0) && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {cards.map((card) => (
-            <div
-              key={card.id}
-              className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
-            >
-              <Link href={`/card/${card.id}`}>
-                <div className="relative aspect-[3/4] w-full bg-navy-950/5">
-                  {card.images[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                    <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                      <ImageOff size={24} />
-                    </div>
-                  )}
-                  <div className="absolute right-2 top-2">
-                    <StatusBadge status={card.status} />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1 p-3">
-                  <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
-                  <p className="text-sm text-foreground-muted">
-                    {card.setName} • {formatCurrency(card.price)}
-                  </p>
-                </div>
-              </Link>
-              {card.status === "SOLD" && (
-                <div className="px-3 pb-3">
-                  <Link
-                    href={`/account/disputes/new?cardId=${card.id}`}
-                    className="block w-full rounded-lg border border-card-border px-3 py-1.5 text-center text-xs font-medium text-foreground-muted transition-colors hover:border-sold/40 hover:text-sold"
-                  >
-                    Report an Issue
-                  </Link>
-                </div>
-              )}
-            </div>
-          ))}
+      {actionError && <p className="mb-4 text-sm text-sold">{actionError}</p>}
 
-          {queuedCards.map(({ card, position }) => (
+      {(claims.length > 0 || queuedCards.length > 0) && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+          {claims.map((claim) => {
+            const stage = claimStage(claim);
+            const busy = busyClaimId === claim.claimId;
+            const alreadyReviewed = reviewedClaimIds.has(claim.claimId);
+            return (
+              <div
+                key={claim.claimId}
+                className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
+              >
+                <Link href={`/card/${claim.card.id}`}>
+                  <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+                    {claim.card.images[0] ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
+                      <img src={claim.card.images[0]} alt={claim.card.title} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+                        <ImageOff size={24} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 p-3">
+                    <p className="line-clamp-1 text-sm font-semibold text-foreground">{claim.card.title}</p>
+                    <p className="text-sm text-foreground-muted">
+                      {claim.card.setName} • {formatCurrency(claim.card.price)}
+                      {claim.quantity > 1 ? ` × ${claim.quantity}` : ""}
+                    </p>
+                  </div>
+                </Link>
+                <div className="px-3 pb-3">
+                  <ClaimStageTracker stage={stage} fulfillmentMethod={claim.fulfillmentMethod} />
+                </div>
+                <div className="flex flex-col gap-1.5 px-3 pb-3">
+                  {stage === "PENDING_PAYMENT" && (
+                    <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
+                      {busy ? "Cancelling..." : "Cancel"}
+                    </Button>
+                  )}
+                  {stage === "SHIPPED" && (
+                    <Button variant="gold" disabled={busy} onClick={() => handleMarkReceived(claim)} className="w-full">
+                      {busy ? "Saving..." : "Mark Received"}
+                    </Button>
+                  )}
+                  {stage === "RECEIVED" && !alreadyReviewed && (
+                    <Link
+                      href={`/account/reviews/new?claimId=${claim.claimId}`}
+                      className="block w-full rounded-lg border border-gold/40 px-3 py-1.5 text-center text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+                    >
+                      Leave a Review
+                    </Link>
+                  )}
+                  {claim.status === "SOLD" && (
+                    <Link
+                      href={`/account/disputes/new?claimId=${claim.claimId}`}
+                      className="block w-full rounded-lg border border-card-border px-3 py-1.5 text-center text-xs font-medium text-foreground-muted transition-colors hover:border-sold/40 hover:text-sold"
+                    >
+                      Report an Issue
+                    </Link>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {queuedCards.map(({ card, position, requestedQuantity }) => (
             <Link
               key={card.id}
               href={`/card/${card.id}`}
@@ -189,6 +311,9 @@ export function MyDibsContents() {
                 <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
                 <p className="text-sm text-foreground-muted">
                   {card.setName} • {formatCurrency(card.price)}
+                </p>
+                <p className="text-xs text-foreground-muted">
+                  Waiting for {requestedQuantity} unit{requestedQuantity === 1 ? "" : "s"}
                 </p>
               </div>
             </Link>

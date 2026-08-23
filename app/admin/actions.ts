@@ -43,6 +43,28 @@ async function getCardOwner(supabase: ReturnType<typeof createAdminClient>, card
   return data.admin_id as string | null;
 }
 
+interface ClaimWithCard {
+  card_id: string;
+  buyer_id: string | null;
+  buyer_handle: string;
+  quantity: number;
+  unit_price: number;
+  order_id: string | null;
+  status: string;
+  cards: { admin_id: string | null; title: string; list_price: number; quantity_available: number } | null;
+}
+
+/** Fetches a claim joined to its card - the common lookup every per-claim admin action (confirmPaid, cancelRelist, setShipped) starts with. */
+async function getClaimWithCard(supabase: ReturnType<typeof createAdminClient>, claimId: string): Promise<ClaimWithCard> {
+  const { data, error } = await supabase
+    .from("card_claims")
+    .select("card_id, buyer_id, buyer_handle, quantity, unit_price, order_id, status, cards(admin_id, title, list_price, quantity_available)")
+    .eq("id", claimId)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Claim not found");
+  return data as unknown as ClaimWithCard;
+}
+
 /** Marks any remaining WAITING queue entries for a card as CANCELLED - used whenever the card's PENDING chain ends (sold or released). */
 async function cancelQueue(supabase: ReturnType<typeof createAdminClient>, cardId: string) {
   await supabase
@@ -95,16 +117,16 @@ export async function markAllNotificationsRead() {
 }
 
 /**
- * Emails the buyer once payment is confirmed. Fires once per card, but a
- * cart checkout groups multiple cards into one `orders` row - to avoid
- * spamming one email per card, this only actually sends once every card in
+ * Emails the buyer once payment is confirmed. Fires once per claim, but a
+ * cart checkout groups multiple claims into one `orders` row - to avoid
+ * spamming one email per claim, this only actually sends once every claim in
  * the order is accounted for (try_claim_order_confirmation is an atomic
- * single-row claim in Postgres, so concurrent per-card confirmations can't
+ * single-row claim in Postgres, so concurrent per-claim confirmations can't
  * both win and send duplicate emails - see schema.sql for why a plain
- * count-remaining-unconfirmed check from Node would be racy). Cards with no
- * order_id (a single claim or accepted offer, not a cart checkout) email
- * immediately. Never throws - a failed lookup/send must not surface as a
- * failure of the actual payment confirmation.
+ * count-remaining-unconfirmed check from Node would be racy). Claims with no
+ * order_id (an accepted offer, not a cart checkout) email immediately.
+ * Never throws - a failed lookup/send must not surface as a failure of the
+ * actual payment confirmation.
  */
 async function notifyBuyerPaymentConfirmed(
   supabase: ReturnType<typeof createAdminClient>,
@@ -119,13 +141,15 @@ async function notifyBuyerPaymentConfirmed(
       const { data: claimed } = await supabase.rpc("try_claim_order_confirmation", { p_order_id: orderId });
       if (!claimed) return;
 
-      const { data: orderCards } = await supabase
-        .from("cards")
-        .select("title, price")
+      const { data: orderClaims } = await supabase
+        .from("card_claims")
+        .select("quantity, unit_price, cards(title)")
         .eq("order_id", orderId)
         .eq("status", "SOLD");
-      if (orderCards && orderCards.length > 0) {
-        items = orderCards;
+      if (orderClaims && orderClaims.length > 0) {
+        items = (orderClaims as unknown as { quantity: number; unit_price: number; cards: { title: string } | null }[]).map(
+          (c) => ({ title: c.cards?.title ?? "Card", price: c.unit_price * c.quantity }),
+        );
       }
     }
 
@@ -147,84 +171,79 @@ async function notifyBuyerPaymentConfirmed(
   }
 }
 
-export async function confirmPaid(cardId: string) {
+export async function confirmPaid(claimId: string) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
-  assertOwnsOrSuper(admin, await getCardOwner(supabase, cardId));
 
-  const { data: card, error: fetchError } = await supabase
-    .from("cards")
-    .select("title, price, claimant_id, order_id")
-    .eq("id", cardId)
-    .single();
-  if (fetchError || !card) throw new Error(fetchError?.message ?? "Card not found");
+  const claim = await getClaimWithCard(supabase, claimId);
+  assertOwnsOrSuper(admin, claim.cards?.admin_id ?? null);
 
   const { error } = await supabase
-    .from("cards")
-    .update({ status: "SOLD", sold_at: new Date().toISOString() })
-    .eq("id", cardId);
+    .from("card_claims")
+    .update({ status: "SOLD", confirmed_at: new Date().toISOString() })
+    .eq("id", claimId);
   if (error) throw new Error(error.message);
 
-  await cancelQueue(supabase, cardId);
   revalidateAdmin();
 
-  if (card.claimant_id) {
-    await notifyBuyerPaymentConfirmed(supabase, card.claimant_id, card.order_id, {
-      title: card.title,
-      price: card.price,
+  if (claim.buyer_id) {
+    const title = claim.cards?.title ?? "Card";
+    await notifyBuyerPaymentConfirmed(supabase, claim.buyer_id, claim.order_id, {
+      title,
+      price: claim.unit_price * claim.quantity,
     });
     await notifyUser(supabase, {
-      recipientId: card.claimant_id,
+      recipientId: claim.buyer_id,
       type: "payment_confirmed",
       title: "Payment confirmed",
-      body: `Your payment for "${card.title}" has been confirmed.`,
+      body: `Your payment for "${title}" has been confirmed.`,
       link: "/account/dibs",
     });
   }
 }
 
-export async function cancelRelist(cardId: string) {
+export async function cancelRelist(claimId: string) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
 
-  const { data: card, error: cardFetchError } = await supabase
-    .from("cards")
-    .select("admin_id, list_price, title, claimant_id")
-    .eq("id", cardId)
-    .single();
-  if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
+  const claim = await getClaimWithCard(supabase, claimId);
+  const card = claim.cards;
+  if (!card) throw new Error("Card not found");
   assertOwnsOrSuper(admin, card.admin_id);
 
   const { count } = await supabase
     .from("disputes")
     .select("id", { count: "exact", head: true })
-    .eq("card_id", cardId)
+    .eq("claim_id", claimId)
     .not("status", "in", "(RESOLVED_REFUND,RESOLVED_DISMISSED)");
   if (count && count > 0) {
-    throw new Error("This card has an open dispute - resolve it before relisting.");
+    throw new Error("This claim has an open dispute - resolve it before relisting.");
   }
 
-  // Restore the real listed price - if this claim came from an accepted
-  // offer, `price` was overwritten with the negotiated amount, and that
-  // discount shouldn't stick around for whoever claims it next.
-  const { error } = await supabase
+  const { error: claimError } = await supabase
+    .from("card_claims")
+    .update({ status: "CANCELLED" })
+    .eq("id", claimId);
+  if (claimError) throw new Error(claimError.message);
+
+  // Restore the real listed price too, in case this claim came from an
+  // accepted offer and the card's `price` still carried that discount.
+  const newAvailable = card.quantity_available + claim.quantity;
+  const { error: cardError } = await supabase
     .from("cards")
     .update({
-      status: "AVAILABLE",
-      current_claimant: null,
-      claimant_id: null,
-      claimed_at: null,
-      order_id: null,
+      quantity_available: newAvailable,
+      status: newAvailable > 0 ? "AVAILABLE" : "SOLD",
       price: card.list_price,
     })
-    .eq("id", cardId);
-  if (error) throw new Error(error.message);
+    .eq("id", claim.card_id);
+  if (cardError) throw new Error(cardError.message);
 
-  await cancelQueue(supabase, cardId);
+  await cancelQueue(supabase, claim.card_id);
   revalidateAdmin();
 
   await notifyUser(supabase, {
-    recipientId: card.claimant_id,
+    recipientId: claim.buyer_id,
     type: "listing_cancelled",
     title: "Listing cancelled",
     body: `"${card.title}" was cancelled and re-listed by the seller.`,
@@ -233,10 +252,13 @@ export async function cancelRelist(cardId: string) {
 }
 
 /**
- * Promotes the earliest WAITING queue entry to be the card's new claimant
- * (the admin then reaches out to that buyer manually, since the app has no
- * way to message them directly). Falls back to releasing the card to
- * AVAILABLE if the queue is empty.
+ * Promotes the earliest WAITING queue entry whose requested_quantity fits
+ * into the card's current quantity_available, turning it into a new
+ * card_claims row (the admin then reaches out to that buyer manually, since
+ * the app has no way to message them directly). No-ops if nothing in the
+ * queue currently fits - unlike the old single-claimant model, there's no
+ * "release the card" fallback needed here anymore: quantity_available
+ * already reflects what's genuinely open, with no separate manual reset.
  */
 export async function promoteNextInQueue(cardId: string) {
   const admin = await requireAdmin();
@@ -244,7 +266,7 @@ export async function promoteNextInQueue(cardId: string) {
 
   const { data: card, error: cardFetchError } = await supabase
     .from("cards")
-    .select("admin_id, list_price")
+    .select("admin_id, list_price, quantity_available")
     .eq("id", cardId)
     .single();
   if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
@@ -255,39 +277,32 @@ export async function promoteNextInQueue(cardId: string) {
     .select("*")
     .eq("card_id", cardId)
     .eq("status", "WAITING")
+    .lte("requested_quantity", card.quantity_available)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (fetchError) throw new Error(fetchError.message);
 
   if (!next) {
-    const { error } = await supabase
-      .from("cards")
-      .update({
-        status: "AVAILABLE",
-        current_claimant: null,
-        claimant_id: null,
-        claimed_at: null,
-        order_id: null,
-        price: card.list_price,
-      })
-      .eq("id", cardId);
-    if (error) throw new Error(error.message);
-    revalidateAdmin();
     return { promoted: false as const };
   }
 
-  // The buyer being promoted never negotiated the previous claimant's
-  // offer-discounted price, so this resets to the real listed price too.
+  // The buyer being promoted never negotiated any previous claimant's
+  // offer-discounted price, so this claims at the real listed price.
+  const { error: claimError } = await supabase.from("card_claims").insert({
+    card_id: cardId,
+    buyer_id: next.buyer_id,
+    buyer_handle: next.buyer_handle,
+    quantity: next.requested_quantity,
+    unit_price: card.list_price,
+    status: "PENDING",
+  });
+  if (claimError) throw new Error(claimError.message);
+
+  const newAvailable = card.quantity_available - next.requested_quantity;
   const { error: cardError } = await supabase
     .from("cards")
-    .update({
-      current_claimant: next.buyer_handle,
-      claimant_id: next.buyer_id,
-      status: "PENDING",
-      claimed_at: new Date().toISOString(),
-      price: card.list_price,
-    })
+    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
     .eq("id", cardId);
   if (cardError) throw new Error(cardError.message);
 
@@ -310,12 +325,14 @@ export async function promoteNextInQueue(cardId: string) {
   return { promoted: true as const, buyerHandle: next.buyer_handle as string };
 }
 
-export async function setShipped(cardId: string, shipped: boolean) {
+export async function setShipped(claimId: string, shipped: boolean) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
-  assertOwnsOrSuper(admin, await getCardOwner(supabase, cardId));
 
-  const { error } = await supabase.from("cards").update({ shipped }).eq("id", cardId);
+  const claim = await getClaimWithCard(supabase, claimId);
+  assertOwnsOrSuper(admin, claim.cards?.admin_id ?? null);
+
+  const { error } = await supabase.from("card_claims").update({ shipped }).eq("id", claimId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
 }
@@ -341,17 +358,36 @@ export async function acceptOffer(offerId: string) {
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
 
-  assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
+  const { data: card, error: cardFetchError } = await supabase
+    .from("cards")
+    .select("admin_id, quantity_available")
+    .eq("id", offer.card_id)
+    .single();
+  if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
+  assertOwnsOrSuper(admin, card.admin_id);
 
+  if (card.quantity_available < 1) {
+    throw new Error("No stock left on this card to accept an offer for.");
+  }
+
+  // Only this one unit is sold at the negotiated price - `cards.price`
+  // (what any other buyer pays for the remaining stock) is left untouched,
+  // unlike the old single-claimant model where accepting an offer discounted
+  // the whole listing for whoever claimed it next.
+  const { error: claimError } = await supabase.from("card_claims").insert({
+    card_id: offer.card_id,
+    buyer_id: offer.buyer_id,
+    buyer_handle: offer.buyer_handle,
+    quantity: 1,
+    unit_price: offer.offered_amount,
+    status: "PENDING",
+  });
+  if (claimError) throw new Error(claimError.message);
+
+  const newAvailable = card.quantity_available - 1;
   const { error: cardError } = await supabase
     .from("cards")
-    .update({
-      status: "PENDING",
-      price: offer.offered_amount,
-      current_claimant: offer.buyer_handle,
-      claimant_id: offer.buyer_id,
-      claimed_at: new Date().toISOString(),
-    })
+    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
     .eq("id", offer.card_id);
   if (cardError) throw new Error(cardError.message);
 
@@ -361,13 +397,17 @@ export async function acceptOffer(offerId: string) {
     .eq("id", offerId);
   if (offerError) throw new Error(offerError.message);
 
-  await supabase
-    .from("offers")
-    .update({ status: "SUPERSEDED" })
-    .eq("card_id", offer.card_id)
-    .eq("status", "PENDING");
+  // Only decline other buyers' offers once stock is genuinely gone - with
+  // several units in play, one accepted offer no longer means nobody else
+  // can still buy in.
+  if (newAvailable <= 0) {
+    await supabase
+      .from("offers")
+      .update({ status: "SUPERSEDED" })
+      .eq("card_id", offer.card_id)
+      .eq("status", "PENDING");
+  }
 
-  await cancelQueue(supabase, offer.card_id);
   revalidateAdmin();
 }
 
@@ -624,28 +664,34 @@ export interface CreateCardInput {
   setName: string;
   price: number;
   conditionGrade: string;
+  rarity: string;
   images: string[];
   sellerHandle: string;
   sellerMessenger: string;
   isFlashSale: boolean;
   franchise: string;
+  quantity: number;
 }
 
 export async function createCard(input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
+  const quantity = Math.max(1, Math.round(input.quantity) || 1);
   const { error } = await supabase.from("cards").insert({
     title: input.title,
     set_name: input.setName,
     price: input.price,
     list_price: input.price,
     condition_grade: input.conditionGrade,
+    rarity: input.rarity,
     images: input.images,
     seller_handle: input.sellerHandle,
     seller_messenger: input.sellerMessenger,
     is_flash_sale: input.isFlashSale,
     franchise: input.franchise,
     admin_id: admin.id,
+    quantity,
+    quantity_available: quantity,
   });
   if (error) throw new Error(error.message);
   revalidateAdmin();
@@ -655,6 +701,21 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
   assertOwnsOrSuper(admin, await getCardOwner(supabase, cardId));
+
+  const { data: existing, error: existingError } = await supabase
+    .from("cards")
+    .select("status, quantity, quantity_available")
+    .eq("id", cardId)
+    .single();
+  if (existingError || !existing) throw new Error(existingError?.message ?? "Card not found");
+
+  const quantity = Math.max(1, Math.round(input.quantity) || 1);
+  const claimed = existing.quantity - existing.quantity_available;
+  if (quantity < claimed) {
+    throw new Error(`Quantity can't be less than ${claimed} - that many units are already claimed.`);
+  }
+  const quantityAvailable = quantity - claimed;
+  const status = existing.status === "DRAFT" ? "DRAFT" : quantityAvailable > 0 ? "AVAILABLE" : "SOLD";
 
   const { error } = await supabase
     .from("cards")
@@ -668,11 +729,15 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
       // between price and list_price.
       list_price: input.price,
       condition_grade: input.conditionGrade,
+      rarity: input.rarity,
       images: input.images,
       seller_handle: input.sellerHandle,
       seller_messenger: input.sellerMessenger,
       is_flash_sale: input.isFlashSale,
       franchise: input.franchise,
+      quantity,
+      quantity_available: quantityAvailable,
+      status,
     })
     .eq("id", cardId);
   if (error) throw new Error(error.message);

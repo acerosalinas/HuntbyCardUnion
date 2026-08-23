@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
+import { RarityBadge } from "@/components/RarityBadge";
 import { OfferModal } from "@/components/OfferModal";
+import { Input } from "@/components/ui/Input";
 import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useRealtimeCard } from "@/hooks/useRealtimeCard";
 import { useCardQueue } from "@/hooks/useCardQueue";
+import { useMyClaims } from "@/hooks/useMyClaims";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CardItem, SellerProfile } from "@/types/marketplace";
@@ -25,6 +28,7 @@ export function CardDetail({
 }) {
   const card = useRealtimeCard(initialCard);
   const queue = useCardQueue(card.id);
+  const myClaims = useMyClaims(card.id);
   const negotiatingCardIds = useNegotiatingCardIds();
   const isNegotiating = negotiatingCardIds.has(card.id);
   const { isInCart, addToCart, removeFromCart } = useCart();
@@ -32,26 +36,22 @@ export function CardDetail({
   const [activeImage, setActiveImage] = useState(0);
   const [offerOpen, setOfferOpen] = useState(false);
   const [addedNotice, setAddedNotice] = useState(false);
+  const [qty, setQty] = useState(1);
 
-  const isAvailable = card.status === "AVAILABLE";
-  const isPending = card.status === "PENDING";
+  const inStock = card.quantityAvailable > 0;
   const isSold = card.status === "SOLD";
   const images = card.images;
 
-  const isMyClaim = isPending && buyer !== null && card.claimantId === buyer.id;
+  const myPendingClaims = myClaims.filter((c) => c.status === "PENDING");
+  const myPendingQuantity = myPendingClaims.reduce((sum, c) => sum + c.quantity, 0);
   const myQueueIndex = buyer ? queue.findIndex((q) => q.buyerId === buyer.id) : -1;
   const isQueued = myQueueIndex !== -1;
   const inCart = isInCart(card.id);
+  const maxQty = Math.max(1, card.quantityAvailable);
 
-  let cartLabel = "Add to Cart";
+  let cartLabel = inStock ? "Add to Cart" : "Join Waitlist";
   let cartDisabled = false;
-  if (isSold) {
-    cartLabel = "Sold";
-    cartDisabled = true;
-  } else if (isMyClaim) {
-    cartLabel = "You Have Dibs";
-    cartDisabled = true;
-  } else if (isQueued) {
+  if (isQueued) {
     cartLabel = "In Queue";
     cartDisabled = true;
   } else if (inCart) {
@@ -64,7 +64,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    addToCart(card.id);
+    addToCart(card.id, qty);
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -116,6 +116,7 @@ export function CardDetail({
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <ConditionBadges conditionGrade={card.conditionGrade} />
+            <RarityBadge rarity={card.rarity} />
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
             <StatusBadge status={card.status} />
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
@@ -127,7 +128,14 @@ export function CardDetail({
           </div>
 
           <div className="flex items-center justify-between border-y border-card-border py-3">
-            <span className="text-3xl font-bold text-foreground">{formatCurrency(card.price)}</span>
+            <div>
+              <span className="text-3xl font-bold text-foreground">{formatCurrency(card.price)}</span>
+              {card.quantity > 1 && (
+                <p className="text-xs text-foreground-muted">
+                  {card.quantityAvailable} of {card.quantity} available
+                </p>
+              )}
+            </div>
             {initialSellerProfile ? (
               <Link
                 href={`/sellers/${initialSellerProfile.handle}`}
@@ -148,11 +156,19 @@ export function CardDetail({
             )}
           </div>
 
-          {isPending && (
+          {(myPendingQuantity > 0 || queue.length > 0) && (
             <div className="flex flex-col gap-1 rounded-xl bg-pending-bg px-4 py-3">
-              {card.currentClaimant && (
-                <span className="text-sm text-foreground-muted">
-                  Claimed by <span className="font-medium text-foreground">{card.currentClaimant}</span>
+              {myPendingQuantity > 0 && (
+                <span className="flex items-center gap-1.5 text-sm font-medium text-available">
+                  <CheckCircle2 size={14} />
+                  You have dibs on {myPendingQuantity} — complete payment via Messenger.
+                </span>
+              )}
+              {isQueued && (
+                <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
+                  <Hourglass size={14} />
+                  You&apos;re #{myQueueIndex + 1} in queue, waiting for {queue[myQueueIndex].requestedQuantity} unit
+                  {queue[myQueueIndex].requestedQuantity === 1 ? "" : "s"}.
                 </span>
               )}
               {queue.length > 0 && (
@@ -160,25 +176,11 @@ export function CardDetail({
                   {queue.length} {queue.length === 1 ? "person" : "people"} waiting in queue
                 </span>
               )}
-              {isMyClaim && (
-                <span className="flex items-center gap-1.5 text-sm font-medium text-available">
-                  <CheckCircle2 size={14} />
-                  You have dibs — complete payment via Messenger.
-                </span>
-              )}
-              {isQueued && !isMyClaim && (
-                <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
-                  <Hourglass size={14} />
-                  You&apos;re #{myQueueIndex + 1} in queue for this card.
-                </span>
-              )}
             </div>
           )}
 
           {isSold && (
-            <div className="rounded-xl bg-sold-bg px-4 py-3 text-sm font-medium text-sold">
-              SOLD {card.currentClaimant ? `TO ${card.currentClaimant}` : ""}
-            </div>
+            <div className="rounded-xl bg-sold-bg px-4 py-3 text-sm font-medium text-sold">Sold Out</div>
           )}
 
           {addedNotice && (
@@ -186,6 +188,20 @@ export function CardDetail({
               <ShoppingCart size={14} />
               Added to cart.
             </p>
+          )}
+
+          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
+              <Input
+                type="number"
+                min={1}
+                max={maxQty}
+                value={qty}
+                onChange={(e) => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
+                className="w-20"
+              />
+            </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
@@ -198,8 +214,8 @@ export function CardDetail({
               {cartLabel}
             </Button>
             <Button
-              variant={isAvailable ? "gold" : "disabled"}
-              disabled={!isAvailable}
+              variant={inStock ? "gold" : "disabled"}
+              disabled={!inStock}
               onClick={() => setOfferOpen(true)}
             >
               Make Offer

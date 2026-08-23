@@ -7,8 +7,10 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
 import { SearchBar } from "@/components/SearchBar";
 import { CategoryFilters } from "@/components/CategoryFilters";
+import { RarityFilter } from "@/components/RarityFilter";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CartNavLink } from "@/components/CartNavLink";
+import { MyDibsNavLink } from "@/components/MyDibsNavLink";
 import { AccountNavLink } from "@/components/AccountNavLink";
 import { useNavPending } from "@/components/NavPendingProvider";
 import { BuyerNotificationBell } from "@/components/BuyerNotificationBell";
@@ -66,6 +68,7 @@ export function Navbar() {
                   <span className="hidden sm:inline">Marketplace</span>
                 </Link>
                 <CartNavLink />
+                <MyDibsNavLink />
                 <AccountNavLink />
                 <BuyerNotificationBell />
               </div>
@@ -76,7 +79,10 @@ export function Navbar() {
         {showBrowseControls && (
           <>
             <SearchBar className="md:hidden" />
-            <CategoryFilters />
+            <div className="flex flex-wrap items-center gap-2">
+              <CategoryFilters />
+              <RarityFilter className="w-auto" />
+            </div>
           </>
         )}
       </div>

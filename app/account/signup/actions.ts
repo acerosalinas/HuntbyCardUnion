@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
+import { resolveOrigin } from "@/lib/origin";
 
 export async function signup(_prevState: { error: string | null }, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
@@ -37,11 +38,21 @@ export async function signup(_prevState: { error: string | null }, formData: For
     return { error: "That handle is already taken." };
   }
 
+  const origin = await resolveOrigin();
   const supabase = await createAuthServerClient("buyer");
   const { error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { handle, full_name: fullName } },
+    options: {
+      data: { handle, full_name: fullName },
+      // Without this, Supabase falls back to whatever "Site URL" is
+      // configured in the dashboard - left over from local dev, that meant
+      // every confirmation email pointed at localhost regardless of where
+      // the app is actually deployed. This must also be added to the
+      // project's Redirect URLs allow-list in the Supabase dashboard or it
+      // gets silently ignored in favor of that same fallback.
+      emailRedirectTo: `${origin}/auth/callback?from=${encodeURIComponent(from)}`,
+    },
   });
 
   if (error) {

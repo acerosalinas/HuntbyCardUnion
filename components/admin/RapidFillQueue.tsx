@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
+import { RARITIES, DEFAULT_RARITY } from "@/lib/rarity";
 import { CONDITION_LABELS, ConditionCode, parseConditionGrade } from "@/lib/conditionGrade";
 import { deleteCard, publishDrafts, updateCard } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
@@ -22,7 +23,9 @@ interface FormState {
   title: string;
   setName: string;
   price: string;
+  quantity: string;
   franchise: string;
+  rarity: string;
   cardType: CardType;
   condition: ConditionCode;
   grader: string;
@@ -35,7 +38,9 @@ function formStateFromCard(card: CardItem): FormState {
     title: card.title,
     setName: card.setName,
     price: String(card.price),
+    quantity: String(card.quantity),
     franchise: card.franchise ?? FRANCHISES[0].slug,
+    rarity: card.rarity || DEFAULT_RARITY,
     cardType: parsed.type,
     condition: parsed.type === "RAW" ? parsed.condition : "NM",
     grader: parsed.type === "GRADED" ? parsed.grader : GRADERS[0],
@@ -90,6 +95,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
     }
 
     const conditionGrade = form.cardType === "RAW" ? `Raw ${form.condition}` : `${form.grader} ${form.gradeNumber}`;
+    const quantity = Math.max(1, Math.round(Number(form.quantity)) || 1);
 
     setError(null);
     setSaving(true);
@@ -98,16 +104,32 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       setName: form.setName.trim(),
       price,
       conditionGrade,
+      rarity: form.rarity,
       images: current.images,
       sellerHandle: current.sellerHandle,
       sellerMessenger: current.sellerMessenger,
       isFlashSale: current.isFlashSale,
       franchise: form.franchise,
+      quantity,
     })
       .then(() => {
         setCompleted((prev) => new Set(prev).add(current.id));
         setQueue((prev) =>
-          prev.map((c) => (c.id === current.id ? { ...c, title: form.title.trim(), setName: form.setName.trim(), price, conditionGrade, franchise: form.franchise } : c)),
+          prev.map((c) =>
+            c.id === current.id
+              ? {
+                  ...c,
+                  title: form.title.trim(),
+                  setName: form.setName.trim(),
+                  price,
+                  conditionGrade,
+                  rarity: form.rarity,
+                  franchise: form.franchise,
+                  quantity,
+                  quantityAvailable: quantity,
+                }
+              : c,
+          ),
         );
         if (currentIndex < queue.length - 1) {
           setCurrentIndex((i) => i + 1);
@@ -239,6 +261,18 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+              Rarity *
+            </label>
+            <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
+              {RARITIES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
               Price (₱) *
             </label>
             <Input
@@ -247,6 +281,20 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
               step="0.01"
               value={form.price}
               onChange={(e) => set("price", e.target.value)}
+              onFocus={(e) => e.target.select()}
+              required
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+              Quantity *
+            </label>
+            <Input
+              type="number"
+              min={1}
+              step="1"
+              value={form.quantity}
+              onChange={(e) => set("quantity", e.target.value)}
               onFocus={(e) => e.target.select()}
               required
             />

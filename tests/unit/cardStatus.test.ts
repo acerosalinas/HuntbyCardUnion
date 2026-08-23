@@ -17,20 +17,24 @@ test("nothing can transition back into DRAFT", () => {
   }
 });
 
-test("AVAILABLE can move to PENDING (claimed), not directly to SOLD", () => {
-  assert.equal(canTransitionCardStatus("AVAILABLE", "PENDING"), true);
-  assert.equal(canTransitionCardStatus("AVAILABLE", "SOLD"), false);
+test("AVAILABLE can move to SOLD (stock exhausted), not to PENDING", () => {
+  assert.equal(canTransitionCardStatus("AVAILABLE", "SOLD"), true);
+  assert.equal(canTransitionCardStatus("AVAILABLE", "PENDING"), false);
 });
 
-test("PENDING can move to AVAILABLE (released) or SOLD (confirmed paid)", () => {
-  assert.equal(canTransitionCardStatus("PENDING", "AVAILABLE"), true);
-  assert.equal(canTransitionCardStatus("PENDING", "SOLD"), true);
-});
-
-test("SOLD is terminal - no transition out", () => {
+test("PENDING is no longer a row-level status - no transitions in or out", () => {
   for (const target of ALL_STATUSES) {
-    assert.equal(canTransitionCardStatus("SOLD", target), false, `SOLD -> ${target} should be rejected`);
+    assert.equal(canTransitionCardStatus("PENDING", target), false, `PENDING -> ${target} should be rejected`);
   }
+  for (const from of ALL_STATUSES) {
+    assert.equal(canTransitionCardStatus(from, "PENDING"), false, `${from} -> PENDING should be rejected`);
+  }
+});
+
+test("SOLD can move back to AVAILABLE (a cancelled claim frees stock)", () => {
+  assert.equal(canTransitionCardStatus("SOLD", "AVAILABLE"), true);
+  assert.equal(canTransitionCardStatus("SOLD", "DRAFT"), false);
+  assert.equal(canTransitionCardStatus("SOLD", "PENDING"), false);
 });
 
 test("no status can transition to itself", () => {

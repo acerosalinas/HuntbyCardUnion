@@ -83,6 +83,9 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
                   <span className="text-sm font-bold text-foreground">{formatCurrency(card.price)}</span>
                   <span className="text-xs text-foreground-muted">{card.sellerHandle}</span>
                 </div>
+                <span className="text-xs text-foreground-muted">
+                  Stock: {card.quantityAvailable} / {card.quantity}
+                </span>
               </div>
 
               <div className="flex gap-2 p-3 pt-0">

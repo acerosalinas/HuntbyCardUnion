@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
+import { RARITIES, DEFAULT_RARITY } from "@/lib/rarity";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
 
@@ -36,6 +37,8 @@ interface FormState {
   sellerMessenger: string;
   isFlashSale: boolean;
   franchise: string;
+  quantity: string;
+  rarity: string;
 }
 
 const emptyForm: FormState = {
@@ -50,6 +53,8 @@ const emptyForm: FormState = {
   sellerMessenger: "CardUnion1",
   isFlashSale: false,
   franchise: FRANCHISES[0].slug,
+  quantity: "1",
+  rarity: DEFAULT_RARITY,
 };
 
 /** Best-effort reverse-parse of a stored "Raw NM" / "PSA 10" string back into structured fields. */
@@ -85,6 +90,8 @@ function formStateFromCard(card: CardItem): FormState {
     sellerMessenger: card.sellerMessenger,
     isFlashSale: card.isFlashSale,
     franchise: card.franchise ?? FRANCHISES[0].slug,
+    quantity: String(card.quantity),
+    rarity: card.rarity || DEFAULT_RARITY,
   };
 }
 
@@ -148,11 +155,13 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       setName: form.setName,
       price,
       conditionGrade,
+      rarity: form.rarity,
       images,
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
       isFlashSale: form.isFlashSale,
       franchise: form.franchise,
+      quantity: Math.max(1, Math.round(Number(form.quantity)) || 1),
     };
 
     startTransition(async () => {
@@ -183,6 +192,21 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       <Field label="Price (₱) *">
         <Input type="number" min={0} step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} required />
       </Field>
+      <Field label="Quantity *">
+        <Input
+          type="number"
+          min={card ? card.quantity - card.quantityAvailable || 1 : 1}
+          step="1"
+          value={form.quantity}
+          onChange={(e) => set("quantity", e.target.value)}
+          required
+        />
+        {card && card.quantity - card.quantityAvailable > 0 && (
+          <p className="mt-1 text-xs text-foreground-muted">
+            {card.quantity - card.quantityAvailable} already claimed - can&apos;t go below that.
+          </p>
+        )}
+      </Field>
       <Field label="Seller Handle *">
         <Input placeholder="@seller" value={form.sellerHandle} onChange={(e) => set("sellerHandle", e.target.value)} required />
       </Field>
@@ -192,6 +216,16 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
           {FRANCHISES.map((f) => (
             <option key={f.slug} value={f.slug}>
               {f.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field label="Rarity *" className="sm:col-span-2">
+        <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
+          {RARITIES.map((r) => (
+            <option key={r} value={r}>
+              {r}
             </option>
           ))}
         </Select>
