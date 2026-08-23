@@ -203,7 +203,7 @@ begin
     if v_card.quantity_available >= v_qty then
       update cards
         set quantity_available = quantity_available - v_qty,
-            status = case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end
+            status = (case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end)::card_status
         where id = v_card_id;
 
       v_claim_card_ids := v_claim_card_ids || v_card_id;
