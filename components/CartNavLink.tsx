@@ -6,7 +6,7 @@ import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 
 export function CartNavLink() {
-  const { cardIds } = useCart();
+  const { items } = useCart();
   const { buyer } = useBuyerIdentity();
 
   if (!buyer) return null;
@@ -18,9 +18,9 @@ export function CartNavLink() {
     >
       <ShoppingCart size={18} />
       <span className="hidden sm:inline">Cart</span>
-      {cardIds.length > 0 && (
+      {items.length > 0 && (
         <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-gold px-1 text-[10px] font-bold text-navy-950">
-          {cardIds.length}
+          {items.length}
         </span>
       )}
     </Link>

@@ -15,7 +15,9 @@ export type NotificationType =
   | "dispute_withdrawn"
   | "dispute_response"
   | "dispute_under_review"
-  | "dispute_resolved";
+  | "dispute_resolved"
+  | "claim_cancelled_by_buyer"
+  | "review_received";
 
 export interface CardItem {
   id: string;
@@ -25,20 +27,70 @@ export interface CardItem {
   /** The admin-set listing price, independent of `price` - see supabase/schema.sql for why. */
   listPrice: number;
   conditionGrade: string; // e.g. 'PSA 10', 'BGS 9.5', 'Raw NM'
+  rarity: string; // fixed dropdown vocabulary - see lib/rarity.ts
   images: string[];
   sellerHandle: string;
   sellerMessenger: string; // m.me username used for the Claim Dibs redirect
   status: CardStatus;
-  currentClaimant?: string | null;
-  claimantId: string | null;
-  claimedAt: number | null;
+  /** Total units ever listed (admin-editable). */
+  quantity: number;
+  /** Units not yet claimed by anyone - see card_claims for who holds the rest. */
+  quantityAvailable: number;
   isFlashSale: boolean;
   adminId: string | null;
   franchise: string | null; // slug, e.g. 'pokemon', 'one-piece' - see lib/franchises.ts
-  soldAt: number | null;
-  shipped: boolean;
-  orderId: string | null;
   createdAt: number;
+}
+
+export type ClaimStatus = "PENDING" | "SOLD" | "CANCELLED";
+
+/** One buyer's claim on some quantity of a card's stock - see supabase/schema.sql's card_claims table. */
+export interface CardClaim {
+  id: string;
+  cardId: string;
+  orderId: string | null;
+  buyerHandle: string;
+  buyerId: string | null;
+  quantity: number;
+  unitPrice: number;
+  status: ClaimStatus;
+  claimedAt: number;
+  confirmedAt: number | null;
+  shipped: boolean;
+  /** Buyer-set via mark_claim_received() - the final stage of the My Dibs order tracker, ahead of leaving a review. */
+  receivedAt: number | null;
+}
+
+export interface CardClaimRow {
+  id: string;
+  card_id: string;
+  order_id: string | null;
+  buyer_handle: string;
+  buyer_id: string | null;
+  quantity: number;
+  unit_price: number;
+  status: ClaimStatus;
+  claimed_at: string;
+  confirmed_at: string | null;
+  shipped: boolean;
+  received_at: string | null;
+}
+
+export function cardClaimFromRow(row: CardClaimRow): CardClaim {
+  return {
+    id: row.id,
+    cardId: row.card_id,
+    orderId: row.order_id,
+    buyerHandle: row.buyer_handle,
+    buyerId: row.buyer_id,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    status: row.status,
+    claimedAt: new Date(row.claimed_at).getTime(),
+    confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
+    shipped: row.shipped,
+    receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
+  };
 }
 
 export interface Order {
@@ -67,14 +119,20 @@ export function orderFromRow(row: OrderRow): Order {
   };
 }
 
-export type PlaceOrderItemResult = "claimed" | "queued" | "already_yours" | "sold" | "not_found";
+export type PlaceOrderItemResult = "claimed" | "queued" | "not_found";
 
 export interface PlaceOrderItem {
   cardId: string;
   title?: string;
   result: PlaceOrderItemResult;
   price?: number;
+  quantity?: number;
   position?: number;
+}
+
+export interface PlaceOrderCartItem {
+  cardId: string;
+  quantity: number;
 }
 
 export interface PlaceOrderResult {
@@ -99,6 +157,7 @@ export interface QueueEntry {
   cardId: string;
   buyerHandle: string;
   buyerId: string | null;
+  requestedQuantity: number;
   status: QueueStatus;
   createdAt: number;
 }
@@ -113,6 +172,7 @@ export interface DynamicLogoProps {
 export interface Dispute {
   id: string;
   cardId: string;
+  claimId: string | null;
   orderId: string | null;
   buyerId: string;
   sellerAdminId: string | null;
@@ -128,6 +188,7 @@ export interface Dispute {
 export interface DisputeRow {
   id: string;
   card_id: string;
+  claim_id: string | null;
   order_id: string | null;
   buyer_id: string;
   seller_admin_id: string | null;
@@ -144,6 +205,7 @@ export function disputeFromRow(row: DisputeRow): Dispute {
   return {
     id: row.id,
     cardId: row.card_id,
+    claimId: row.claim_id,
     orderId: row.order_id,
     buyerId: row.buyer_id,
     sellerAdminId: row.seller_admin_id,
@@ -193,6 +255,45 @@ export function disputeEvidenceFromRow(row: DisputeEvidenceRow): DisputeEvidence
     fileName: row.file_name,
     contentType: row.content_type,
     note: row.note,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+/** A buyer's rating + optional comment on one specific purchase (card_claims row) - public, shown on the seller's profile. */
+export interface Review {
+  id: string;
+  claimId: string;
+  cardId: string;
+  sellerAdminId: string | null;
+  buyerId: string;
+  buyerHandle: string;
+  rating: number;
+  comment: string | null;
+  createdAt: number;
+}
+
+export interface ReviewRow {
+  id: string;
+  claim_id: string;
+  card_id: string;
+  seller_admin_id: string | null;
+  buyer_id: string;
+  buyer_handle: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
+export function reviewFromRow(row: ReviewRow): Review {
+  return {
+    id: row.id,
+    claimId: row.claim_id,
+    cardId: row.card_id,
+    sellerAdminId: row.seller_admin_id,
+    buyerId: row.buyer_id,
+    buyerHandle: row.buyer_handle,
+    rating: row.rating,
+    comment: row.comment,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
@@ -253,19 +354,16 @@ export interface CardRow {
   price: number;
   list_price: number;
   condition_grade: string;
+  rarity: string;
   images: string[];
   seller_handle: string;
   seller_messenger: string;
   status: CardStatus;
-  current_claimant: string | null;
-  claimant_id: string | null;
-  claimed_at: string | null;
+  quantity: number;
+  quantity_available: number;
   is_flash_sale: boolean;
   admin_id: string | null;
   franchise: string | null;
-  sold_at: string | null;
-  shipped: boolean;
-  order_id: string | null;
   created_at: string;
 }
 
@@ -285,6 +383,7 @@ export interface QueueEntryRow {
   card_id: string;
   buyer_handle: string;
   buyer_id: string | null;
+  requested_quantity: number;
   status: QueueStatus;
   created_at: string;
 }
@@ -297,19 +396,16 @@ export function cardFromRow(row: CardRow): CardItem {
     price: row.price,
     listPrice: row.list_price,
     conditionGrade: row.condition_grade,
+    rarity: row.rarity,
     images: row.images ?? [],
     sellerHandle: row.seller_handle,
     sellerMessenger: row.seller_messenger,
     status: row.status,
-    currentClaimant: row.current_claimant,
-    claimantId: row.claimant_id,
-    claimedAt: row.claimed_at ? new Date(row.claimed_at).getTime() : null,
+    quantity: row.quantity,
+    quantityAvailable: row.quantity_available,
     isFlashSale: row.is_flash_sale,
     adminId: row.admin_id,
     franchise: row.franchise,
-    soldAt: row.sold_at ? new Date(row.sold_at).getTime() : null,
-    shipped: row.shipped,
-    orderId: row.order_id,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
@@ -333,6 +429,7 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
     cardId: row.card_id,
     buyerHandle: row.buyer_handle,
     buyerId: row.buyer_id,
+    requestedQuantity: row.requested_quantity,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
   };

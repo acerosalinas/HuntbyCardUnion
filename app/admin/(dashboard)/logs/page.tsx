@@ -1,24 +1,45 @@
-import { SalesLogTable } from "@/components/admin/SalesLogTable";
+import { SalesLogTable, SoldClaimView } from "@/components/admin/SalesLogTable";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
-import { CardRow, cardFromRow } from "@/types/marketplace";
+
+interface ClaimJoinRow {
+  id: string;
+  card_id: string;
+  buyer_handle: string;
+  order_id: string | null;
+  quantity: number;
+  unit_price: number;
+  confirmed_at: string | null;
+  shipped: boolean;
+  cards: { title: string; admin_id: string | null } | null;
+}
 
 export default async function AdminLogsPage() {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
 
   let query = supabase
-    .from("cards")
-    .select("*")
+    .from("card_claims")
+    .select("id, card_id, buyer_handle, order_id, quantity, unit_price, confirmed_at, shipped, cards!inner(title, admin_id)")
     .eq("status", "SOLD")
-    .order("sold_at", { ascending: false });
+    .order("confirmed_at", { ascending: false });
 
   if (admin.role !== "SUPER_ADMIN") {
-    query = query.eq("admin_id", admin.id);
+    query = query.eq("cards.admin_id", admin.id);
   }
 
   const { data } = await query;
-  const cards = ((data as CardRow[] | null) ?? []).map(cardFromRow);
+  const claims: SoldClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
+    id: row.id,
+    cardId: row.card_id,
+    cardTitle: row.cards?.title ?? "Card",
+    buyerHandle: row.buyer_handle,
+    orderId: row.order_id,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
+    shipped: row.shipped,
+  }));
 
-  return <SalesLogTable cards={cards} />;
+  return <SalesLogTable claims={claims} />;
 }

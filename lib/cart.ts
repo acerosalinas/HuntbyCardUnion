@@ -1,21 +1,29 @@
 const CART_STORAGE_KEY = "dibs_cart";
 const CART_OWNER_STORAGE_KEY = "dibs_cart_owner";
 
-export function getStoredCartIds(): string[] {
+export interface StoredCartItem {
+  cardId: string;
+  quantity: number;
+}
+
+export function getStoredCartItems(): StoredCartItem[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(CART_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is StoredCartItem => item && typeof item.cardId === "string")
+      .map((item) => ({ cardId: item.cardId, quantity: Math.max(1, Math.round(item.quantity) || 1) }));
   } catch {
     return [];
   }
 }
 
-export function setStoredCartIds(ids: string[]): void {
+export function setStoredCartItems(items: StoredCartItem[]): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(ids));
+  window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
 }
 
 /** Buyer id the stored cart currently belongs to, or null if it was last saved while signed out. */

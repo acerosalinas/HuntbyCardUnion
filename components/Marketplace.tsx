@@ -27,7 +27,7 @@ export function Marketplace({
 }) {
   const cards = useRealtimeCards(initialCards);
   const negotiatingCardIds = useNegotiatingCardIds();
-  const { query, category } = useMarketplaceFilter();
+  const { query, category, rarity } = useMarketplaceFilter();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -36,16 +36,18 @@ export function Marketplace({
       if (category === "RAW" && isGraded(card.conditionGrade)) return false;
       if (category === "GRADED" && !isGraded(card.conditionGrade)) return false;
       if (category === "FLASH_SALE" && !card.isFlashSale) return false;
+      if (rarity !== "ALL" && card.rarity !== rarity) return false;
 
       if (!q) return true;
       return (
         card.title.toLowerCase().includes(q) ||
         card.setName.toLowerCase().includes(q) ||
         card.sellerHandle.toLowerCase().includes(q) ||
-        card.conditionGrade.toLowerCase().includes(q)
+        card.conditionGrade.toLowerCase().includes(q) ||
+        card.rarity.toLowerCase().includes(q)
       );
     });
-  }, [cards, query, category, franchiseSlug]);
+  }, [cards, query, category, rarity, franchiseSlug]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">

@@ -1,28 +1,47 @@
-import { PendingPaymentsTable } from "@/components/admin/PendingPaymentsTable";
+import { PendingPaymentsTable, PendingClaimView } from "@/components/admin/PendingPaymentsTable";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
-import { CardRow, cardFromRow } from "@/types/marketplace";
+
+interface ClaimJoinRow {
+  id: string;
+  card_id: string;
+  buyer_handle: string;
+  order_id: string | null;
+  quantity: number;
+  unit_price: number;
+  claimed_at: string;
+  cards: { title: string; admin_id: string | null } | null;
+}
 
 export default async function AdminPendingPaymentsPage() {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
 
   let query = supabase
-    .from("cards")
-    .select("*")
+    .from("card_claims")
+    .select("id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, cards!inner(title, admin_id)")
     .eq("status", "PENDING")
     .order("order_id", { ascending: true, nullsFirst: true })
     .order("claimed_at", { ascending: true });
 
   if (admin.role !== "SUPER_ADMIN") {
-    query = query.eq("admin_id", admin.id);
+    query = query.eq("cards.admin_id", admin.id);
   }
 
   const { data } = await query;
-  const cards = ((data as CardRow[] | null) ?? []).map(cardFromRow);
+  const claims: PendingClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
+    id: row.id,
+    cardId: row.card_id,
+    cardTitle: row.cards?.title ?? "Card",
+    buyerHandle: row.buyer_handle,
+    orderId: row.order_id,
+    quantity: row.quantity,
+    unitPrice: row.unit_price,
+    claimedAt: new Date(row.claimed_at).getTime(),
+  }));
 
   const queueCounts: Record<string, number> = {};
-  const cardIds = cards.map((c) => c.id);
+  const cardIds = [...new Set(claims.map((c) => c.cardId))];
   if (cardIds.length > 0) {
     const { data: queueRows } = await supabase
       .from("dibs_queue")
@@ -34,5 +53,5 @@ export default async function AdminPendingPaymentsPage() {
     }
   }
 
-  return <PendingPaymentsTable cards={cards} queueCounts={queueCounts} />;
+  return <PendingPaymentsTable claims={claims} queueCounts={queueCounts} />;
 }
