@@ -10,10 +10,8 @@ import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
-import { CardItem, CardRow, cardFromRow, PlaceOrderResult } from "@/types/marketplace";
-
-type FulfillmentMethod = "SHIP" | "STASH";
+import { buildMessengerUrl, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { CardItem, CardRow, cardFromRow, FulfillmentMethod, PlaceOrderResult } from "@/types/marketplace";
 
 export function CartContents() {
   const { items, setQuantity, removeFromCart, clearCart } = useCart();
@@ -29,7 +27,6 @@ export function CartContents() {
   const [shipPhone, setShipPhone] = useState("");
   const [shipAddress, setShipAddress] = useState("");
   const [shipZip, setShipZip] = useState("");
-  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
   const shipPrefilled = useRef(false);
 
   // Pre-fill from the buyer's saved shipping default (set at /account/edit)
@@ -71,7 +68,12 @@ export function CartContents() {
   }, [cardIds.join(",")]);
 
   const getQty = (cardId: string) => items.find((i) => i.cardId === cardId)?.quantity ?? 1;
+  const getFulfillment = (cardId: string): FulfillmentMethod =>
+    items.find((i) => i.cardId === cardId)?.fulfillmentMethod ?? "SHIP";
+  const shipCards = cards.filter((c) => getFulfillment(c.id) === "SHIP");
+  const stashCards = cards.filter((c) => getFulfillment(c.id) === "STASH");
   const total = cards.reduce((sum, c) => sum + c.price * getQty(c.id), 0);
+  const totalUnits = cards.reduce((sum, c) => sum + getQty(c.id), 0);
 
   const handlePlaceOrder = async () => {
     // The buyer's session/profile is fetched async on mount - if this fires
@@ -87,8 +89,8 @@ export function CartContents() {
       setError("Enter your name and phone number before checking out.");
       return;
     }
-    if (fulfillmentMethod === "SHIP" && (!shipAddress.trim() || !shipZip.trim())) {
-      setError("Enter your shipping address and zip code, or switch to Stash With Us.");
+    if (shipCards.length > 0 && (!shipAddress.trim() || !shipZip.trim())) {
+      setError("Enter your shipping address and zip code for the items you're shipping.");
       return;
     }
 
@@ -99,12 +101,11 @@ export function CartContents() {
     try {
       const supabase = createClient();
       const { data, error: rpcError } = await supabase.rpc("place_order", {
-        p_items: items.map((i) => ({ card_id: i.cardId, quantity: i.quantity })),
+        p_items: items.map((i) => ({ card_id: i.cardId, quantity: i.quantity, fulfillment_method: i.fulfillmentMethod })),
         p_ship_name: shipName.trim(),
         p_ship_phone: shipPhone.trim(),
-        p_ship_address: fulfillmentMethod === "SHIP" ? shipAddress.trim() : "",
-        p_ship_zip: fulfillmentMethod === "SHIP" ? shipZip.trim() : "",
-        p_fulfillment_method: fulfillmentMethod,
+        p_ship_address: shipCards.length > 0 ? shipAddress.trim() : "",
+        p_ship_zip: shipCards.length > 0 ? shipZip.trim() : "",
       });
       if (rpcError) throw rpcError;
 
@@ -115,7 +116,10 @@ export function CartContents() {
 
       let copiedToClipboard = false;
       if (claimedItems.length > 0) {
-        const bySeller = new Map<string, { title: string; price: number; quantity: number }[]>();
+        const bySeller = new Map<
+          string,
+          { title: string; price: number; quantity: number; fulfillmentMethod: FulfillmentMethod }[]
+        >();
         for (const item of claimedItems) {
           const card = cards.find((c) => c.id === item.cardId);
           if (!card) continue;
@@ -124,6 +128,7 @@ export function CartContents() {
             title: item.title ?? card.title,
             price: item.price ?? card.price,
             quantity: item.quantity ?? 1,
+            fulfillmentMethod: getFulfillment(item.cardId),
           });
           bySeller.set(card.sellerMessenger, list);
         }
@@ -137,24 +142,33 @@ export function CartContents() {
         // the opened chat already has the full message.
         const orderRef = result.orderId ? `Order #${result.orderId.slice(0, 8)}` : null;
         const buyerLine = `Buyer: ${buyer.fullName} (${buyer.handle})`;
-        const fulfillmentLine =
-          fulfillmentMethod === "SHIP"
-            ? `Ship to: ${shipName.trim()} · ${shipPhone.trim()} · ${shipAddress.trim()}, ${shipZip.trim()}`
-            : `Stashing with seller (no shipping) · Contact: ${shipName.trim()} · ${shipPhone.trim()}`;
+        const shipLine = `Ship to: ${shipName.trim()} · ${shipPhone.trim()} · ${shipAddress.trim()}, ${shipZip.trim()}`;
+        const stashLine = `Stashing with seller (no shipping) · Contact: ${shipName.trim()} · ${shipPhone.trim()}`;
 
         const links: { sellerMessenger: string; url: string }[] = [];
         for (const [sellerMessenger, sellerItems] of bySeller) {
-          const lines = sellerItems
-            .map((i) => `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}`)
-            .join("\n");
+          const toShip = sellerItems.filter((i) => i.fulfillmentMethod === "SHIP");
+          const toStash = sellerItems.filter((i) => i.fulfillmentMethod === "STASH");
+          const itemLines = (list: typeof sellerItems) =>
+            list.map((i) => `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}`).join("\n");
+
+          const sections: string[] = [];
+          if (toShip.length > 0) {
+            sections.push(`To Ship:`, itemLines(toShip), shipLine);
+          }
+          if (toStash.length > 0) {
+            sections.push(`To Stash:`, itemLines(toStash), stashLine);
+          }
+
           const subtotal = sellerItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
           const message = [
             `Hi! I'd like to place an order${orderRef ? ` (${orderRef})` : ""}:`,
-            lines,
+            "",
+            ...sections,
+            "",
             `Total: ${formatCurrency(subtotal)}`,
             "",
             buyerLine,
-            fulfillmentLine,
           ].join("\n");
           try {
             await navigator.clipboard.writeText(message);
@@ -195,6 +209,47 @@ export function CartContents() {
       setPlacing(false);
     }
   };
+
+  const renderCardTile = (card: CardItem) => (
+    <div key={card.id} className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card">
+      <Link href={`/card/${card.id}`} className="relative block aspect-[3/4] w-full bg-navy-950/5">
+        {card.images[0] ? (
+          // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
+          <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+            <ImageOff size={24} />
+          </div>
+        )}
+      </Link>
+      <div className="flex flex-1 flex-col gap-2 p-3">
+        <div>
+          <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
+          <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>
+        </div>
+        <p className="text-sm font-bold text-foreground">{formatCurrency(card.price)}</p>
+        {card.quantityAvailable > 1 && (
+          <div className="flex items-center gap-1.5">
+            <label className="text-[10px] font-medium uppercase tracking-wide text-foreground-muted">Qty</label>
+            <Input
+              type="number"
+              min={1}
+              max={card.quantityAvailable}
+              value={getQty(card.id)}
+              onChange={(e) =>
+                setQuantity(card.id, Math.max(1, Math.min(card.quantityAvailable, Number(e.target.value) || 1)))
+              }
+              className="h-8 w-16 px-2 py-1 text-sm"
+            />
+          </div>
+        )}
+        <Button variant="outline" className="mt-auto w-full" onClick={() => removeFromCart(card.id)}>
+          <Trash2 size={14} />
+          Remove
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -240,86 +295,32 @@ export function CartContents() {
 
       {cards.length > 0 && (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {cards.map((card) => (
-              <div
-                key={card.id}
-                className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card"
-              >
-                <Link href={`/card/${card.id}`} className="relative block aspect-[3/4] w-full bg-navy-950/5">
-                  {card.images[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                    <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                      <ImageOff size={24} />
-                    </div>
-                  )}
-                </Link>
-                <div className="flex flex-1 flex-col gap-2 p-3">
-                  <div>
-                    <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
-                    <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>
-                  </div>
-                  <p className="text-sm font-bold text-foreground">{formatCurrency(card.price)}</p>
-                  {card.quantityAvailable > 1 && (
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-[10px] font-medium uppercase tracking-wide text-foreground-muted">
-                        Qty
-                      </label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={card.quantityAvailable}
-                        value={getQty(card.id)}
-                        onChange={(e) =>
-                          setQuantity(
-                            card.id,
-                            Math.max(1, Math.min(card.quantityAvailable, Number(e.target.value) || 1)),
-                          )
-                        }
-                        className="h-8 w-16 px-2 py-1 text-sm"
-                      />
-                    </div>
-                  )}
-                  <Button
-                    variant="outline"
-                    className="mt-auto w-full"
-                    onClick={() => removeFromCart(card.id)}
-                  >
-                    <Trash2 size={14} />
-                    Remove
-                  </Button>
-                </div>
+          {shipCards.length > 0 && (
+            <div className="mb-6">
+              <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <Truck size={16} />
+                Ship Out ({shipCards.reduce((sum, c) => sum + getQty(c.id), 0)})
+              </h2>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {shipCards.map(renderCardTile)}
               </div>
-            ))}
-          </div>
-
-          <div className="mt-6 space-y-3 rounded-2xl border border-card-border bg-card p-5">
-            <h2 className="text-sm font-semibold text-foreground">Shipping Details</h2>
-            <div className="flex gap-2">
-              {(
-                [
-                  { key: "SHIP" as const, label: "Ship Out Cards", icon: Truck },
-                  { key: "STASH" as const, label: "Stash With Us", icon: PackageCheck },
-                ]
-              ).map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setFulfillmentMethod(key)}
-                  className={cn(
-                    "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                    fulfillmentMethod === key
-                      ? "border-gold bg-gold text-navy-950"
-                      : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon size={14} />
-                  {label}
-                </button>
-              ))}
             </div>
+          )}
+
+          {stashCards.length > 0 && (
+            <div className="mb-6">
+              <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                <PackageCheck size={16} />
+                Stash With Us ({stashCards.reduce((sum, c) => sum + getQty(c.id), 0)})
+              </h2>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                {stashCards.map(renderCardTile)}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 space-y-3 rounded-2xl border border-card-border bg-card p-5">
+            <h2 className="text-sm font-semibold text-foreground">Shipping Details</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <Input placeholder="Full Name" value={shipName} onChange={(e) => setShipName(e.target.value)} required />
               <Input
@@ -330,7 +331,7 @@ export function CartContents() {
                 required
               />
             </div>
-            {fulfillmentMethod === "SHIP" && (
+            {shipCards.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
                 <Textarea
                   rows={2}
@@ -342,13 +343,17 @@ export function CartContents() {
                 <Input placeholder="Zip Code" value={shipZip} onChange={(e) => setShipZip(e.target.value)} required />
               </div>
             )}
+            {shipCards.length === 0 && (
+              <p className="text-xs text-foreground-muted">
+                Everything in your cart is being stashed with the seller - no address needed.
+              </p>
+            )}
           </div>
 
           <div className="mt-4 flex flex-col items-stretch gap-3 rounded-2xl border border-card-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <span className="text-sm text-foreground-muted">
-                Total ({cards.reduce((sum, c) => sum + getQty(c.id), 0)} unit
-                {cards.reduce((sum, c) => sum + getQty(c.id), 0) === 1 ? "" : "s"})
+                Total ({totalUnits} unit{totalUnits === 1 ? "" : "s"})
               </span>
               <p className="text-2xl font-bold text-foreground">{formatCurrency(total)}</p>
             </div>

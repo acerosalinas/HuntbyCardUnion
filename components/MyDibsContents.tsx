@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hourglass, ImageOff, PackageSearch } from "lucide-react";
+import { Hourglass, ImageOff, PackageCheck, PackageSearch, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
@@ -19,6 +19,7 @@ import {
   QueueEntryRow,
   queueEntryFromRow,
   ClaimStatus,
+  FulfillmentMethod,
 } from "@/types/marketplace";
 
 interface ClaimedCardView {
@@ -28,7 +29,7 @@ interface ClaimedCardView {
   status: ClaimStatus;
   shipped: boolean;
   receivedAt: number | null;
-  fulfillmentMethod: "SHIP" | "STASH" | null;
+  fulfillmentMethod: FulfillmentMethod;
 }
 
 function claimStage(c: ClaimedCardView): ClaimStage {
@@ -57,8 +58,8 @@ interface ClaimJoinRow {
   status: ClaimStatus;
   shipped: boolean;
   received_at: string | null;
+  fulfillment_method: FulfillmentMethod;
   cards: CardRow | null;
-  orders: { fulfillment_method: "SHIP" | "STASH" | null } | null;
 }
 
 export function MyDibsContents() {
@@ -80,7 +81,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, cards(*), orders(fulfillment_method)")
+        .select("id, quantity, status, shipped, received_at, fulfillment_method, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -97,7 +98,7 @@ export function MyDibsContents() {
             status: row.status,
             shipped: row.shipped,
             receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
-            fulfillmentMethod: row.orders?.fulfillment_method ?? null,
+            fulfillmentMethod: row.fulfillment_method,
           })),
       );
 
@@ -204,6 +205,71 @@ export function MyDibsContents() {
 
   const isEmpty =
     !loading && claims.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
+  const shipClaims = claims.filter((c) => c.fulfillmentMethod === "SHIP");
+  const stashClaims = claims.filter((c) => c.fulfillmentMethod === "STASH");
+
+  const renderClaimTile = (claim: ClaimedCardView) => {
+    const stage = claimStage(claim);
+    const busy = busyClaimId === claim.claimId;
+    const alreadyReviewed = reviewedClaimIds.has(claim.claimId);
+    return (
+      <div
+        key={claim.claimId}
+        className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
+      >
+        <Link href={`/card/${claim.card.id}`}>
+          <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+            {claim.card.images[0] ? (
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
+              <img src={claim.card.images[0]} alt={claim.card.title} className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+                <ImageOff size={24} />
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 p-3">
+            <p className="line-clamp-1 text-sm font-semibold text-foreground">{claim.card.title}</p>
+            <p className="text-sm text-foreground-muted">
+              {claim.card.setName} • {formatCurrency(claim.card.price)}
+              {claim.quantity > 1 ? ` × ${claim.quantity}` : ""}
+            </p>
+          </div>
+        </Link>
+        <div className="px-3 pb-3">
+          <ClaimStageTracker stage={stage} fulfillmentMethod={claim.fulfillmentMethod} />
+        </div>
+        <div className="flex flex-col gap-1.5 px-3 pb-3">
+          {stage === "PENDING_PAYMENT" && (
+            <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
+              {busy ? "Cancelling..." : "Cancel"}
+            </Button>
+          )}
+          {stage === "SHIPPED" && (
+            <Button variant="gold" disabled={busy} onClick={() => handleMarkReceived(claim)} className="w-full">
+              {busy ? "Saving..." : "Mark Received"}
+            </Button>
+          )}
+          {stage === "RECEIVED" && !alreadyReviewed && (
+            <Link
+              href={`/account/reviews/new?claimId=${claim.claimId}`}
+              className="block w-full rounded-lg border border-gold/40 px-3 py-1.5 text-center text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+            >
+              Leave a Review
+            </Link>
+          )}
+          {claim.status === "SOLD" && (
+            <Link
+              href={`/account/disputes/new?claimId=${claim.claimId}`}
+              className="block w-full rounded-lg border border-card-border px-3 py-1.5 text-center text-xs font-medium text-foreground-muted transition-colors hover:border-sold/40 hover:text-sold"
+            >
+              Report an Issue
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -220,104 +286,71 @@ export function MyDibsContents() {
 
       {actionError && <p className="mb-4 text-sm text-sold">{actionError}</p>}
 
-      {(claims.length > 0 || queuedCards.length > 0) && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {claims.map((claim) => {
-            const stage = claimStage(claim);
-            const busy = busyClaimId === claim.claimId;
-            const alreadyReviewed = reviewedClaimIds.has(claim.claimId);
-            return (
-              <div
-                key={claim.claimId}
+      {shipClaims.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-foreground">
+            <Truck size={18} />
+            To Ship
+          </h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {shipClaims.map(renderClaimTile)}
+          </div>
+        </div>
+      )}
+
+      {stashClaims.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-foreground">
+            <PackageCheck size={18} />
+            My Stash
+          </h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {stashClaims.map(renderClaimTile)}
+          </div>
+        </div>
+      )}
+
+      {queuedCards.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-foreground">
+            <Hourglass size={18} />
+            Waiting in Queue
+          </h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {queuedCards.map(({ card, position, requestedQuantity }) => (
+              <Link
+                key={card.id}
+                href={`/card/${card.id}`}
                 className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
               >
-                <Link href={`/card/${claim.card.id}`}>
-                  <div className="relative aspect-[3/4] w-full bg-navy-950/5">
-                    {claim.card.images[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                      <img src={claim.card.images[0]} alt={claim.card.title} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                        <ImageOff size={24} />
-                      </div>
-                    )}
+                <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+                  {card.images[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
+                    <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+                      <ImageOff size={24} />
+                    </div>
+                  )}
+                  <div className="absolute right-2 top-2">
+                    <span className="flex items-center gap-1 rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+                      <Hourglass size={12} />
+                      #{position} in queue
+                    </span>
                   </div>
-                  <div className="flex flex-col gap-1 p-3">
-                    <p className="line-clamp-1 text-sm font-semibold text-foreground">{claim.card.title}</p>
-                    <p className="text-sm text-foreground-muted">
-                      {claim.card.setName} • {formatCurrency(claim.card.price)}
-                      {claim.quantity > 1 ? ` × ${claim.quantity}` : ""}
-                    </p>
-                  </div>
-                </Link>
-                <div className="px-3 pb-3">
-                  <ClaimStageTracker stage={stage} fulfillmentMethod={claim.fulfillmentMethod} />
                 </div>
-                <div className="flex flex-col gap-1.5 px-3 pb-3">
-                  {stage === "PENDING_PAYMENT" && (
-                    <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
-                      {busy ? "Cancelling..." : "Cancel"}
-                    </Button>
-                  )}
-                  {stage === "SHIPPED" && (
-                    <Button variant="gold" disabled={busy} onClick={() => handleMarkReceived(claim)} className="w-full">
-                      {busy ? "Saving..." : "Mark Received"}
-                    </Button>
-                  )}
-                  {stage === "RECEIVED" && !alreadyReviewed && (
-                    <Link
-                      href={`/account/reviews/new?claimId=${claim.claimId}`}
-                      className="block w-full rounded-lg border border-gold/40 px-3 py-1.5 text-center text-xs font-medium text-gold transition-colors hover:bg-gold/10"
-                    >
-                      Leave a Review
-                    </Link>
-                  )}
-                  {claim.status === "SOLD" && (
-                    <Link
-                      href={`/account/disputes/new?claimId=${claim.claimId}`}
-                      className="block w-full rounded-lg border border-card-border px-3 py-1.5 text-center text-xs font-medium text-foreground-muted transition-colors hover:border-sold/40 hover:text-sold"
-                    >
-                      Report an Issue
-                    </Link>
-                  )}
+                <div className="flex flex-col gap-1 p-3">
+                  <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
+                  <p className="text-sm text-foreground-muted">
+                    {card.setName} • {formatCurrency(card.price)}
+                  </p>
+                  <p className="text-xs text-foreground-muted">
+                    Waiting for {requestedQuantity} unit{requestedQuantity === 1 ? "" : "s"}
+                  </p>
                 </div>
-              </div>
-            );
-          })}
-
-          {queuedCards.map(({ card, position, requestedQuantity }) => (
-            <Link
-              key={card.id}
-              href={`/card/${card.id}`}
-              className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
-            >
-              <div className="relative aspect-[3/4] w-full bg-navy-950/5">
-                {card.images[0] ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                  <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                    <ImageOff size={24} />
-                  </div>
-                )}
-                <div className="absolute right-2 top-2">
-                  <span className="flex items-center gap-1 rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
-                    <Hourglass size={12} />
-                    #{position} in queue
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1 p-3">
-                <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
-                <p className="text-sm text-foreground-muted">
-                  {card.setName} • {formatCurrency(card.price)}
-                </p>
-                <p className="text-xs text-foreground-muted">
-                  Waiting for {requestedQuantity} unit{requestedQuantity === 1 ? "" : "s"}
-                </p>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 

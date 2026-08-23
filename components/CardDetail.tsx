@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, CheckCircle2, Hourglass, ImageOff, ShoppingCart, Store } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Hourglass, ImageOff, PackageCheck, ShoppingCart, Store, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -17,7 +17,7 @@ import { useCardQueue } from "@/hooks/useCardQueue";
 import { useMyClaims } from "@/hooks/useMyClaims";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, formatCurrency } from "@/lib/utils";
-import { CardItem, SellerProfile } from "@/types/marketplace";
+import { CardItem, FulfillmentMethod, SellerProfile } from "@/types/marketplace";
 
 export function CardDetail({
   initialCard,
@@ -37,6 +37,7 @@ export function CardDetail({
   const [offerOpen, setOfferOpen] = useState(false);
   const [addedNotice, setAddedNotice] = useState(false);
   const [qty, setQty] = useState(1);
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
 
   const inStock = card.quantityAvailable > 0;
   const isSold = card.status === "SOLD";
@@ -64,7 +65,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    addToCart(card.id, qty);
+    addToCart(card.id, qty, fulfillmentMethod);
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -201,6 +202,37 @@ export function CardDetail({
                 onChange={(e) => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
                 className="w-20"
               />
+            </div>
+          )}
+
+          {inStock && !inCart && !isQueued && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                Fulfillment
+              </label>
+              <div className="flex gap-2">
+                {(
+                  [
+                    { key: "SHIP" as const, label: "Ship Out", icon: Truck },
+                    { key: "STASH" as const, label: "Stash With Us", icon: PackageCheck },
+                  ]
+                ).map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFulfillmentMethod(key)}
+                    className={cn(
+                      "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      fulfillmentMethod === key
+                        ? "border-gold bg-gold text-navy-950"
+                        : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
