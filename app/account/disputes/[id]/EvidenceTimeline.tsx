@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { createClient } from "@/lib/supabase/client";
 import { isDisputeResolved } from "@/lib/disputeStatus";
+import { extractErrorMessage } from "@/lib/utils";
 import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { uploadDisputeEvidence } from "../actions";
 
@@ -30,7 +31,7 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
         setFile(null);
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to add evidence");
+        setError(extractErrorMessage(err) ?? "Failed to add evidence");
       }
     });
   };
@@ -44,7 +45,7 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
       if (rpcError) throw rpcError;
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to withdraw dispute");
+      setError(extractErrorMessage(err) ?? "Failed to withdraw dispute");
       setWithdrawing(false);
     }
   };

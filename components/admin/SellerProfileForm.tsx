@@ -6,6 +6,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { FRANCHISES } from "@/lib/franchises";
+import { extractErrorMessage } from "@/lib/utils";
 import { updateSellerProfile, uploadAvatarImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
 
@@ -35,7 +36,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       formData.append("file", file);
       setAvatarUrl(await uploadAvatarImage(formData));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload image");
+      setError(extractErrorMessage(err) ?? "Failed to upload image");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -64,7 +65,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
         await updateSellerProfile(input);
         setSuccess(true);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save profile");
+        setError(extractErrorMessage(err) ?? "Failed to save profile");
       }
     });
   };

@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { createAdminAccount } from "@/app/admin/actions";
 import { AdminRole } from "@/lib/adminAuth";
+import { extractErrorMessage } from "@/lib/utils";
 
 export function CreateAdminForm() {
   const [email, setEmail] = useState("");
@@ -34,7 +35,7 @@ export function CreateAdminForm() {
         setRole("ADMIN");
         setSuccess(true);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to create admin account");
+        setError(extractErrorMessage(err) ?? "Failed to create admin account");
       }
     });
   };

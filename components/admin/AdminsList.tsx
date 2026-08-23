@@ -6,6 +6,7 @@ import { AdminAccount, resetAdminPassword, setAdminActive } from "@/app/admin/ac
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
+import { extractErrorMessage } from "@/lib/utils";
 
 export function AdminsList({ admins }: { admins: AdminAccount[] }) {
   const [pending, startTransition] = useTransition();
@@ -28,7 +29,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
       try {
         await setAdminActive(admin.id, !admin.active);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update account");
+        setError(extractErrorMessage(err) ?? "Failed to update account");
       } finally {
         setBusyId(null);
       }
@@ -50,7 +51,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
         setResettingId(null);
         setTimeout(() => setResetNotice(null), 5000);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to reset password");
+        setError(extractErrorMessage(err) ?? "Failed to reset password");
       } finally {
         setBusyId(null);
       }

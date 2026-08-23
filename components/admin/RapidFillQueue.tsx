@@ -6,7 +6,7 @@ import { CheckCircle2, ImageOff, Minus, Plus, RotateCcw, Trash2 } from "lucide-r
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
+import { cn, extractErrorMessage } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { CONDITION_LABELS, ConditionCode, parseConditionGrade } from "@/lib/conditionGrade";
@@ -151,7 +151,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
           setCurrentIndex((i) => i + 1);
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to save"))
+      .catch((err) => setError(extractErrorMessage(err) ?? "Failed to save"))
       .finally(() => setSaving(false));
   };
 
@@ -172,7 +172,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
         // last item in the queue.
         setCurrentIndex((i) => Math.min(i, Math.max(0, queue.length - 2)));
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to discard"));
+      .catch((err) => setError(extractErrorMessage(err) ?? "Failed to discard"));
   };
 
   const handlePublish = () => {
@@ -182,7 +182,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
     publishDrafts(Array.from(completed))
       .then(() => router.push("/admin/inventory"))
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to publish");
+        setError(extractErrorMessage(err) ?? "Failed to publish");
         setPublishing(false);
       });
   };

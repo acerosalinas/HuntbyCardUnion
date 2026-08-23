@@ -8,7 +8,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
-import { formatCurrency } from "@/lib/utils";
+import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 interface OfferModalProps {
@@ -66,7 +66,7 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
       onSubmitted?.();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit offer");
+      setError(extractErrorMessage(err) ?? "Failed to submit offer");
     } finally {
       setSubmitting(false);
     }

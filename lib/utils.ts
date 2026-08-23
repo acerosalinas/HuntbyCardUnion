@@ -5,6 +5,24 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Pulls a human-readable message out of a caught error, for display in a
+ * catch block's setError(...). `err instanceof Error` alone isn't enough
+ * here - Supabase's RPC/PostgREST errors are plain `{ message, details,
+ * hint, code }` objects, not real Error instances, so that check alone
+ * silently swallows the real database error message and falls back to
+ * whatever generic string the caller passes as a default, hiding the actual
+ * cause. Returns null (not the generic default) when nothing usable is
+ * found, so the caller's own `?? "fallback"` still applies.
+ */
+export function extractErrorMessage(err: unknown): string | null {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err && typeof err.message === "string" && err.message) {
+    return err.message;
+  }
+  return null;
+}
+
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",

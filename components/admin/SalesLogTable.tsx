@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/Badge";
-import { formatCurrency } from "@/lib/utils";
+import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { setShipped } from "@/app/admin/actions";
 
 /** One SOLD card_claims row joined to its card - one row per buyer-purchase, not per card. */
@@ -40,7 +40,7 @@ export function SalesLogTable({ claims }: { claims: SoldClaimView[] }) {
       try {
         await setShipped(claim.id, !claim.shipped);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update");
+        setError(extractErrorMessage(err) ?? "Failed to update");
       } finally {
         setBusyId(null);
       }

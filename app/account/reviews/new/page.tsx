@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { StarRating } from "@/components/ui/StarRating";
 import { createClient } from "@/lib/supabase/client";
+import { extractErrorMessage } from "@/lib/utils";
 
 function NewReviewForm() {
   const searchParams = useSearchParams();
@@ -39,7 +40,7 @@ function NewReviewForm() {
       if (rpcError) throw rpcError;
       router.push("/account/dibs");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to submit review");
+      setError(extractErrorMessage(err) ?? "Failed to submit review");
       setSubmitting(false);
     }
   };

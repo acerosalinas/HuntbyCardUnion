@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { createClient } from "@/lib/supabase/client";
 import { DISPUTE_REASON_LABELS } from "@/lib/disputeLabels";
+import { extractErrorMessage } from "@/lib/utils";
 import { DisputeReason } from "@/types/marketplace";
 
 function NewDisputeForm() {
@@ -46,7 +47,7 @@ function NewDisputeForm() {
       const created = data as { id: string };
       router.push(`/account/disputes/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to open dispute");
+      setError(extractErrorMessage(err) ?? "Failed to open dispute");
       setSubmitting(false);
     }
   };

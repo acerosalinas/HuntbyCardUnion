@@ -5,7 +5,7 @@ import { ImagePlus, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
+import { cn, extractErrorMessage } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
@@ -141,7 +141,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       const urls = await uploadCardImages(formData);
       setImages((prev) => [...prev, ...urls]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload image(s)");
+      setError(extractErrorMessage(err) ?? "Failed to upload image(s)");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -192,7 +192,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
         setSuccess(true);
         onSuccess?.();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save listing");
+        setError(extractErrorMessage(err) ?? "Failed to save listing");
       }
     });
   };
