@@ -1770,7 +1770,7 @@ grant execute on function submit_review(uuid, int, text) to authenticated;
 -- ---------------------------------------------------------------------------
 insert into cards (title, set_name, price, list_price, condition_grade, rarity, images, seller_handle, seller_messenger, is_flash_sale, franchise)
 values
-  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', 'Secret Rare', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
+  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', 'Hyper Rare', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
   ('Umbreon VMAX', 'Evolving Skies', 850, 850, 'PSA 9', 'Ultra Rare', '{}', '@vault_hobbyist', 'CardUnion1', false, 'pokemon'),
   ('Monkey D. Luffy', 'Romance Dawn', 1800, 1800, 'Raw NM', 'Rare', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece'),
   ('Roronoa Zoro', 'Paramount War', 950, 950, 'Raw NM', 'Uncommon', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece');

@@ -36,7 +36,7 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
         )}
         <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
           <ConditionBadges conditionGrade={card.conditionGrade} />
-          <RarityBadge rarity={card.rarity} />
+          <RarityBadge rarity={card.rarity} franchise={card.franchise} />
           {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
         </div>
       </div>

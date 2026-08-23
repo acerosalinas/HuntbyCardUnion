@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
-import { RARITIES, DEFAULT_RARITY } from "@/lib/rarity";
+import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { CONDITION_LABELS, ConditionCode, parseConditionGrade } from "@/lib/conditionGrade";
 import { deleteCard, publishDrafts, updateCard } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
@@ -34,13 +34,18 @@ interface FormState {
 
 function formStateFromCard(card: CardItem): FormState {
   const parsed = parseConditionGrade(card.conditionGrade);
+  const franchise = card.franchise ?? FRANCHISES[0].slug;
   return {
     title: card.title,
     setName: card.setName,
     price: String(card.price),
     quantity: String(card.quantity),
-    franchise: card.franchise ?? FRANCHISES[0].slug,
-    rarity: card.rarity || DEFAULT_RARITY,
+    franchise,
+    // Falls back to DEFAULT_RARITY if the stored value isn't in this
+    // franchise's current list (e.g. a card saved before rarity became
+    // per-franchise) - keeps the <select> from holding a value with no
+    // matching <option>.
+    rarity: card.rarity && raritiesForFranchise(franchise).includes(card.rarity) ? card.rarity : DEFAULT_RARITY,
     cardType: parsed.type,
     condition: parsed.type === "RAW" ? parsed.condition : "NM",
     grader: parsed.type === "GRADED" ? parsed.grader : GRADERS[0],
@@ -79,6 +84,17 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
   }, [current]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Rarity vocabulary is per-franchise (see lib/rarity.ts) - switching
+  // franchise resets the rarity choice if it doesn't exist in the new
+  // franchise's list, so the form never holds an invalid combination.
+  const handleFranchiseChange = (franchise: string) => {
+    setForm((f) => ({
+      ...f,
+      franchise,
+      rarity: raritiesForFranchise(franchise).includes(f.rarity) ? f.rarity : DEFAULT_RARITY,
+    }));
+  };
 
   const zoomIndex = ZOOM_STEPS.indexOf(zoom);
   const zoomIn = () => setZoom(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, zoomIndex + 1)]);
@@ -251,7 +267,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
               Franchise *
             </label>
-            <Select value={form.franchise} onChange={(e) => set("franchise", e.target.value)}>
+            <Select value={form.franchise} onChange={(e) => handleFranchiseChange(e.target.value)}>
               {FRANCHISES.map((f) => (
                 <option key={f.slug} value={f.slug}>
                   {f.label}
@@ -264,7 +280,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
               Rarity *
             </label>
             <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
-              {RARITIES.map((r) => (
+              {raritiesForFranchise(form.franchise).map((r) => (
                 <option key={r} value={r}>
                   {r}
                 </option>

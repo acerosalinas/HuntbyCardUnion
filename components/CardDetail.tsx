@@ -116,7 +116,7 @@ export function CardDetail({
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <ConditionBadges conditionGrade={card.conditionGrade} />
-            <RarityBadge rarity={card.rarity} />
+            <RarityBadge rarity={card.rarity} franchise={card.franchise} />
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
             <StatusBadge status={card.status} />
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}

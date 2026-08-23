@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
-import { RARITIES, DEFAULT_RARITY } from "@/lib/rarity";
+import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
 
@@ -81,6 +81,7 @@ function parseConditionGrade(value: string): Pick<FormState, "cardType" | "condi
 }
 
 function formStateFromCard(card: CardItem): FormState {
+  const franchise = card.franchise ?? FRANCHISES[0].slug;
   return {
     title: card.title,
     setName: card.setName,
@@ -89,9 +90,13 @@ function formStateFromCard(card: CardItem): FormState {
     sellerHandle: card.sellerHandle,
     sellerMessenger: card.sellerMessenger,
     isFlashSale: card.isFlashSale,
-    franchise: card.franchise ?? FRANCHISES[0].slug,
+    franchise,
     quantity: String(card.quantity),
-    rarity: card.rarity || DEFAULT_RARITY,
+    // Falls back to DEFAULT_RARITY if the stored value isn't in this
+    // franchise's current list (e.g. a card saved before rarity became
+    // per-franchise, or moved to a franchise it doesn't fit) - keeps the
+    // <select> from holding a value with no matching <option>.
+    rarity: card.rarity && raritiesForFranchise(franchise).includes(card.rarity) ? card.rarity : DEFAULT_RARITY,
   };
 }
 
@@ -113,6 +118,17 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  // Rarity vocabulary is per-franchise (see lib/rarity.ts) - switching
+  // franchise resets the rarity choice if it doesn't exist in the new
+  // franchise's list, so the form never holds an invalid combination.
+  const handleFranchiseChange = (franchise: string) => {
+    setForm((f) => ({
+      ...f,
+      franchise,
+      rarity: raritiesForFranchise(franchise).includes(f.rarity) ? f.rarity : DEFAULT_RARITY,
+    }));
+  };
 
   const handleFilesSelected = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -212,7 +228,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       </Field>
 
       <Field label="Franchise *" className="sm:col-span-2">
-        <Select value={form.franchise} onChange={(e) => set("franchise", e.target.value)}>
+        <Select value={form.franchise} onChange={(e) => handleFranchiseChange(e.target.value)}>
           {FRANCHISES.map((f) => (
             <option key={f.slug} value={f.slug}>
               {f.label}
@@ -223,7 +239,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
 
       <Field label="Rarity *" className="sm:col-span-2">
         <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
-          {RARITIES.map((r) => (
+          {raritiesForFranchise(form.franchise).map((r) => (
             <option key={r} value={r}>
               {r}
             </option>
