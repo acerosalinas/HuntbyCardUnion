@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, PackageSearch, UserCircle } from "lucide-react";
+import { AlertTriangle, PackageSearch, Settings, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { logout } from "./actions";
@@ -27,6 +27,12 @@ export default async function AccountPage() {
           Email: <span className="text-foreground">{buyer.email}</span>
         </p>
       </div>
+      <Link href="/account/edit" className="w-full">
+        <Button variant="outline" className="w-full">
+          <Settings size={14} />
+          Edit Profile
+        </Button>
+      </Link>
       <Link href="/account/dibs" className="w-full">
         <Button variant="outline" className="w-full">
           <PackageSearch size={14} />

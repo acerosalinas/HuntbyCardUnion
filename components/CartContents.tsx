@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, ImageOff, ShoppingCart, Trash2 } from "lucide-react";
+import { ClipboardCheck, ImageOff, PackageCheck, ShoppingCart, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Input, Textarea } from "@/components/ui/Input";
 import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { buildMessengerUrl, formatCurrency } from "@/lib/utils";
+import { buildMessengerUrl, cn, formatCurrency } from "@/lib/utils";
 import { CardItem, CardRow, cardFromRow, PlaceOrderResult } from "@/types/marketplace";
+
+type FulfillmentMethod = "SHIP" | "STASH";
 
 export function CartContents() {
   const { cardIds, removeFromCart, clearCart } = useCart();
@@ -21,6 +24,11 @@ export function CartContents() {
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultSummary, setResultSummary] = useState<string[] | null>(null);
+  const [shipName, setShipName] = useState("");
+  const [shipPhone, setShipPhone] = useState("");
+  const [shipAddress, setShipAddress] = useState("");
+  const [shipZip, setShipZip] = useState("");
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -53,6 +61,15 @@ export function CartContents() {
       return;
     }
 
+    if (!shipName.trim() || !shipPhone.trim()) {
+      setError("Enter your name and phone number before checking out.");
+      return;
+    }
+    if (fulfillmentMethod === "SHIP" && (!shipAddress.trim() || !shipZip.trim())) {
+      setError("Enter your shipping address and zip code, or switch to Stash With Us.");
+      return;
+    }
+
     setError(null);
     setResultSummary(null);
     setPlacing(true);
@@ -60,6 +77,11 @@ export function CartContents() {
       const supabase = createClient();
       const { data, error: rpcError } = await supabase.rpc("place_order", {
         p_card_ids: cardIds,
+        p_ship_name: shipName.trim(),
+        p_ship_phone: shipPhone.trim(),
+        p_ship_address: fulfillmentMethod === "SHIP" ? shipAddress.trim() : "",
+        p_ship_zip: fulfillmentMethod === "SHIP" ? shipZip.trim() : "",
+        p_fulfillment_method: fulfillmentMethod,
       });
       if (rpcError) throw rpcError;
 
@@ -88,6 +110,10 @@ export function CartContents() {
         // the opened chat already has the full message.
         const orderRef = result.orderId ? `Order #${result.orderId.slice(0, 8)}` : null;
         const buyerLine = `Buyer: ${buyer.fullName} (${buyer.handle})`;
+        const fulfillmentLine =
+          fulfillmentMethod === "SHIP"
+            ? `Ship to: ${shipName.trim()} · ${shipPhone.trim()} · ${shipAddress.trim()}, ${shipZip.trim()}`
+            : `Stashing with seller (no shipping) · Contact: ${shipName.trim()} · ${shipPhone.trim()}`;
 
         for (const [sellerMessenger, items] of bySeller) {
           const lines = items.map((i) => `• ${i.title} — ${formatCurrency(i.price)}`).join("\n");
@@ -98,6 +124,7 @@ export function CartContents() {
             `Total: ${formatCurrency(subtotal)}`,
             "",
             buyerLine,
+            fulfillmentLine,
           ].join("\n");
           try {
             await navigator.clipboard.writeText(message);
@@ -200,7 +227,56 @@ export function CartContents() {
             ))}
           </div>
 
-          <div className="mt-6 flex flex-col items-stretch gap-3 rounded-2xl border border-card-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-6 space-y-3 rounded-2xl border border-card-border bg-card p-5">
+            <h2 className="text-sm font-semibold text-foreground">Shipping Details</h2>
+            <div className="flex gap-2">
+              {(
+                [
+                  { key: "SHIP" as const, label: "Ship Out Cards", icon: Truck },
+                  { key: "STASH" as const, label: "Stash With Us", icon: PackageCheck },
+                ]
+              ).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFulfillmentMethod(key)}
+                  className={cn(
+                    "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                    fulfillmentMethod === key
+                      ? "border-gold bg-gold text-navy-950"
+                      : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                  )}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input placeholder="Full Name" value={shipName} onChange={(e) => setShipName(e.target.value)} required />
+              <Input
+                type="tel"
+                placeholder="Phone Number"
+                value={shipPhone}
+                onChange={(e) => setShipPhone(e.target.value)}
+                required
+              />
+            </div>
+            {fulfillmentMethod === "SHIP" && (
+              <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
+                <Textarea
+                  rows={2}
+                  placeholder="Shipping Address"
+                  value={shipAddress}
+                  onChange={(e) => setShipAddress(e.target.value)}
+                  required
+                />
+                <Input placeholder="Zip Code" value={shipZip} onChange={(e) => setShipZip(e.target.value)} required />
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex flex-col items-stretch gap-3 rounded-2xl border border-card-border bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <span className="text-sm text-foreground-muted">Total ({cards.length} item{cards.length === 1 ? "" : "s"})</span>
               <p className="text-2xl font-bold text-foreground">{formatCurrency(total)}</p>
