@@ -25,10 +25,20 @@ function LoginForm() {
         or
         <span className="h-px flex-1 bg-card-border" />
       </div> */}
+      {searchParams.get("reset") === "success" && (
+        <p className="w-full rounded-lg bg-available/10 px-3 py-2 text-center text-sm text-available">
+          Password updated - sign in with your new password.
+        </p>
+      )}
       <form action={formAction} className="w-full space-y-3">
         <input type="hidden" name="from" value={from} />
         <Input type="email" name="email" placeholder="you@example.com" required autoComplete="email" />
         <Input type="password" name="password" placeholder="Password" required autoComplete="current-password" />
+        <div className="flex justify-end">
+          <Link href="/account/forgot-password" className="text-xs text-foreground-muted hover:text-gold hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         {state.error && <p className="text-sm text-sold">{state.error}</p>}
         <Button type="submit" variant="gold" className="w-full" disabled={pending}>
           {pending ? "Signing in..." : "Sign In"}

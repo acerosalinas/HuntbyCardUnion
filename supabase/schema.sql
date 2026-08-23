@@ -114,6 +114,16 @@ create table orders (
   buyer_id uuid references auth.users (id) on delete set null,
   total_amount numeric(10, 2) not null default 0,
   confirmed_at timestamptz,
+  -- Fulfillment, collected at checkout (see place_order below) and shown to
+  -- the seller in the consolidated Messenger message. Nullable at the
+  -- column level - historical orders predate this and can't be backfilled -
+  -- but place_order requires them for every new order. STASH doesn't need a
+  -- real address, so ship_address/ship_zip are only meaningful for SHIP.
+  ship_name text,
+  ship_phone text,
+  ship_address text,
+  ship_zip text,
+  fulfillment_method text check (fulfillment_method in ('SHIP', 'STASH')),
   created_at timestamptz not null default now()
 );
 
@@ -726,7 +736,22 @@ begin
 end;
 $$;
 
-create or replace function place_order(p_card_ids uuid[])
+-- Dropped explicitly: create or replace can't change an existing function's
+-- parameter list (it would just create a second overload alongside the old
+-- one instead of replacing it), and the single-param place_order(uuid[])
+-- from earlier in this file (still current on any project run before
+-- shipping/fulfillment collection existed) has to actually be gone before
+-- the 6-param version below takes over that name.
+drop function if exists place_order(uuid[]);
+
+create or replace function place_order(
+  p_card_ids uuid[],
+  p_ship_name text,
+  p_ship_phone text,
+  p_ship_address text,
+  p_ship_zip text,
+  p_fulfillment_method text
+)
 returns json
 language plpgsql
 security definer
@@ -761,6 +786,18 @@ begin
 
   if p_card_ids is null or array_length(p_card_ids, 1) is null then
     raise exception 'Cart is empty';
+  end if;
+
+  if p_fulfillment_method not in ('SHIP', 'STASH') then
+    raise exception 'Choose Ship Out or Stash With Us before checking out.';
+  end if;
+  if p_ship_name is null or trim(p_ship_name) = '' or p_ship_phone is null or trim(p_ship_phone) = '' then
+    raise exception 'Name and phone number are required to check out.';
+  end if;
+  if p_fulfillment_method = 'SHIP' and (
+    p_ship_address is null or trim(p_ship_address) = '' or p_ship_zip is null or trim(p_ship_zip) = ''
+  ) then
+    raise exception 'Shipping address and zip code are required to ship your cards.';
   end if;
 
   select count(*) into v_recent_count
@@ -809,8 +846,14 @@ begin
   end loop;
 
   if array_length(v_claimed_ids, 1) > 0 then
-    insert into orders (buyer_id, buyer_handle, total_amount)
-      values (v_buyer_id, v_handle, v_claimed_total) returning id into v_order_id;
+    insert into orders (
+      buyer_id, buyer_handle, total_amount,
+      ship_name, ship_phone, ship_address, ship_zip, fulfillment_method
+    )
+      values (
+        v_buyer_id, v_handle, v_claimed_total,
+        p_ship_name, p_ship_phone, p_ship_address, p_ship_zip, p_fulfillment_method
+      ) returning id into v_order_id;
 
     update cards
       set status = 'PENDING', current_claimant = v_handle, claimant_id = v_buyer_id,
@@ -863,8 +906,8 @@ $$;
 revoke execute on function submit_offer(uuid, numeric, text) from public;
 grant execute on function submit_offer(uuid, numeric, text) to authenticated;
 
-revoke execute on function place_order(uuid[]) from public;
-grant execute on function place_order(uuid[]) to authenticated;
+revoke execute on function place_order(uuid[], text, text, text, text, text) from public;
+grant execute on function place_order(uuid[], text, text, text, text, text) to authenticated;
 
 revoke execute on function try_claim_order_confirmation(uuid) from public;
 

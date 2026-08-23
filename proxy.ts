@@ -8,7 +8,14 @@ import { ADMIN_AUTH_COOKIE_NAME, BUYER_AUTH_COOKIE_NAME, SUPABASE_ANON_KEY, SUPA
 // falls through to the normal isAdminRoute handling below like any other
 // /admin/* path - unauthenticated visits get bounced to /account/login by
 // that path before the stub page ever renders.
-const PUBLIC_PATHS = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
+const PUBLIC_PATHS = [
+  "/account/login",
+  "/account/signup",
+  "/account/check-email",
+  "/account/complete-profile",
+  "/account/forgot-password",
+  "/account/reset-password",
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
