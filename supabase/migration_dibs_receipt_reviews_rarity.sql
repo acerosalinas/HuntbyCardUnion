@@ -119,7 +119,7 @@ begin
   v_new_available := v_card.quantity_available + v_claim.quantity;
   update cards
     set quantity_available = v_new_available,
-        status = case when v_new_available > 0 then 'AVAILABLE' else 'SOLD' end,
+        status = (case when v_new_available > 0 then 'AVAILABLE' else 'SOLD' end)::card_status,
         price = v_card.list_price
     where id = v_claim.card_id;
 

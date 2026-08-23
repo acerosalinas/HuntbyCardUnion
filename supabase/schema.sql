@@ -892,7 +892,13 @@ begin
     if v_card.quantity_available >= v_qty then
       update cards
         set quantity_available = quantity_available - v_qty,
-            status = case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end
+            -- A `case` expression's branches resolve to plain text, not the
+            -- card_status enum, even when every branch is a valid label -
+            -- unlike a bare `status = 'SOLD'` literal (which Postgres can
+            -- infer against the target column's type), this needs an
+            -- explicit cast or the update fails with "column "status" is of
+            -- type card_status but expression is of type text".
+            status = (case when quantity_available - v_qty <= 0 then 'SOLD' else 'AVAILABLE' end)::card_status
         where id = v_card_id;
 
       v_claim_card_ids := v_claim_card_ids || v_card_id;
@@ -1618,7 +1624,8 @@ begin
   v_new_available := v_card.quantity_available + v_claim.quantity;
   update cards
     set quantity_available = v_new_available,
-        status = case when v_new_available > 0 then 'AVAILABLE' else 'SOLD' end,
+        -- Needs an explicit cast - see the matching comment in place_order.
+        status = (case when v_new_available > 0 then 'AVAILABLE' else 'SOLD' end)::card_status,
         price = v_card.list_price
     where id = v_claim.card_id;
 
