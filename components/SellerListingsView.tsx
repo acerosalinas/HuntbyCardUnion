@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LayoutGrid, Radio } from "lucide-react";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
+import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
+import { matchesCardFilter } from "@/lib/cardFilter";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
@@ -11,7 +13,22 @@ type View = "grid" | "live";
 
 export function SellerListingsView({ cards, liveModeSeconds }: { cards: CardItem[]; liveModeSeconds: number }) {
   const [view, setView] = useState<View>("grid");
-  const availableCards = cards.filter((c) => c.status === "AVAILABLE");
+  const { query, category, rarity, setFranchiseScope } = useMarketplaceFilter();
+
+  // A seller's own page has no /[franchise] URL segment to read, so the
+  // rarity dropdown's scope is derived from what this seller actually
+  // lists instead - a single franchise if every card matches one, or null
+  // (combined list) if they carry more than one game.
+  useEffect(() => {
+    const franchises = new Set(cards.map((c) => c.franchise).filter((f): f is string => Boolean(f)));
+    setFranchiseScope(franchises.size === 1 ? [...franchises][0] : null);
+  }, [cards, setFranchiseScope]);
+
+  const filtered = useMemo(
+    () => cards.filter((card) => matchesCardFilter(card, { query, category, rarity })),
+    [cards, query, category, rarity],
+  );
+  const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
 
   return (
     <div>
@@ -41,7 +58,7 @@ export function SellerListingsView({ cards, liveModeSeconds }: { cards: CardItem
       </div>
 
       {view === "grid" ? (
-        <CardGrid cards={cards} />
+        <CardGrid cards={filtered} />
       ) : (
         <LiveModeStack cards={availableCards} intervalSeconds={liveModeSeconds} />
       )}

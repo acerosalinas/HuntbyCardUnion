@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { useRealtimeCards } from "@/hooks/useRealtimeCards";
@@ -8,11 +8,8 @@ import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveDropBanner } from "@/components/LiveDropBanner";
+import { matchesCardFilter } from "@/lib/cardFilter";
 import { CardItem } from "@/types/marketplace";
-
-function isGraded(conditionGrade: string): boolean {
-  return !/^raw/i.test(conditionGrade.trim());
-}
 
 export function Marketplace({
   initialCards,
@@ -27,25 +24,19 @@ export function Marketplace({
 }) {
   const cards = useRealtimeCards(initialCards);
   const negotiatingCardIds = useNegotiatingCardIds();
-  const { query, category, rarity } = useMarketplaceFilter();
+  const { query, category, rarity, setFranchiseScope } = useMarketplaceFilter();
+
+  // Tells RarityFilter (rendered in the global Navbar) which franchise's
+  // rarity tiers apply here - undefined on /marketplace (mixes every
+  // franchise), a real slug on /[franchise].
+  useEffect(() => {
+    setFranchiseScope(franchiseSlug ?? null);
+  }, [franchiseSlug, setFranchiseScope]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return cards.filter((card) => {
       if (franchiseSlug && card.franchise !== franchiseSlug) return false;
-      if (category === "RAW" && isGraded(card.conditionGrade)) return false;
-      if (category === "GRADED" && !isGraded(card.conditionGrade)) return false;
-      if (category === "FLASH_SALE" && !card.isFlashSale) return false;
-      if (rarity !== "ALL" && card.rarity !== rarity) return false;
-
-      if (!q) return true;
-      return (
-        card.title.toLowerCase().includes(q) ||
-        card.setName.toLowerCase().includes(q) ||
-        card.sellerHandle.toLowerCase().includes(q) ||
-        card.conditionGrade.toLowerCase().includes(q) ||
-        card.rarity.toLowerCase().includes(q)
-      );
+      return matchesCardFilter(card, { query, category, rarity });
     });
   }, [cards, query, category, rarity, franchiseSlug]);
 
