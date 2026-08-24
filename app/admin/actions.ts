@@ -671,6 +671,8 @@ export interface CreateCardInput {
   price: number;
   conditionGrade: string;
   rarity: string;
+  /** Pokemon TCG energy type (see lib/pokemonType.ts) - null for every non-Pokemon card. */
+  pokemonType: string | null;
   images: string[];
   sellerHandle: string;
   sellerMessenger: string;
@@ -690,6 +692,7 @@ export async function createCard(input: CreateCardInput) {
     list_price: input.price,
     condition_grade: input.conditionGrade,
     rarity: input.rarity,
+    pokemon_type: input.pokemonType,
     images: input.images,
     seller_handle: input.sellerHandle,
     seller_messenger: input.sellerMessenger,
@@ -736,6 +739,7 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
       list_price: input.price,
       condition_grade: input.conditionGrade,
       rarity: input.rarity,
+      pokemon_type: input.pokemonType,
       images: input.images,
       seller_handle: input.sellerHandle,
       seller_messenger: input.sellerMessenger,

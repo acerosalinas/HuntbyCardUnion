@@ -28,6 +28,8 @@ export interface CardItem {
   listPrice: number;
   conditionGrade: string; // e.g. 'PSA 10', 'BGS 9.5', 'Raw NM'
   rarity: string; // fixed dropdown vocabulary - see lib/rarity.ts
+  /** Pokemon TCG energy type (see lib/pokemonType.ts) - null for every non-Pokemon card. */
+  pokemonType: string | null;
   images: string[];
   sellerHandle: string;
   sellerMessenger: string; // m.me username used for the Claim Dibs redirect
@@ -363,6 +365,7 @@ export interface CardRow {
   list_price: number;
   condition_grade: string;
   rarity: string;
+  pokemon_type: string | null;
   images: string[];
   seller_handle: string;
   seller_messenger: string;
@@ -406,6 +409,7 @@ export function cardFromRow(row: CardRow): CardItem {
     listPrice: row.list_price,
     conditionGrade: row.condition_grade,
     rarity: row.rarity,
+    pokemonType: row.pokemon_type,
     images: row.images ?? [],
     sellerHandle: row.seller_handle,
     sellerMessenger: row.seller_messenger,

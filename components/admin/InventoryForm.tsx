@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
+import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
 
@@ -39,6 +40,8 @@ interface FormState {
   franchise: string;
   quantity: string;
   rarity: string;
+  /** Pokemon TCG energy type - only meaningful/shown when franchise === "pokemon"; cleared to null otherwise. */
+  pokemonType: string | null;
 }
 
 const emptyForm: FormState = {
@@ -55,6 +58,7 @@ const emptyForm: FormState = {
   franchise: FRANCHISES[0].slug,
   quantity: "1",
   rarity: DEFAULT_RARITY,
+  pokemonType: FRANCHISES[0].slug === "pokemon" ? POKEMON_TYPES[0] : null,
 };
 
 /** Best-effort reverse-parse of a stored "Raw NM" / "PSA 10" string back into structured fields. */
@@ -97,6 +101,12 @@ function formStateFromCard(card: CardItem): FormState {
     // per-franchise, or moved to a franchise it doesn't fit) - keeps the
     // <select> from holding a value with no matching <option>.
     rarity: card.rarity && raritiesForFranchise(franchise).includes(card.rarity) ? card.rarity : DEFAULT_RARITY,
+    pokemonType:
+      franchise === "pokemon"
+        ? card.pokemonType && (POKEMON_TYPES as readonly string[]).includes(card.pokemonType)
+          ? card.pokemonType
+          : POKEMON_TYPES[0]
+        : null,
   };
 }
 
@@ -127,6 +137,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       ...f,
       franchise,
       rarity: raritiesForFranchise(franchise).includes(f.rarity) ? f.rarity : DEFAULT_RARITY,
+      pokemonType: franchise === "pokemon" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
     }));
   };
 
@@ -172,6 +183,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       price,
       conditionGrade,
       rarity: form.rarity,
+      pokemonType: form.franchise === "pokemon" ? form.pokemonType : null,
       images,
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
@@ -246,6 +258,18 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
           ))}
         </Select>
       </Field>
+
+      {form.franchise === "pokemon" && (
+        <Field label="Type *" className="sm:col-span-2">
+          <Select value={form.pokemonType ?? POKEMON_TYPES[0]} onChange={(e) => set("pokemonType", e.target.value)}>
+            {POKEMON_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
 
       <Field label="Card Type *" className="sm:col-span-2">
         <div className="flex gap-2">
