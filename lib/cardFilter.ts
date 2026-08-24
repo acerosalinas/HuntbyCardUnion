@@ -8,12 +8,18 @@ function isGraded(conditionGrade: string): boolean {
 /** Shared predicate behind the search bar / category pills / rarity dropdown - used by both the marketplace grid and a seller's own listings grid. */
 export function matchesCardFilter(
   card: CardItem,
-  { query, category, rarity }: { query: string; category: CategoryFilter; rarity: string },
+  {
+    query,
+    category,
+    rarity,
+    pokemonType = "ALL",
+  }: { query: string; category: CategoryFilter; rarity: string; pokemonType?: string },
 ): boolean {
   if (category === "RAW" && isGraded(card.conditionGrade)) return false;
   if (category === "GRADED" && !isGraded(card.conditionGrade)) return false;
   if (category === "FLASH_SALE" && !card.isFlashSale) return false;
   if (rarity !== "ALL" && card.rarity !== rarity) return false;
+  if (pokemonType !== "ALL" && card.pokemonType !== pokemonType) return false;
 
   const q = query.trim().toLowerCase();
   if (!q) return true;

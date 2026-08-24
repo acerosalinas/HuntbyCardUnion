@@ -8,6 +8,7 @@ import { Logo } from "@/components/Logo";
 import { SearchBar } from "@/components/SearchBar";
 import { CategoryFilters } from "@/components/CategoryFilters";
 import { RarityFilter } from "@/components/RarityFilter";
+import { PokemonTypeFilter } from "@/components/PokemonTypeFilter";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CartNavLink } from "@/components/CartNavLink";
 import { MyDibsNavLink } from "@/components/MyDibsNavLink";
@@ -82,6 +83,7 @@ export function Navbar() {
             <div className="flex flex-wrap items-center gap-2">
               <CategoryFilters />
               <RarityFilter className="w-auto" />
+              <PokemonTypeFilter className="w-auto" />
             </div>
           </>
         )}

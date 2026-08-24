@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
+import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { CONDITION_LABELS, ConditionCode, parseConditionGrade } from "@/lib/conditionGrade";
 import { deleteCard, publishDrafts, updateCard } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
@@ -26,6 +27,8 @@ interface FormState {
   quantity: string;
   franchise: string;
   rarity: string;
+  /** Pokemon TCG energy type - only meaningful/shown when franchise === "pokemon"; cleared to null otherwise. */
+  pokemonType: string | null;
   cardType: CardType;
   condition: ConditionCode;
   grader: string;
@@ -46,6 +49,12 @@ function formStateFromCard(card: CardItem): FormState {
     // per-franchise) - keeps the <select> from holding a value with no
     // matching <option>.
     rarity: card.rarity && raritiesForFranchise(franchise).includes(card.rarity) ? card.rarity : DEFAULT_RARITY,
+    pokemonType:
+      franchise === "pokemon"
+        ? card.pokemonType && (POKEMON_TYPES as readonly string[]).includes(card.pokemonType)
+          ? card.pokemonType
+          : POKEMON_TYPES[0]
+        : null,
     cardType: parsed.type,
     condition: parsed.type === "RAW" ? parsed.condition : "NM",
     grader: parsed.type === "GRADED" ? parsed.grader : GRADERS[0],
@@ -93,6 +102,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       ...f,
       franchise,
       rarity: raritiesForFranchise(franchise).includes(f.rarity) ? f.rarity : DEFAULT_RARITY,
+      pokemonType: franchise === "pokemon" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
     }));
   };
 
@@ -121,6 +131,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       price,
       conditionGrade,
       rarity: form.rarity,
+      pokemonType: form.franchise === "pokemon" ? form.pokemonType : null,
       images: current.images,
       sellerHandle: current.sellerHandle,
       sellerMessenger: current.sellerMessenger,
@@ -140,6 +151,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
                   price,
                   conditionGrade,
                   rarity: form.rarity,
+                  pokemonType: form.franchise === "pokemon" ? form.pokemonType : null,
                   franchise: form.franchise,
                   quantity,
                   quantityAvailable: quantity,
@@ -287,6 +299,20 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
               ))}
             </Select>
           </div>
+          {form.franchise === "pokemon" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+                Type *
+              </label>
+              <Select value={form.pokemonType ?? POKEMON_TYPES[0]} onChange={(e) => set("pokemonType", e.target.value)}>
+                {POKEMON_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
               Price (₱) *

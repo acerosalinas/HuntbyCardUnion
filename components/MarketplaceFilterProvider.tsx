@@ -12,6 +12,9 @@ interface MarketplaceFilterContextValue {
   /** A Rarity value (see lib/rarity.ts) or "ALL" - a separate field from `category` since rarity has too many values for the pill-style filter. */
   rarity: string;
   setRarity: (r: string) => void;
+  /** A Pokemon TCG energy type value (see lib/pokemonType.ts) or "ALL" - Pokemon-only, PokemonTypeFilter hides itself unless franchiseScope === "pokemon". */
+  pokemonType: string;
+  setPokemonType: (t: string) => void;
   /**
    * The franchise slug the currently-viewed card grid is scoped to, or null
    * if it mixes franchises (e.g. the all-cards marketplace, or a seller who
@@ -32,11 +35,23 @@ export function MarketplaceFilterProvider({ children }: { children: React.ReactN
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [rarity, setRarity] = useState("ALL");
+  const [pokemonType, setPokemonType] = useState("ALL");
   const [franchiseScope, setFranchiseScope] = useState<string | null>(null);
 
   return (
     <MarketplaceFilterContext.Provider
-      value={{ query, setQuery, category, setCategory, rarity, setRarity, franchiseScope, setFranchiseScope }}
+      value={{
+        query,
+        setQuery,
+        category,
+        setCategory,
+        rarity,
+        setRarity,
+        pokemonType,
+        setPokemonType,
+        franchiseScope,
+        setFranchiseScope,
+      }}
     >
       {children}
     </MarketplaceFilterContext.Provider>

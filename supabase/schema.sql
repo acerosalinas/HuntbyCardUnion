@@ -36,6 +36,10 @@ create table cards (
   -- no CHECK constraint, same convention as condition_grade above: card
   -- attribute fields are validated in the TS dropdown, not the database.
   rarity text not null default 'Other',
+  -- Pokemon TCG energy type (see lib/pokemonType.ts) - Pokemon-only, unlike
+  -- rarity there's no One Piece equivalent, so this stays null for every
+  -- non-Pokemon card and is never required.
+  pokemon_type text,
   images text[] not null default '{}',
   seller_handle text not null,
   seller_messenger text not null,
@@ -2000,13 +2004,20 @@ revoke execute on function place_order(jsonb, text, text, text, text) from publi
 grant execute on function place_order(jsonb, text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- MIGRATION 9: Pokemon TCG energy type. Safe to run once on an existing
+-- project; no-ops on re-run.
+-- ---------------------------------------------------------------------------
+
+alter table cards add column if not exists pokemon_type text;
+
+-- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only
 -- runs cleanly on a fresh install (re-running inserts duplicates); skip this
 -- block entirely on an existing project.
 -- ---------------------------------------------------------------------------
-insert into cards (title, set_name, price, list_price, condition_grade, rarity, images, seller_handle, seller_messenger, is_flash_sale, franchise)
+insert into cards (title, set_name, price, list_price, condition_grade, rarity, pokemon_type, images, seller_handle, seller_messenger, is_flash_sale, franchise)
 values
-  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', 'Hyper Rare', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
-  ('Umbreon VMAX', 'Evolving Skies', 850, 850, 'PSA 9', 'Ultra Rare', '{}', '@vault_hobbyist', 'CardUnion1', false, 'pokemon'),
-  ('Monkey D. Luffy', 'Romance Dawn', 1800, 1800, 'Raw NM', 'Rare', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece'),
-  ('Roronoa Zoro', 'Paramount War', 950, 950, 'Raw NM', 'Uncommon', '{}', '@apex_cards', 'CardUnion1', false, 'one-piece');
+  ('Charizard', 'Base Set Unlimited', 2400, 2400, 'PSA 10', 'Hyper Rare', 'Fire', '{}', '@apex_cards', 'CardUnion1', true, 'pokemon'),
+  ('Umbreon VMAX', 'Evolving Skies', 850, 850, 'PSA 9', 'Ultra Rare', 'Dark', '{}', '@vault_hobbyist', 'CardUnion1', false, 'pokemon'),
+  ('Monkey D. Luffy', 'Romance Dawn', 1800, 1800, 'Raw NM', 'Rare', null, '{}', '@apex_cards', 'CardUnion1', false, 'one-piece'),
+  ('Roronoa Zoro', 'Paramount War', 950, 950, 'Raw NM', 'Uncommon', null, '{}', '@apex_cards', 'CardUnion1', false, 'one-piece');

@@ -23,7 +23,7 @@ export function SellerListingsView({
   sellerTags: string[];
 }) {
   const [view, setView] = useState<View>("grid");
-  const { query, category, rarity, setFranchiseScope } = useMarketplaceFilter();
+  const { query, category, rarity, pokemonType, setFranchiseScope } = useMarketplaceFilter();
 
   // A seller's own page has no /[franchise] URL segment to read, so the
   // rarity dropdown's scope has to come from elsewhere. Prefer the seller's
@@ -41,8 +41,8 @@ export function SellerListingsView({
   }, [cards, sellerTags, setFranchiseScope]);
 
   const filtered = useMemo(
-    () => cards.filter((card) => matchesCardFilter(card, { query, category, rarity })),
-    [cards, query, category, rarity],
+    () => cards.filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
+    [cards, query, category, rarity, pokemonType],
   );
   const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
 

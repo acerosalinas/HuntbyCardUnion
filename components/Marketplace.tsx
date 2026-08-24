@@ -24,7 +24,7 @@ export function Marketplace({
 }) {
   const cards = useRealtimeCards(initialCards);
   const negotiatingCardIds = useNegotiatingCardIds();
-  const { query, category, rarity, setFranchiseScope } = useMarketplaceFilter();
+  const { query, category, rarity, pokemonType, setFranchiseScope } = useMarketplaceFilter();
 
   // Tells RarityFilter (rendered in the global Navbar) which franchise's
   // rarity tiers apply here - undefined on /marketplace (mixes every
@@ -36,9 +36,9 @@ export function Marketplace({
   const filtered = useMemo(() => {
     return cards.filter((card) => {
       if (franchiseSlug && card.franchise !== franchiseSlug) return false;
-      return matchesCardFilter(card, { query, category, rarity });
+      return matchesCardFilter(card, { query, category, rarity, pokemonType });
     });
-  }, [cards, query, category, rarity, franchiseSlug]);
+  }, [cards, query, category, rarity, pokemonType, franchiseSlug]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
