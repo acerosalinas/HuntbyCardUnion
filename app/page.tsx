@@ -82,6 +82,12 @@ export default async function HomePage() {
           >
             Browse All Cards
           </Link>
+          <Link
+            href="/how-it-works"
+            className="text-xs font-medium text-foreground-muted underline underline-offset-2 transition-colors hover:text-gold"
+          >
+            New here? See how buying works
+          </Link>
           <span className="mt-2 text-xs font-semibold uppercase tracking-[0.25em] text-gold">
             Card Union
           </span>

@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Providers } from "@/app/providers";
 import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <ConnectionBanner />
           <Navbar />
           <main className="flex-1">{children}</main>
+          <Footer />
         </Providers>
       </body>
     </html>

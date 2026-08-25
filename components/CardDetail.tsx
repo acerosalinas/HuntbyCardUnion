@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, CheckCircle2, Hourglass, ImageOff, PackageCheck, ShoppingCart, Store, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Heart, Hourglass, ImageOff, PackageCheck, ShoppingCart, Store, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -15,6 +15,7 @@ import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useRealtimeCard } from "@/hooks/useRealtimeCard";
 import { useCardQueue } from "@/hooks/useCardQueue";
 import { useMyClaims } from "@/hooks/useMyClaims";
+import { useWishlist } from "@/hooks/useWishlist";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CardItem, FulfillmentMethod, SellerProfile } from "@/types/marketplace";
@@ -33,6 +34,8 @@ export function CardDetail({
   const isNegotiating = negotiatingCardIds.has(card.id);
   const { isInCart, addToCart, removeFromCart } = useCart();
   const { buyer } = useBuyerIdentity();
+  const { isWishlisted, toggle: toggleWishlist } = useWishlist();
+  const wishlisted = isWishlisted(card.id);
   const [activeImage, setActiveImage] = useState(0);
   const [offerOpen, setOfferOpen] = useState(false);
   const [addedNotice, setAddedNotice] = useState(false);
@@ -123,9 +126,27 @@ export function CardDetail({
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
           </div>
 
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{card.title}</h1>
-            <p className="text-foreground-muted">{card.setName}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">{card.title}</h1>
+              <p className="text-foreground-muted">{card.setName}</p>
+            </div>
+            {buyer && (
+              <button
+                type="button"
+                onClick={() => toggleWishlist(card.id)}
+                aria-pressed={wishlisted}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                  wishlisted
+                    ? "border-gold bg-gold text-navy-950"
+                    : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                )}
+              >
+                <Heart size={14} fill={wishlisted ? "currentColor" : "none"} />
+                {wishlisted ? "Saved" : "Save"}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center justify-between border-y border-card-border py-3">

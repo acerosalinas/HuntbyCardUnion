@@ -1,13 +1,20 @@
+"use client";
+
 import Link from "next/link";
-import { ImageOff } from "lucide-react";
+import { Heart, ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
 import { RarityBadge } from "@/components/RarityBadge";
+import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { useWishlist } from "@/hooks/useWishlist";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNegotiating?: boolean }) {
+  const { buyer } = useBuyerIdentity();
+  const { isWishlisted, toggle } = useWishlist();
+  const wishlisted = isWishlisted(card.id);
   const isSold = card.status === "SOLD";
   const isLowStock = !isSold && card.quantity > 1 && card.quantityAvailable <= Math.ceil(card.quantity * 0.2);
 
@@ -39,6 +46,24 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
           <RarityBadge rarity={card.rarity} franchise={card.franchise} />
           {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
         </div>
+        {buyer && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              toggle(card.id);
+            }}
+            aria-label={wishlisted ? "Remove from wishlist" : "Save to wishlist"}
+            aria-pressed={wishlisted}
+            className={cn(
+              "absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-colors",
+              wishlisted ? "bg-gold text-navy-950" : "bg-navy-950/60 text-ivory hover:bg-navy-950/80",
+            )}
+          >
+            <Heart size={14} fill={wishlisted ? "currentColor" : "none"} />
+          </button>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-3.5">
