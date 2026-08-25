@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -33,81 +34,85 @@ export function BuyerIdentityProvider({
   // `initialBuyer` is always null now (see app/layout.tsx) - resolving the
   // buyer server-side there used to block every navigation in the app on a
   // Supabase Auth round-trip, so it was removed in favor of resolving
-  // identity entirely client-side, here. The effect below reconciles
-  // against the browser client's own session on mount, including its first
-  // ("INITIAL_SESSION") firing, which is what actually authenticates RPC
-  // calls (submit_offer, place_order) anyway - an earlier version of this
-  // trusted a server-resolved value exclusively and discarded
-  // INITIAL_SESSION, which let a server/client mismatch go uncorrected and
-  // made "Make Offer"/"Place Order" wrongly bounce a genuinely signed-in
-  // buyer to login. Expect a brief flash of signed-out chrome on first
-  // paint for a returning signed-in buyer - deliberate, and already how
-  // this behaved on any mismatch even before this change.
+  // identity client-side, here.
+  //
+  // Sign-in/out always happen server-side (Server Actions), never through
+  // this browser client directly - so onAuthStateChange's SIGNED_IN/
+  // SIGNED_OUT events, which only fire for actions taken through this same
+  // client instance, never see them. Its one-time INITIAL_SESSION firing
+  // (computed once, when this provider first mounts - often on the login
+  // page itself, before signing in, since this provider lives in the root
+  // layout and never remounts across client-side navigation) goes stale the
+  // moment a server-driven sign-in/out happens afterward, with nothing to
+  // correct it - which is exactly the bug this re-check exists to close:
+  // an admin/seller signing in (see app/account/login/actions.ts, which
+  // keeps both a buyer and an admin session alive under one login) would
+  // authenticate successfully server-side yet the marketplace UI kept
+  // showing them as signed out. Re-checking on every pathname change (in
+  // addition to the mount-time subscription below, kept for any future
+  // same-client auth action) means the redirect that follows a server-side
+  // sign-in/out always lands on a route that re-verifies for itself,
+  // instead of trusting a subscription that was never told anything changed.
   const [buyer, setBuyer] = useState<Buyer | null>(initialBuyer);
   const [loading] = useState(false);
+  const pathname = usePathname();
+  // Guards against an older, slower check resolving after a newer one (e.g.
+  // fast back-to-back navigations) and clobbering the fresher result.
+  const requestIdRef = useRef(0);
 
-  // The root layout persists across client-side navigation (Next.js doesn't
-  // remount shared layouts on every route change), so this provider is a
-  // single long-lived instance for the whole session - useState's initial
-  // value only ever applies once, at first mount. Without this sync, a
-  // fresh server-resolved initialBuyer arriving after login (a real
-  // Server Action redirect, which DOES re-run the layout) would be silently
-  // ignored, leaving `buyer` stuck at whatever it was on first mount (often
-  // null, if that first mount was the login page itself before signing in).
+  const loadBuyer = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    const requestId = ++requestIdRef.current;
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (requestId !== requestIdRef.current) return;
+
+    if (!user || !user.email) {
+      setBuyer(null);
+      return;
+    }
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("handle, full_name, ship_name, ship_phone, ship_address, ship_zip")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (requestId !== requestIdRef.current) return;
+
+    setBuyer(
+      profile
+        ? {
+            id: user.id,
+            email: user.email,
+            handle: profile.handle,
+            fullName: profile.full_name,
+            shipName: profile.ship_name,
+            shipPhone: profile.ship_phone,
+            shipAddress: profile.ship_address,
+            shipZip: profile.ship_zip,
+          }
+        : null,
+    );
+  }, []);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional prop->state sync (React's documented pattern for adjusting state when a prop changes), not a data fetch
-    setBuyer(initialBuyer);
-  }, [initialBuyer]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fresh session check on every navigation, not a plain prop sync
+    loadBuyer();
+  }, [pathname, loadBuyer]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
-
     const supabase = createClient();
-    let active = true;
-
-    async function loadBuyer(userId: string | undefined, email: string | undefined) {
-      if (!userId || !email) {
-        if (active) setBuyer(null);
-        return;
-      }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("handle, full_name, ship_name, ship_phone, ship_address, ship_zip")
-        .eq("id", userId)
-        .maybeSingle();
-      if (!active) return;
-      setBuyer(
-        profile
-          ? {
-              id: userId,
-              email,
-              handle: profile.handle,
-              fullName: profile.full_name,
-              shipName: profile.ship_name,
-              shipPhone: profile.ship_phone,
-              shipAddress: profile.ship_address,
-              shipZip: profile.ship_zip,
-            }
-          : null,
-      );
-    }
-
-    // Every event - including the first ("INITIAL_SESSION") - reconciles
-    // against the browser client's own session. This is what actually
-    // authenticates RPC calls (submit_offer, place_order), so it's the
-    // right source of truth to defer to whenever it disagrees with the
-    // server-rendered initialBuyer above.
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      loadBuyer(session?.user?.id, session?.user?.email);
+    } = supabase.auth.onAuthStateChange(() => {
+      loadBuyer();
     });
-
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+    return () => subscription.unsubscribe();
+  }, [loadBuyer]);
 
   return <BuyerIdentityContext.Provider value={{ buyer, loading }}>{children}</BuyerIdentityContext.Provider>;
 }
