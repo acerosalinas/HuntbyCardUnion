@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
-import { ImagePlus, X } from "lucide-react";
+import { Camera, ImagePlus, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -125,6 +125,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -142,7 +143,8 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
   };
 
   const handleFilesSelected = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+    const target = e.target;
+    const files = target.files;
     if (!files || files.length === 0) return;
     setError(null);
     setUploading(true);
@@ -155,7 +157,7 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
       setError(extractErrorMessage(err) ?? "Failed to upload image(s)");
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      target.value = "";
     }
   };
 
@@ -353,12 +355,30 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
             <ImagePlus size={18} />
             <span className="text-[10px]">{uploading ? "Uploading..." : "Add"}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={uploading}
+            className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-card-border text-foreground-muted transition-colors hover:border-gold hover:text-gold disabled:opacity-60"
+          >
+            <Camera size={18} />
+            <span className="text-[10px]">Scan</span>
+          </button>
         </div>
         <input
           ref={fileInputRef}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           multiple
+          onChange={handleFilesSelected}
+          className="hidden"
+        />
+        {/* No `multiple` - mobile camera capture hands back one photo per scan. `capture` is ignored (harmlessly falls back to the file picker) on desktop browsers that don't support it. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
           onChange={handleFilesSelected}
           className="hidden"
         />

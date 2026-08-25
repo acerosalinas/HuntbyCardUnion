@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { UploadCloud } from "lucide-react";
+import { Camera, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { uploadCardImages, createDraftCards } from "@/app/admin/actions";
@@ -15,6 +15,7 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -39,6 +40,7 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
       setUploading(false);
       setProgress(null);
       if (inputRef.current) inputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
     }
   };
 
@@ -67,14 +69,29 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
             Up to {MAX_FILES} images at once - JPG, PNG, WEBP, GIF. One photo per card.
           </p>
         </div>
-        <Button type="button" variant="gold" disabled={uploading} onClick={() => inputRef.current?.click()}>
-          {uploading ? (progress ?? "Uploading...") : "Choose Photos"}
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button type="button" variant="gold" disabled={uploading} onClick={() => inputRef.current?.click()}>
+            {uploading ? (progress ?? "Uploading...") : "Choose Photos"}
+          </Button>
+          <Button type="button" variant="outline" disabled={uploading} onClick={() => cameraInputRef.current?.click()}>
+            <Camera size={15} />
+            Scan with Camera
+          </Button>
+        </div>
         <input
           ref={inputRef}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           multiple
+          className="hidden"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        {/* No `multiple` - mobile camera capture hands back one photo per scan; admins scan again for the next card. `capture` is ignored (harmlessly falls back to the file picker) on desktop browsers that don't support it. */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
         />

@@ -27,7 +27,7 @@ export default async function FranchisePage({ params }: PageProps<"/[franchise]"
   const { data } = await supabase
     .from("cards")
     .select("*")
-    .eq("franchise", slug)
+    .ilike("franchise", franchise.slug)
     .order("created_at", { ascending: false });
 
   const initialCards = ((data as CardRow[] | null) ?? []).map(cardFromRow);
@@ -39,7 +39,7 @@ export default async function FranchisePage({ params }: PageProps<"/[franchise]"
     <Marketplace
       initialCards={initialCards}
       nextDropAt={nextDropAt}
-      franchiseSlug={slug}
+      franchiseSlug={franchise.slug}
       franchiseLabel={franchise.label}
     />
   );

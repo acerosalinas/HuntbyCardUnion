@@ -1,3 +1,5 @@
+import { normalizeFranchise } from "@/lib/franchises";
+
 export type CardStatus = "DRAFT" | "AVAILABLE" | "PENDING" | "SOLD";
 export type OfferStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
 export type QueueStatus = "WAITING" | "PROMOTED" | "CANCELLED";
@@ -418,7 +420,7 @@ export function cardFromRow(row: CardRow): CardItem {
     quantityAvailable: row.quantity_available,
     isFlashSale: row.is_flash_sale,
     adminId: row.admin_id,
-    franchise: row.franchise,
+    franchise: normalizeFranchise(row.franchise),
     createdAt: new Date(row.created_at).getTime(),
   };
 }
