@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
+import { ensureBuyerProfileForAdmin } from "@/lib/ensureBuyerProfile";
 
 /**
  * Single sign-in entry point for both buyers and admins - the whole app now
@@ -11,8 +12,13 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
  * app_metadata.role, but each keeps its own session cookie (lib/supabase/
  * config.ts) so a signed-in buyer and a signed-in admin can coexist in the
  * same browser. The role can't be known before authenticating, so this
- * tries the buyer cookie first (the common case) and, only if the account
- * turns out to be an admin, moves the session into the admin cookie instead.
+ * tries the buyer cookie first (the common case).
+ *
+ * For an admin account, BOTH sessions are deliberately kept: an admin/
+ * seller is meant to be able to click "View Marketplace" and browse, dibs,
+ * and buy under their own login, same as any buyer - not appear signed out.
+ * ensureBuyerProfileForAdmin backfills the profiles row that action needs
+ * (admin accounts don't get one at creation).
  */
 export async function login(_prevState: { error: string | null }, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
@@ -37,10 +43,10 @@ export async function login(_prevState: { error: string | null }, formData: Form
     redirect(from.startsWith("/admin") ? "/" : from || "/");
   }
 
-  // Admin account - the sign-in above landed in the wrong (buyer) cookie.
-  // "local" scope only clears the session we just created here, not the
-  // admin's other active sessions elsewhere.
-  await buyerClient.auth.signOut({ scope: "local" });
+  // Admin account - the buyer session created above is kept (not signed
+  // out) so this account can also act as a buyer; make sure it has a
+  // profiles row to back that up, then also sign into the admin cookie.
+  await ensureBuyerProfileForAdmin(data.user.id, email);
   const adminClient = await createAuthServerClient("admin");
   const { error: adminError } = await adminClient.auth.signInWithPassword({ email, password });
   if (adminError) {

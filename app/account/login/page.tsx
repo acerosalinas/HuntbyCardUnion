@@ -51,6 +51,9 @@ function LoginForm() {
           </Link>
         </p>
       </form>
+      <p className="text-center text-xs text-foreground-muted">
+        Sellers and admins sign in here too - we&apos;ll send you to the right dashboard automatically.
+      </p>
     </div>
   );
 }

@@ -37,18 +37,11 @@ export default async function SellerProfilePage({ params }: PageProps<"/sellers/
   if (!profileRow) notFound();
 
   const profile = sellerProfileFromRow(profileRow as SellerProfileRow);
-  const { data: cardRows } = await supabase
-    .from("cards")
-    .select("*")
-    .eq("admin_id", profile.adminId)
-    .order("created_at", { ascending: false });
+  const [{ data: cardRows }, { data: reviewRows }] = await Promise.all([
+    supabase.from("cards").select("*").eq("admin_id", profile.adminId).order("created_at", { ascending: false }),
+    supabase.from("reviews").select("*").eq("seller_admin_id", profile.adminId).order("created_at", { ascending: false }),
+  ]);
   const cards = ((cardRows as CardRow[] | null) ?? []).map(cardFromRow);
-
-  const { data: reviewRows } = await supabase
-    .from("reviews")
-    .select("*")
-    .eq("seller_admin_id", profile.adminId)
-    .order("created_at", { ascending: false });
   const reviews = ((reviewRows as ReviewRow[] | null) ?? []).map(reviewFromRow);
 
   return (
