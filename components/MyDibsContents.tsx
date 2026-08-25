@@ -221,7 +221,7 @@ export function MyDibsContents() {
           <div className="relative aspect-[3/4] w-full bg-navy-950/5">
             {claim.card.images[0] ? (
               // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-              <img src={claim.card.images[0]} alt={claim.card.title} className="h-full w-full object-cover" />
+              <img src={claim.card.images[0]} alt={claim.card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                 <ImageOff size={24} />
@@ -326,7 +326,7 @@ export function MyDibsContents() {
                 <div className="relative aspect-[3/4] w-full bg-navy-950/5">
                   {card.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                    <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
+                    <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                       <ImageOff size={24} />
@@ -373,7 +373,7 @@ export function MyDibsContents() {
                   <div className="relative aspect-[3/4] w-full bg-navy-950/5">
                     {card.images[0] ? (
                       // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                      <img src={card.images[0]} alt={card.title} className="h-full w-full object-cover" />
+                      <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                         <ImageOff size={24} />

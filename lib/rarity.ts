@@ -21,6 +21,7 @@ const POKEMON_RARITIES = [
   "Shiny Ultra Rare",
   "Mega Attack Rare",
   "Mega Hyper Rare",
+  "Cuties",
   "Other",
 ] as const;
 

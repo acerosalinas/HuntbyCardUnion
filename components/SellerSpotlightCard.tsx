@@ -11,7 +11,7 @@ export function SellerSpotlightCard({ profile, cardCount }: { profile: SellerPro
       <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-gold bg-navy-950 text-gold">
         {profile.avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URL
-          <img src={profile.avatarUrl} alt={profile.displayName} className="h-full w-full object-cover" />
+          <img src={profile.avatarUrl} alt={profile.displayName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         ) : (
           <Store size={24} />
         )}

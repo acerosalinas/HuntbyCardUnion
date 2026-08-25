@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, CheckCircle2, Heart, Hourglass, ImageOff, PackageCheck, ShoppingCart, Store, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -88,7 +88,13 @@ export function CardDetail({
           <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-card-border bg-navy-950/5">
             {images[activeImage] ? (
               // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs, not local assets
-              <img src={images[activeImage]} alt={card.title} className="h-full w-full object-cover" />
+              <img
+                src={images[activeImage]}
+                alt={card.title}
+                fetchPriority="high"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                 <ImageOff size={40} />
@@ -110,7 +116,7 @@ export function CardDetail({
                   )}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs, not local assets */}
-                  <img src={url} alt="" className="h-full w-full object-cover" />
+                  <img src={url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
@@ -213,16 +219,37 @@ export function CardDetail({
           )}
 
           {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
-              <Input
-                type="number"
-                min={1}
-                max={maxQty}
-                value={qty}
-                onChange={(e) => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
-                className="w-20"
-              />
+              <div className="inline-flex items-center rounded-lg border border-card-border">
+                <button
+                  type="button"
+                  onClick={() => setQty((q) => Math.max(1, q - 1))}
+                  disabled={qty <= 1}
+                  aria-label="Decrease quantity"
+                  className="flex h-9 w-9 items-center justify-center text-foreground-muted transition-colors hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Minus size={14} />
+                </button>
+                <Input
+                  type="number"
+                  min={1}
+                  max={maxQty}
+                  value={qty}
+                  onChange={(e) => setQty(Math.max(1, Math.min(maxQty, Number(e.target.value) || 1)))}
+                  className="h-9 w-12 rounded-none border-x border-y-0 border-card-border text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                  disabled={qty >= maxQty}
+                  aria-label="Increase quantity"
+                  className="flex h-9 w-9 items-center justify-center text-foreground-muted transition-colors hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              <span className="text-xs text-foreground-muted">{card.quantityAvailable} available</span>
             </div>
           )}
 

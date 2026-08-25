@@ -10,6 +10,14 @@ import { extractErrorMessage } from "@/lib/utils";
 import { updateSellerProfile, uploadAvatarImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
 
+// Mirrors HANDLE_PATTERN in app/admin/actions.ts - validated here too so a
+// bad handle is caught before ever calling the server action. Server
+// Actions invoked directly (not through useActionState) have their thrown
+// error messages redacted in production - the client only ever sees a
+// generic "Minified React error" - so a validation mistake needs to be
+// caught client-side to actually be readable to the seller.
+const HANDLE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+
 export function SellerProfileForm({ profile }: { profile: SellerProfile | null }) {
   const [handle, setHandle] = useState(profile?.handle ?? "");
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
@@ -48,8 +56,18 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
     setError(null);
     setSuccess(false);
 
+    const normalizedHandle = handle.trim().toLowerCase();
+    if (!HANDLE_PATTERN.test(normalizedHandle)) {
+      setError("Handle must be lowercase letters, numbers, and hyphens only (no spaces or symbols) - e.g. cardking or card-king.");
+      return;
+    }
+    if (!displayName.trim()) {
+      setError("Display name is required.");
+      return;
+    }
+
     const input: SellerProfileInput = {
-      handle,
+      handle: normalizedHandle,
       displayName,
       bio,
       avatarUrl,
@@ -79,7 +97,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
         <Input
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder="e.g. cardking"
+          placeholder="e.g. card-king (lowercase, numbers, hyphens only)"
           required
         />
       </div>

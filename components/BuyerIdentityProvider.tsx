@@ -30,20 +30,19 @@ export function BuyerIdentityProvider({
   children: React.ReactNode;
   initialBuyer: Buyer | null;
 }) {
-  // The initial value comes from the server (see app/layout.tsx ->
-  // getCurrentBuyer()), which reads the session cookie the same reliable
-  // way proxy.ts already does for every page on the site - this avoids an
-  // initial loading flicker in the common case where server and client
-  // agree. But they CAN disagree in practice (observed live: server render
-  // saw no session while the browser's own client already had a valid one
-  // for the same user - likely a cookie-visibility timing gap, not
-  // reproducible on demand), so this is a starting point, not the last
-  // word - the effect below always reconciles against the browser client's
-  // own session shortly after, including on its first ("INITIAL_SESSION")
-  // firing. An earlier version of this trusted the server exclusively and
-  // discarded INITIAL_SESSION, which is exactly what let that mismatch go
-  // uncorrected and made "Make Offer"/"Place Order" wrongly bounce a
-  // genuinely signed-in buyer to login.
+  // `initialBuyer` is always null now (see app/layout.tsx) - resolving the
+  // buyer server-side there used to block every navigation in the app on a
+  // Supabase Auth round-trip, so it was removed in favor of resolving
+  // identity entirely client-side, here. The effect below reconciles
+  // against the browser client's own session on mount, including its first
+  // ("INITIAL_SESSION") firing, which is what actually authenticates RPC
+  // calls (submit_offer, place_order) anyway - an earlier version of this
+  // trusted a server-resolved value exclusively and discarded
+  // INITIAL_SESSION, which let a server/client mismatch go uncorrected and
+  // made "Make Offer"/"Place Order" wrongly bounce a genuinely signed-in
+  // buyer to login. Expect a brief flash of signed-out chrome on first
+  // paint for a returning signed-in buyer - deliberate, and already how
+  // this behaved on any mismatch even before this change.
   const [buyer, setBuyer] = useState<Buyer | null>(initialBuyer);
   const [loading] = useState(false);
 
