@@ -2011,6 +2011,53 @@ grant execute on function place_order(jsonb, text, text, text, text) to authenti
 alter table cards add column if not exists pokemon_type text;
 
 -- ---------------------------------------------------------------------------
+-- MIGRATION 10: Wishlists ("save for later"). Safe to run once on an
+-- existing project; no-ops on re-run. Unlike claims/offers this has no
+-- cross-table business logic or concurrency to protect, so - unlike every
+-- other buyer write in this file - it skips the security-definer RPC layer
+-- entirely: the buyer's own browser client inserts/deletes rows directly,
+-- guarded purely by RLS (auth.uid() = buyer_id).
+-- ---------------------------------------------------------------------------
+create table if not exists wishlists (
+  id uuid primary key default gen_random_uuid(),
+  buyer_id uuid not null references auth.users (id) on delete cascade,
+  card_id uuid not null references cards (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (buyer_id, card_id)
+);
+
+create index if not exists wishlists_buyer_id_idx on wishlists (buyer_id, created_at desc);
+
+alter table wishlists enable row level security;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wishlists' and policyname = 'buyers can view their own wishlist'
+  ) then
+    create policy "buyers can view their own wishlist" on wishlists
+      for select using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wishlists' and policyname = 'buyers can add to their own wishlist'
+  ) then
+    create policy "buyers can add to their own wishlist" on wishlists
+      for insert with check (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wishlists' and policyname = 'buyers can remove from their own wishlist'
+  ) then
+    create policy "buyers can remove from their own wishlist" on wishlists
+      for delete using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only
 -- runs cleanly on a fresh install (re-running inserts duplicates); skip this
 -- block entirely on an existing project.

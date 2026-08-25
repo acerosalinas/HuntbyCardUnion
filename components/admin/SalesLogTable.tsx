@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { Award, CalendarDays, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { setShipped } from "@/app/admin/actions";
@@ -28,10 +29,67 @@ function formatDateTime(ms: number): string {
   });
 }
 
+function useSalesStats(claims: SoldClaimView[]) {
+  return useMemo(() => {
+    const now = new Date();
+    let totalRevenue = 0;
+    let monthRevenue = 0;
+    const revenueByTitle = new Map<string, number>();
+    const unitsByTitle = new Map<string, number>();
+
+    for (const claim of claims) {
+      const revenue = claim.unitPrice * claim.quantity;
+      totalRevenue += revenue;
+      if (
+        claim.confirmedAt &&
+        new Date(claim.confirmedAt).getMonth() === now.getMonth() &&
+        new Date(claim.confirmedAt).getFullYear() === now.getFullYear()
+      ) {
+        monthRevenue += revenue;
+      }
+      revenueByTitle.set(claim.cardTitle, (revenueByTitle.get(claim.cardTitle) ?? 0) + revenue);
+      unitsByTitle.set(claim.cardTitle, (unitsByTitle.get(claim.cardTitle) ?? 0) + claim.quantity);
+    }
+
+    let bestSeller: { title: string; units: number } | null = null;
+    for (const [title, units] of unitsByTitle) {
+      if (!bestSeller || units > bestSeller.units) bestSeller = { title, units };
+    }
+
+    return { totalRevenue, monthRevenue, bestSeller };
+  }, [claims]);
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: typeof Wallet;
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-card-border bg-card p-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gold/40 bg-navy-950 text-gold">
+        <Icon size={16} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-medium uppercase tracking-wide text-foreground-muted">{label}</p>
+        <p className="truncate text-lg font-bold text-foreground">{value}</p>
+        {detail && <p className="truncate text-xs text-foreground-muted">{detail}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function SalesLogTable({ claims }: { claims: SoldClaimView[] }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const stats = useSalesStats(claims);
 
   const handleToggleShipped = (claim: SoldClaimView) => {
     setError(null);
@@ -52,7 +110,17 @@ export function SalesLogTable({ claims }: { claims: SoldClaimView[] }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard icon={Wallet} label="Total Revenue" value={formatCurrency(stats.totalRevenue)} />
+        <StatCard icon={CalendarDays} label="This Month" value={formatCurrency(stats.monthRevenue)} />
+        <StatCard
+          icon={Award}
+          label="Best Seller"
+          value={stats.bestSeller?.title ?? "—"}
+          detail={stats.bestSeller ? `${stats.bestSeller.units} sold` : undefined}
+        />
+      </div>
       {error && <p className="text-sm text-sold">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-card-border">
         <table className="w-full min-w-180 text-left text-sm">
