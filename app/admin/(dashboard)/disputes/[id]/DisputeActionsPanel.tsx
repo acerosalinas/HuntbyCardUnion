@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { canTransitionDispute, isDisputeResolved } from "@/lib/disputeStatus";
 import { extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { markDisputeUnderReview, resolveDispute, respondToDispute } from "@/app/admin/actions";
 
@@ -35,6 +36,13 @@ export function DisputeActionsPanel({ dispute, evidence }: { dispute: Dispute; e
     if (!note.trim() && !file) {
       setError("Add a note or a photo to respond.");
       return;
+    }
+    if (file) {
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        return;
+      }
     }
     run(async () => {
       await respondToDispute(dispute.id, note, file);

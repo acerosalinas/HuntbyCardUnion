@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
@@ -154,6 +155,16 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
     const files = target.files;
     if (!files || files.length === 0) return;
     setError(null);
+
+    for (const file of Array.from(files)) {
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        target.value = "";
+        return;
+      }
+    }
+
     setUploading(true);
     try {
       const formData = new FormData();

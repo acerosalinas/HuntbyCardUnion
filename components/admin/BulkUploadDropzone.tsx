@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Camera, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { uploadCardImages, createDraftCards } from "@/app/admin/actions";
 import { CardItem } from "@/types/marketplace";
 
@@ -19,10 +20,26 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList).slice(0, MAX_FILES);
-    setError(
-      fileList.length > MAX_FILES ? `Only the first ${MAX_FILES} images were used - that's the limit per batch.` : null,
-    );
+    const capped = Array.from(fileList).slice(0, MAX_FILES);
+
+    // Skip anything the wrong format (most commonly iPhone HEIC photos)
+    // rather than blocking the whole batch on one bad file - a directly-
+    // awaited Server Action's thrown error is redacted in production
+    // anyway, so this is also the only way to surface *which* file and why.
+    const files: File[] = [];
+    const skipped: string[] = [];
+    for (const file of capped) {
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) skipped.push(typeError);
+      else files.push(file);
+    }
+
+    const notices: string[] = [];
+    if (fileList.length > MAX_FILES) notices.push(`Only the first ${MAX_FILES} images were used - that's the limit per batch.`);
+    notices.push(...skipped);
+    setError(notices.length > 0 ? notices.join(" ") : null);
+
+    if (files.length === 0) return;
 
     setUploading(true);
     try {
