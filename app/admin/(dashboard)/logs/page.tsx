@@ -17,6 +17,7 @@ interface ClaimJoinRow {
 export default async function AdminLogsPage() {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
+  const isSuperAdmin = admin.role === "SUPER_ADMIN";
 
   let query = supabase
     .from("card_claims")
@@ -24,12 +25,33 @@ export default async function AdminLogsPage() {
     .eq("status", "SOLD")
     .order("confirmed_at", { ascending: false });
 
-  if (admin.role !== "SUPER_ADMIN") {
+  if (!isSuperAdmin) {
     query = query.eq("cards.admin_id", admin.id);
   }
 
   const { data } = await query;
-  const claims: SoldClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
+  const rows = (data as unknown as ClaimJoinRow[] | null) ?? [];
+
+  // A super admin sees every seller's sales in one list - without knowing
+  // whose is whose, that's just noise (see the "who sold what" problem this
+  // was flagged for). No FK exists PostgREST can auto-embed from cards to
+  // seller_profiles (both independently reference auth.users, not each
+  // other), so this is a second lookup, only needed for the super admin case.
+  let sellerNameByAdminId = new Map<string, string>();
+  if (isSuperAdmin) {
+    const adminIds = [...new Set(rows.map((r) => r.cards?.admin_id).filter((id): id is string => Boolean(id)))];
+    if (adminIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("seller_profiles")
+        .select("admin_id, display_name")
+        .in("admin_id", adminIds);
+      sellerNameByAdminId = new Map(
+        ((profiles ?? []) as { admin_id: string; display_name: string }[]).map((p) => [p.admin_id, p.display_name]),
+      );
+    }
+  }
+
+  const claims: SoldClaimView[] = rows.map((row) => ({
     id: row.id,
     cardId: row.card_id,
     cardTitle: row.cards?.title ?? "Card",
@@ -39,7 +61,9 @@ export default async function AdminLogsPage() {
     unitPrice: row.unit_price,
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
     shipped: row.shipped,
+    sellerAdminId: row.cards?.admin_id ?? null,
+    sellerName: row.cards?.admin_id ? (sellerNameByAdminId.get(row.cards.admin_id) ?? "Unnamed seller") : null,
   }));
 
-  return <SalesLogTable claims={claims} />;
+  return <SalesLogTable claims={claims} isSuperAdmin={isSuperAdmin} currentAdminId={admin.id} />;
 }
