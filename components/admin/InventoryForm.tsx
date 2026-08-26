@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { Camera, ImagePlus, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -10,7 +11,7 @@ import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
-import { CardItem } from "@/types/marketplace";
+import { CardItem, SellerProfile } from "@/types/marketplace";
 
 type CardType = "RAW" | "GRADED";
 
@@ -113,12 +114,18 @@ function formStateFromCard(card: CardItem): FormState {
 interface InventoryFormProps {
   /** Present => edit an existing listing instead of creating a new one. */
   card?: CardItem;
+  /** The acting admin's own seller profile - Seller Handle is locked to this (no free typing/typos) rather than a manual field. Only needed when creating (card is unset) - an edit already has its own stored sellerHandle. */
+  sellerProfile?: SellerProfile | null;
   onSuccess?: () => void;
 }
 
-export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
+export function InventoryForm({ card, sellerProfile = null, onSuccess }: InventoryFormProps) {
   const isEdit = Boolean(card);
-  const [form, setForm] = useState<FormState>(() => (card ? formStateFromCard(card) : emptyForm));
+  const [form, setForm] = useState<FormState>(() =>
+    card
+      ? formStateFromCard(card)
+      : { ...emptyForm, sellerHandle: sellerProfile ? `@${sellerProfile.handle}` : "" },
+  );
   const [images, setImages] = useState<string[]>(card?.images ?? []);
   const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -238,7 +245,17 @@ export function InventoryForm({ card, onSuccess }: InventoryFormProps) {
         )}
       </Field>
       <Field label="Seller Handle *">
-        <Input placeholder="@seller" value={form.sellerHandle} onChange={(e) => set("sellerHandle", e.target.value)} required />
+        {form.sellerHandle ? (
+          <Input value={form.sellerHandle} disabled title="Set from your Seller Profile - not editable here" />
+        ) : (
+          <p className="rounded-lg border border-sold/40 bg-sold-bg px-3 py-2 text-sm text-sold">
+            Set up your{" "}
+            <Link href="/admin/profile" className="underline underline-offset-2">
+              Seller Profile
+            </Link>{" "}
+            first - your handle is pulled from there.
+          </p>
+        )}
       </Field>
 
       <Field label="Franchise *" className="sm:col-span-2">

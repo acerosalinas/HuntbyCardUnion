@@ -809,7 +809,7 @@ export async function createDraftCards(imageUrls: string[]): Promise<CardItem[]>
     list_price: DRAFT_PLACEHOLDER_PRICE,
     condition_grade: "Raw NM",
     images: [url],
-    seller_handle: profile?.handle ?? admin.email,
+    seller_handle: profile?.handle ? `@${profile.handle}` : admin.email,
     seller_messenger: profile?.messenger_username ?? "",
     franchise: profile?.tags?.[0] ?? FRANCHISES[0].slug,
     is_flash_sale: false,
