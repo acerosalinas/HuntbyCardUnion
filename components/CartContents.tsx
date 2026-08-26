@@ -315,30 +315,34 @@ export function CartContents() {
               {messengerLinks.map((link) => (
                 <div
                   key={link.sellerMessenger}
-                  className="flex items-center gap-3 rounded-xl border border-gold/30 bg-navy-800/60 p-2.5"
+                  className="flex items-center gap-3 rounded-xl border border-gold/30 bg-navy-800/60 p-3"
                 >
                   {link.qrUrl && (
-                    <a href={link.qrUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                    <a href={link.qrUrl} target="_blank" rel="noopener noreferrer" className="shrink-0" title="Tap to view full size">
                       {/* eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset */}
                       <img
                         src={link.qrUrl}
                         alt={`${link.sellerMessenger}'s payment QR code`}
-                        className="h-16 w-16 rounded-lg border border-gold/40 object-cover"
+                        className="h-20 w-20 rounded-lg border border-gold/40 object-cover"
                       />
                     </a>
                   )}
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1.5">
                     {link.qrUrl && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-gold/80">
-                        <QrCode size={11} />
-                        Scan to pay
-                      </span>
+                      <p className="flex items-start gap-1 text-xs text-ivory/80">
+                        <QrCode size={13} className="mt-0.5 shrink-0 text-gold" />
+                        <span>
+                          <span className="font-semibold text-gold">Step 1:</span> Scan this to pay {link.sellerMessenger} via
+                          GCash/bank (tap it to view full size). <span className="font-semibold text-gold">Step 2:</span> Message
+                          them below once you&apos;ve paid.
+                        </span>
+                      </p>
                     )}
                     <a
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+                      className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10"
                     >
                       Message {link.sellerMessenger} on Messenger
                     </a>
