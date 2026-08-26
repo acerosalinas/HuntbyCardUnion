@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, Truck } from "lucide-react";
+import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, QrCode, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
@@ -69,6 +69,11 @@ interface ClaimJoinRow {
 export function MyDibsContents() {
   const { buyer } = useBuyerIdentity();
   const [claims, setClaims] = useState<ClaimedCardView[]>([]);
+  // Seller QR codes for still-unpaid claims - keyed by admin_id so the QR
+  // stays reachable here for as long as payment is pending, instead of only
+  // ever showing once on the cart's order-confirmation screen (which is
+  // easy to navigate away from and lose).
+  const [qrByAdminId, setQrByAdminId] = useState<Map<string, string>>(new Map());
   const [queuedCards, setQueuedCards] = useState<QueuedCardView[]>([]);
   const [offeredCards, setOfferedCards] = useState<OfferedCardView[]>([]);
   const [reviewedClaimIds, setReviewedClaimIds] = useState<Set<string>>(new Set());
@@ -92,20 +97,45 @@ export function MyDibsContents() {
       supabase.from("offers").select("*").eq("buyer_id", buyer.id).order("created_at", { ascending: false }),
       supabase.from("reviews").select("claim_id").eq("buyer_id", buyer.id),
     ]).then(async ([claimedRes, myQueueRes, myOffersRes, reviewsRes]) => {
-      setClaims(
-        ((claimedRes.data as unknown as ClaimJoinRow[] | null) ?? [])
-          .filter((row): row is ClaimJoinRow & { cards: CardRow } => row.cards !== null)
-          .map((row) => ({
-            claimId: row.id,
-            card: cardFromRow(row.cards),
-            quantity: row.quantity,
-            status: row.status,
-            shipped: row.shipped,
-            receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
-            fulfillmentMethod: row.fulfillment_method,
-            paymentMethod: row.payment_method,
-          })),
-      );
+      const mappedClaims = ((claimedRes.data as unknown as ClaimJoinRow[] | null) ?? [])
+        .filter((row): row is ClaimJoinRow & { cards: CardRow } => row.cards !== null)
+        .map((row) => ({
+          claimId: row.id,
+          card: cardFromRow(row.cards),
+          quantity: row.quantity,
+          status: row.status,
+          shipped: row.shipped,
+          receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
+          fulfillmentMethod: row.fulfillment_method,
+          paymentMethod: row.payment_method,
+        }));
+      setClaims(mappedClaims);
+
+      // Only prepaid claims still awaiting payment need a QR - COD claims
+      // pay cash on delivery, nothing to scan.
+      const unpaidAdminIds = [
+        ...new Set(
+          mappedClaims
+            .filter((c) => c.status === "PENDING" && c.paymentMethod === "PREPAID")
+            .map((c) => c.card.adminId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      if (unpaidAdminIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("seller_profiles")
+          .select("admin_id, payment_qr_url")
+          .in("admin_id", unpaidAdminIds);
+        setQrByAdminId(
+          new Map(
+            ((profiles ?? []) as { admin_id: string; payment_qr_url: string | null }[])
+              .filter((p) => p.payment_qr_url)
+              .map((p) => [p.admin_id, p.payment_qr_url as string]),
+          ),
+        );
+      } else {
+        setQrByAdminId(new Map());
+      }
 
       setReviewedClaimIds(
         new Set(((reviewsRes.data as { claim_id: string }[] | null) ?? []).map((r) => r.claim_id)),
@@ -251,6 +281,26 @@ export function MyDibsContents() {
           <ClaimStageTracker stage={stage} fulfillmentMethod={claim.fulfillmentMethod} />
         </div>
         <div className="flex flex-col gap-1.5 px-3 pb-3">
+          {stage === "PENDING_PAYMENT" && claim.paymentMethod === "PREPAID" && qrByAdminId.get(claim.card.adminId ?? "") && (
+            <a
+              href={qrByAdminId.get(claim.card.adminId ?? "")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-lg border border-gold/40 bg-navy-950/5 p-2"
+              title="Tap to view full size"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset */}
+              <img
+                src={qrByAdminId.get(claim.card.adminId ?? "")}
+                alt={`${claim.card.sellerHandle}'s payment QR code`}
+                className="h-12 w-12 shrink-0 rounded-md border border-gold/40 object-cover"
+              />
+              <span className="flex items-center gap-1 text-xs text-foreground-muted">
+                <QrCode size={12} className="shrink-0 text-gold" />
+                Scan to pay {claim.card.sellerHandle}
+              </span>
+            </a>
+          )}
           {stage === "PENDING_PAYMENT" && (
             <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
               {busy ? "Cancelling..." : "Cancel"}

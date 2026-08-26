@@ -6,6 +6,7 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
+import { validateImageFile } from "@/lib/imageValidation";
 
 export async function logout() {
   const supabase = await createAuthServerClient("buyer");
@@ -95,4 +96,34 @@ export async function updateBuyerProfile(input: UpdateBuyerProfileInput): Promis
 
   revalidatePath("/account");
   return { emailChangePending };
+}
+
+/**
+ * Uploads a buyer's reference photo for a Wanted Card request (see
+ * WantedCardForm). Buyer-gated (getCurrentBuyer, not requireAdmin) since
+ * this is the one upload path in the app that isn't admin-only - reuses the
+ * same magic-byte validation and the public card-images bucket as every
+ * other upload, just under its own "wanted/" prefix.
+ */
+export async function uploadWantedCardPhoto(formData: FormData): Promise<string> {
+  const buyer = await getCurrentBuyer();
+  if (!buyer) throw new Error("Not signed in.");
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file provided.");
+
+  const { bytes, contentType } = await validateImageFile(file);
+
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `wanted/${crypto.randomUUID()}.${ext}`;
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
+    contentType,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
+  return data.publicUrl;
 }

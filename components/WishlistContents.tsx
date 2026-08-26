@@ -6,6 +6,7 @@ import { Heart } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CardGrid } from "@/components/CardGrid";
 import { LogoSpinner } from "@/components/LogoSpinner";
+import { WantedCardForm } from "@/components/WantedCardForm";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -79,6 +80,7 @@ export function WishlistContents() {
       ) : (
         <CardGrid cards={cards} />
       )}
+      <WantedCardForm />
     </div>
   );
 }

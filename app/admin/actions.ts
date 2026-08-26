@@ -20,6 +20,7 @@ import {
   NotificationRow,
   SellerProfile,
   SellerProfileRow,
+  WantedCardStatus,
   cardFromRow,
   notificationFromRow,
   sellerProfileFromRow,
@@ -1009,4 +1010,19 @@ export async function markPricesReviewed() {
     .eq("admin_id", admin.id);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+}
+
+// ---------------------------------------------------------------------------
+// Wanted Cards - a buyer's "can't find it" request (name + reference photo),
+// shared across every admin (not scoped per-admin, since demand isn't owned
+// by any one seller). Buyer writes go through RLS directly (see
+// components/WantedCardForm.tsx); this is just the admin-side status update.
+// ---------------------------------------------------------------------------
+
+export async function updateWantedCardStatus(id: string, status: WantedCardStatus) {
+  await requireAdmin();
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("wanted_cards").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/wanted");
 }

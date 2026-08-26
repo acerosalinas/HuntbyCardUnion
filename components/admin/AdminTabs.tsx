@@ -10,6 +10,7 @@ const baseTabs = [
   { href: "/admin", label: "Pending Payments" },
   { href: "/admin/offers", label: "Incoming Offers" },
   { href: "/admin/inventory", label: "Inventory Manager" },
+  { href: "/admin/wanted", label: "Wanted Cards" },
   { href: "/admin/logs", label: "Sales Log" },
   { href: "/admin/disputes", label: "Disputes" },
   { href: "/admin/profile", label: "My Profile" },
