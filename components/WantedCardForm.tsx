@@ -8,6 +8,7 @@ import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { uploadWantedCardPhoto } from "@/app/account/actions";
 import { WantedCard, WantedCardRow, wantedCardFromRow } from "@/types/marketplace";
 
@@ -55,6 +56,12 @@ export function WantedCardForm() {
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
+    const typeError = checkImageTypeClientSide(file);
+    if (typeError) {
+      setError(typeError);
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const formData = new FormData();

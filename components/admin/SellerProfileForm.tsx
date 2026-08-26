@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { FRANCHISES } from "@/lib/franchises";
 import { extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { weekdayLabel } from "@/lib/codSchedule";
 import { updateSellerProfile, uploadAvatarImage, uploadPaymentQrImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
@@ -46,6 +47,12 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
+    const typeError = checkImageTypeClientSide(file);
+    if (typeError) {
+      setError(typeError);
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const formData = new FormData();
@@ -63,6 +70,12 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
     const file = e.target.files?.[0];
     if (!file) return;
     setError(null);
+    const typeError = checkImageTypeClientSide(file);
+    if (typeError) {
+      setError(typeError);
+      e.target.value = "";
+      return;
+    }
     setUploadingQr(true);
     try {
       const formData = new FormData();

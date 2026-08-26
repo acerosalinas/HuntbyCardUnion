@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/Input";
 import { createClient } from "@/lib/supabase/client";
 import { isDisputeResolved } from "@/lib/disputeStatus";
 import { extractErrorMessage } from "@/lib/utils";
+import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { uploadDisputeEvidence } from "../actions";
 
@@ -24,6 +25,13 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (file) {
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        return;
+      }
+    }
     startTransition(async () => {
       try {
         await uploadDisputeEvidence(dispute.id, note, file);

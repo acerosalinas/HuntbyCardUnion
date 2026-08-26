@@ -1,7 +1,7 @@
 import "server-only";
+import { ACCEPTED_IMAGE_TYPES } from "@/lib/imageAccept";
 
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-export const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 /**
  * Identifies an image format from its magic bytes, independent of the
@@ -28,7 +28,7 @@ export function sniffImageType(bytes: Uint8Array): string | null {
 
 /** Throws with a friendly message unless `file` passes size, declared-type, and magic-byte checks. Returns the sniffed content type. */
 export async function validateImageFile(file: File): Promise<{ bytes: Uint8Array; contentType: string }> {
-  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+  if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
     throw new Error(`${file.name}: unsupported file type`);
   }
   if (file.size > MAX_IMAGE_BYTES) {
@@ -37,7 +37,7 @@ export async function validateImageFile(file: File): Promise<{ bytes: Uint8Array
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const sniffed = sniffImageType(bytes);
-  if (!sniffed || !ALLOWED_IMAGE_TYPES.has(sniffed)) {
+  if (!sniffed || !ACCEPTED_IMAGE_TYPES.has(sniffed)) {
     throw new Error(`${file.name}: file content doesn't match a supported image format`);
   }
 
