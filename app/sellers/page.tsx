@@ -5,7 +5,8 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
 import { SellerProfileRow, sellerProfileFromRow } from "@/types/marketplace";
 
-export const dynamic = "force-dynamic";
+// Same reasoning as app/page.tsx - no per-user content, safe to cache briefly.
+export const revalidate = 30;
 
 export const metadata = { title: "Sellers — Card Union" };
 

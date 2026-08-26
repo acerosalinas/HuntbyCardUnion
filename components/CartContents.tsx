@@ -3,15 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, ImageOff, PackageCheck, ShoppingCart, Trash2, Truck } from "lucide-react";
+import { ClipboardCheck, ImageOff, PackageCheck, QrCode, ShoppingCart, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
+import { LogoSpinner } from "@/components/LogoSpinner";
 import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { buildMessengerUrl, extractErrorMessage, formatCurrency } from "@/lib/utils";
-import { CardItem, CardRow, cardFromRow, FulfillmentMethod, PlaceOrderResult } from "@/types/marketplace";
+import { formatCodShipDate } from "@/lib/codSchedule";
+import { CardItem, CardRow, cardFromRow, FulfillmentMethod, PaymentMethod, PlaceOrderResult } from "@/types/marketplace";
+
+interface SellerCheckoutLink {
+  sellerMessenger: string;
+  url: string;
+  qrUrl: string | null;
+}
 
 export function CartContents() {
   const { items, setQuantity, removeFromCart, clearCart } = useCart();
@@ -22,7 +30,7 @@ export function CartContents() {
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultSummary, setResultSummary] = useState<string[] | null>(null);
-  const [messengerLinks, setMessengerLinks] = useState<{ sellerMessenger: string; url: string }[]>([]);
+  const [messengerLinks, setMessengerLinks] = useState<SellerCheckoutLink[]>([]);
   const [shipName, setShipName] = useState("");
   const [shipPhone, setShipPhone] = useState("");
   const [shipAddress, setShipAddress] = useState("");
@@ -70,6 +78,8 @@ export function CartContents() {
   const getQty = (cardId: string) => items.find((i) => i.cardId === cardId)?.quantity ?? 1;
   const getFulfillment = (cardId: string): FulfillmentMethod =>
     items.find((i) => i.cardId === cardId)?.fulfillmentMethod ?? "SHIP";
+  const getPaymentMethod = (cardId: string): PaymentMethod =>
+    items.find((i) => i.cardId === cardId)?.paymentMethod ?? "PREPAID";
   const shipCards = cards.filter((c) => getFulfillment(c.id) === "SHIP");
   const stashCards = cards.filter((c) => getFulfillment(c.id) === "STASH");
   const total = cards.reduce((sum, c) => sum + c.price * getQty(c.id), 0);
@@ -101,7 +111,12 @@ export function CartContents() {
     try {
       const supabase = createClient();
       const { data, error: rpcError } = await supabase.rpc("place_order", {
-        p_items: items.map((i) => ({ card_id: i.cardId, quantity: i.quantity, fulfillment_method: i.fulfillmentMethod })),
+        p_items: items.map((i) => ({
+          card_id: i.cardId,
+          quantity: i.quantity,
+          fulfillment_method: i.fulfillmentMethod,
+          payment_method: i.paymentMethod,
+        })),
         p_ship_name: shipName.trim(),
         p_ship_phone: shipPhone.trim(),
         p_ship_address: shipCards.length > 0 ? shipAddress.trim() : "",
@@ -118,19 +133,40 @@ export function CartContents() {
       if (claimedItems.length > 0) {
         const bySeller = new Map<
           string,
-          { title: string; price: number; quantity: number; fulfillmentMethod: FulfillmentMethod }[]
+          {
+            adminId: string | null;
+            items: { title: string; price: number; quantity: number; fulfillmentMethod: FulfillmentMethod; paymentMethod: PaymentMethod }[];
+          }
         >();
         for (const item of claimedItems) {
           const card = cards.find((c) => c.id === item.cardId);
           if (!card) continue;
-          const list = bySeller.get(card.sellerMessenger) ?? [];
-          list.push({
+          const group = bySeller.get(card.sellerMessenger) ?? { adminId: card.adminId, items: [] };
+          group.items.push({
             title: item.title ?? card.title,
             price: item.price ?? card.price,
             quantity: item.quantity ?? 1,
             fulfillmentMethod: getFulfillment(item.cardId),
+            paymentMethod: getPaymentMethod(item.cardId),
           });
-          bySeller.set(card.sellerMessenger, list);
+          bySeller.set(card.sellerMessenger, group);
+        }
+
+        // Sellers get their QR/COD schedule looked up once, keyed by
+        // admin_id (reliable FK) rather than the free-text messenger
+        // username cards carry - shown next to "Message Seller" below so a
+        // buyer never has to wait on a Messenger reply just to find out how
+        // to pay.
+        const adminIds = [...new Set([...bySeller.values()].map((g) => g.adminId).filter((id): id is string => Boolean(id)))];
+        const sellerInfoByAdminId = new Map<string, { qrUrl: string | null; codWeekday: number | null }>();
+        if (adminIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from("seller_profiles")
+            .select("admin_id, payment_qr_url, cod_weekday")
+            .in("admin_id", adminIds);
+          for (const p of (profiles ?? []) as { admin_id: string; payment_qr_url: string | null; cod_weekday: number | null }[]) {
+            sellerInfoByAdminId.set(p.admin_id, { qrUrl: p.payment_qr_url, codWeekday: p.cod_weekday });
+          }
         }
 
         // Messenger's m.me `text=` prefill is unreliable in practice (it's
@@ -145,12 +181,20 @@ export function CartContents() {
         const shipLine = `Ship to: ${shipName.trim()} · ${shipPhone.trim()} · ${shipAddress.trim()}, ${shipZip.trim()}`;
         const stashLine = `Stashing with seller (no shipping) · Contact: ${shipName.trim()} · ${shipPhone.trim()}`;
 
-        const links: { sellerMessenger: string; url: string }[] = [];
-        for (const [sellerMessenger, sellerItems] of bySeller) {
+        const links: SellerCheckoutLink[] = [];
+        for (const [sellerMessenger, group] of bySeller) {
+          const sellerItems = group.items;
+          const sellerInfo = group.adminId ? sellerInfoByAdminId.get(group.adminId) : undefined;
           const toShip = sellerItems.filter((i) => i.fulfillmentMethod === "SHIP");
           const toStash = sellerItems.filter((i) => i.fulfillmentMethod === "STASH");
+          const hasCod = sellerItems.some((i) => i.paymentMethod === "COD");
           const itemLines = (list: typeof sellerItems) =>
-            list.map((i) => `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}`).join("\n");
+            list
+              .map(
+                (i) =>
+                  `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}${i.paymentMethod === "COD" ? " (Cash on Delivery)" : ""}`,
+              )
+              .join("\n");
 
           const sections: string[] = [];
           if (toShip.length > 0) {
@@ -158,6 +202,9 @@ export function CartContents() {
           }
           if (toStash.length > 0) {
             sections.push(`To Stash:`, itemLines(toStash), stashLine);
+          }
+          if (hasCod && sellerInfo?.codWeekday != null) {
+            sections.push(`Cash on Delivery items ship out ${formatCodShipDate(sellerInfo.codWeekday)} - paid on arrival.`);
           }
 
           const subtotal = sellerItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
@@ -177,7 +224,7 @@ export function CartContents() {
             // Non-fatal - the Messenger tab still opens below.
           }
           const url = buildMessengerUrl(sellerMessenger, message);
-          links.push({ sellerMessenger, url });
+          links.push({ sellerMessenger, url, qrUrl: sellerInfo?.qrUrl ?? null });
           window.open(url, "_blank", "noopener,noreferrer");
         }
         setMessengerLinks(links);
@@ -264,24 +311,51 @@ export function CartContents() {
             </p>
           ))}
           {messengerLinks.length > 0 && (
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-3 pt-1">
               {messengerLinks.map((link) => (
-                <a
+                <div
                   key={link.sellerMessenger}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+                  className="flex items-center gap-3 rounded-xl border border-gold/30 bg-navy-800/60 p-2.5"
                 >
-                  Message {link.sellerMessenger} on Messenger
-                </a>
+                  {link.qrUrl && (
+                    <a href={link.qrUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset */}
+                      <img
+                        src={link.qrUrl}
+                        alt={`${link.sellerMessenger}'s payment QR code`}
+                        className="h-16 w-16 rounded-lg border border-gold/40 object-cover"
+                      />
+                    </a>
+                  )}
+                  <div className="flex flex-col gap-1">
+                    {link.qrUrl && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-gold/80">
+                        <QrCode size={11} />
+                        Scan to pay
+                      </span>
+                    )}
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gold/40 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+                    >
+                      Message {link.sellerMessenger} on Messenger
+                    </a>
+                  </div>
+                </div>
               ))}
             </div>
           )}
         </div>
       )}
 
-      {loading && <p className="text-sm text-foreground-muted">Loading...</p>}
+      {loading && (
+        <div className="flex flex-col items-center gap-2 py-10">
+          <LogoSpinner size={28} />
+          <p className="text-sm text-foreground-muted">Loading...</p>
+        </div>
+      )}
 
       {!loading && cards.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">

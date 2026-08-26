@@ -1,14 +1,17 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
-import { Store, Upload } from "lucide-react";
+import { QrCode, Store, Upload } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { FRANCHISES } from "@/lib/franchises";
 import { extractErrorMessage } from "@/lib/utils";
-import { updateSellerProfile, uploadAvatarImage, SellerProfileInput } from "@/app/admin/actions";
+import { weekdayLabel } from "@/lib/codSchedule";
+import { updateSellerProfile, uploadAvatarImage, uploadPaymentQrImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
+
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 
 // Mirrors HANDLE_PATTERN in app/admin/actions.ts - validated here too so a
 // bad handle is caught before ever calling the server action. Server
@@ -28,11 +31,16 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   const [facebookUrl, setFacebookUrl] = useState(profile?.facebookUrl ?? "");
   const [instagramUrl, setInstagramUrl] = useState(profile?.instagramUrl ?? "");
   const [messengerUsername, setMessengerUsername] = useState(profile?.messengerUsername ?? "");
+  const [paymentQrUrl, setPaymentQrUrl] = useState(profile?.paymentQrUrl ?? "");
+  const [codEnabled, setCodEnabled] = useState(profile?.codEnabled ?? false);
+  const [codWeekday, setCodWeekday] = useState<number>(profile?.codWeekday ?? 5);
   const [uploading, setUploading] = useState(false);
+  const [uploadingQr, setUploadingQr] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const qrInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarSelected = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -51,6 +59,23 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
     }
   };
 
+  const handleQrSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setUploadingQr(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      setPaymentQrUrl(await uploadPaymentQrImage(formData));
+    } catch (err) {
+      setError(extractErrorMessage(err) ?? "Failed to upload QR code");
+    } finally {
+      setUploadingQr(false);
+      if (qrInputRef.current) qrInputRef.current.value = "";
+    }
+  };
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -65,6 +90,10 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       setError("Display name is required.");
       return;
     }
+    if (codEnabled && (codWeekday < 0 || codWeekday > 6)) {
+      setError("Pick a weekday for Cash on Delivery shipping.");
+      return;
+    }
 
     const input: SellerProfileInput = {
       handle: normalizedHandle,
@@ -76,6 +105,9 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       facebookUrl,
       instagramUrl,
       messengerUsername,
+      paymentQrUrl,
+      codEnabled,
+      codWeekday: codEnabled ? codWeekday : null,
     };
 
     startTransition(async () => {
@@ -179,6 +211,62 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
           Messenger Username
         </label>
         <Input value={messengerUsername} onChange={(e) => setMessengerUsername(e.target.value)} placeholder="your.messenger.username" />
+      </div>
+
+      <div className="sm:col-span-2">
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+          Payment QR Code <span className="normal-case text-foreground-muted/70">(GCash or bank - shown to buyers at checkout)</span>
+        </label>
+        <div className="flex items-center gap-3">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-gold bg-navy-950 text-gold">
+            {paymentQrUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset
+              <img src={paymentQrUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <QrCode size={20} />
+            )}
+          </div>
+          <Button type="button" variant="outline" onClick={() => qrInputRef.current?.click()} disabled={uploadingQr}>
+            <Upload size={14} />
+            {uploadingQr ? "Uploading..." : paymentQrUrl ? "Change QR" : "Upload QR"}
+          </Button>
+          <input
+            ref={qrInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            onChange={handleQrSelected}
+            className="hidden"
+          />
+        </div>
+      </div>
+
+      <div className="sm:col-span-2 rounded-xl border border-card-border p-3">
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={codEnabled}
+            onChange={(e) => setCodEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-card-border accent-gold"
+          />
+          Offer Cash on Delivery
+        </label>
+        {codEnabled && (
+          <div className="mt-2">
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+              Regular COD shipping day
+            </label>
+            <Select value={codWeekday} onChange={(e) => setCodWeekday(Number(e.target.value))} className="max-w-56">
+              {WEEKDAYS.map((day) => (
+                <option key={day} value={day}>
+                  {weekdayLabel(day)}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-foreground-muted">
+              Any COD order goes out on the next {weekdayLabel(codWeekday)} - not physically automated, just what buyers see displayed.
+            </p>
+          </div>
+        )}
       </div>
 
       {error && <p className="text-sm text-sold sm:col-span-2">{error}</p>}

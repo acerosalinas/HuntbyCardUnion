@@ -51,6 +51,9 @@ export type ClaimStatus = "PENDING" | "SOLD" | "CANCELLED";
 /** Chosen per card at Add to Cart, not once per order - see supabase/schema.sql's card_claims/dibs_queue tables. */
 export type FulfillmentMethod = "SHIP" | "STASH";
 
+/** Chosen per card at Add to Cart, same as FulfillmentMethod - COD only offered when the seller has opted in (SellerProfile.codEnabled). */
+export type PaymentMethod = "PREPAID" | "COD";
+
 /** One buyer's claim on some quantity of a card's stock - see supabase/schema.sql's card_claims table. */
 export interface CardClaim {
   id: string;
@@ -67,6 +70,7 @@ export interface CardClaim {
   /** Buyer-set via mark_claim_received() - the final stage of the My Dibs order tracker, ahead of leaving a review. */
   receivedAt: number | null;
   fulfillmentMethod: FulfillmentMethod;
+  paymentMethod: PaymentMethod;
 }
 
 export interface CardClaimRow {
@@ -83,6 +87,7 @@ export interface CardClaimRow {
   shipped: boolean;
   received_at: string | null;
   fulfillment_method: FulfillmentMethod;
+  payment_method: PaymentMethod;
 }
 
 export function cardClaimFromRow(row: CardClaimRow): CardClaim {
@@ -100,6 +105,7 @@ export function cardClaimFromRow(row: CardClaimRow): CardClaim {
     shipped: row.shipped,
     receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
     fulfillmentMethod: row.fulfillment_method,
+    paymentMethod: row.payment_method,
   };
 }
 
@@ -144,6 +150,7 @@ export interface PlaceOrderCartItem {
   cardId: string;
   quantity: number;
   fulfillmentMethod: FulfillmentMethod;
+  paymentMethod: PaymentMethod;
 }
 
 export interface PlaceOrderResult {
@@ -170,6 +177,7 @@ export interface QueueEntry {
   buyerId: string | null;
   requestedQuantity: number;
   fulfillmentMethod: FulfillmentMethod;
+  paymentMethod: PaymentMethod;
   status: QueueStatus;
   createdAt: number;
 }
@@ -320,6 +328,11 @@ export interface SellerProfile {
   facebookUrl: string | null;
   instagramUrl: string | null;
   messengerUsername: string | null;
+  /** GCash/bank QR image - shown to a buyer on the order confirmation screen. */
+  paymentQrUrl: string | null;
+  /** Cash on Delivery opt-in - when true, codWeekday (0=Sun..6=Sat) is the seller's fixed weekly COD shipping day. */
+  codEnabled: boolean;
+  codWeekday: number | null;
   priceReviewedAt: number;
   /** Seconds each card shows for in Live Mode on this seller's storefront - seller-controlled, 1-30. */
   liveModeSeconds: number;
@@ -336,6 +349,9 @@ export interface SellerProfileRow {
   facebook_url: string | null;
   instagram_url: string | null;
   messenger_username: string | null;
+  payment_qr_url: string | null;
+  cod_enabled: boolean;
+  cod_weekday: number | null;
   price_reviewed_at: string;
   live_mode_seconds: number;
   created_at: string;
@@ -352,6 +368,9 @@ export function sellerProfileFromRow(row: SellerProfileRow): SellerProfile {
     facebookUrl: row.facebook_url,
     instagramUrl: row.instagram_url,
     messengerUsername: row.messenger_username,
+    paymentQrUrl: row.payment_qr_url,
+    codEnabled: row.cod_enabled,
+    codWeekday: row.cod_weekday,
     priceReviewedAt: new Date(row.price_reviewed_at).getTime(),
     liveModeSeconds: row.live_mode_seconds,
     createdAt: new Date(row.created_at).getTime(),
@@ -398,6 +417,7 @@ export interface QueueEntryRow {
   buyer_id: string | null;
   requested_quantity: number;
   fulfillment_method: FulfillmentMethod;
+  payment_method: PaymentMethod;
   status: QueueStatus;
   created_at: string;
 }
@@ -446,6 +466,7 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
     buyerId: row.buyer_id,
     requestedQuantity: row.requested_quantity,
     fulfillmentMethod: row.fulfillment_method,
+    paymentMethod: row.payment_method,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
   };

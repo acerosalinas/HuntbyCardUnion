@@ -15,7 +15,8 @@ import {
   sellerProfileFromRow,
 } from "@/types/marketplace";
 
-export const dynamic = "force-dynamic";
+// Same reasoning as app/marketplace/page.tsx.
+export const revalidate = 15;
 
 export async function generateMetadata({ params }: PageProps<"/sellers/[handle]">) {
   const { handle } = await params;

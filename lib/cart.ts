@@ -1,4 +1,4 @@
-import { FulfillmentMethod } from "@/types/marketplace";
+import { FulfillmentMethod, PaymentMethod } from "@/types/marketplace";
 
 const CART_STORAGE_KEY = "dibs_cart";
 const CART_OWNER_STORAGE_KEY = "dibs_cart_owner";
@@ -8,6 +8,8 @@ export interface StoredCartItem {
   quantity: number;
   /** Chosen at Add to Cart, locked in once ordered - see supabase/schema.sql's card_claims.fulfillment_method. */
   fulfillmentMethod: FulfillmentMethod;
+  /** Chosen at Add to Cart, locked in once ordered - only ever COD if the seller has opted in (SellerProfile.codEnabled). */
+  paymentMethod: PaymentMethod;
 }
 
 export function getStoredCartItems(): StoredCartItem[] {
@@ -22,8 +24,9 @@ export function getStoredCartItems(): StoredCartItem[] {
       .map((item) => ({
         cardId: item.cardId,
         quantity: Math.max(1, Math.round(item.quantity) || 1),
-        // Defaults to SHIP for a cart saved before this field existed.
+        // Defaults to SHIP/PREPAID for a cart saved before these fields existed.
         fulfillmentMethod: item.fulfillmentMethod === "STASH" ? "STASH" : "SHIP",
+        paymentMethod: item.paymentMethod === "COD" ? "COD" : "PREPAID",
       }));
   } catch {
     return [];

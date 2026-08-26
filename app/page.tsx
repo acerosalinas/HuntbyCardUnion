@@ -7,7 +7,13 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
 import { SellerProfileRow, sellerProfileFromRow } from "@/types/marketplace";
 
-export const dynamic = "force-dynamic";
+// Was force-dynamic (refetched on every request) - this page has no
+// per-user content (seller spotlight + counts are the same for everyone;
+// proxy.ts already gates the whole site behind sign-in before this ever
+// renders), so a short cache window cuts real load off Supabase with no
+// correctness cost. 30s, not longer, since seller counts should still feel
+// current.
+export const revalidate = 30;
 
 export default async function HomePage() {
   if (!isSupabaseConfigured()) {
