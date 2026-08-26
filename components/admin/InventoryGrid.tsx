@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { ImageOff, Pencil, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
+import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
@@ -64,7 +65,11 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
                   </div>
                 )}
                 <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                  <ConditionBadges conditionGrade={card.conditionGrade} />
+                  {card.productType === "SEALED" ? (
+                    <SealedTypeBadge sealedType={card.sealedType} />
+                  ) : (
+                    <ConditionBadges conditionGrade={card.conditionGrade} />
+                  )}
                 </div>
                 <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
                   <StatusBadge status={card.status} />

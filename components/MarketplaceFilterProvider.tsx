@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 
-export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "FLASH_SALE";
+export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "FLASH_SALE";
 
 interface MarketplaceFilterContextValue {
   query: string;

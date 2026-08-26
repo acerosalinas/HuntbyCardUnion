@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Camera, ImagePlus, X } from "lucide-react";
+import { Camera, ImagePlus, Package, Sparkles, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -11,8 +11,9 @@ import { checkImageTypeClientSide } from "@/lib/imageAccept";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
+import { SEALED_TYPES, SEALED_TYPE_LABELS, SEALED_CONDITION_GRADE, SEALED_RARITY, SealedType } from "@/lib/sealedType";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
-import { CardItem, SellerProfile } from "@/types/marketplace";
+import { CardItem, ProductType, SellerProfile } from "@/types/marketplace";
 
 type CardType = "RAW" | "GRADED";
 
@@ -44,6 +45,10 @@ interface FormState {
   rarity: string;
   /** Pokemon TCG energy type - only meaningful/shown when franchise === "pokemon"; cleared to null otherwise. */
   pokemonType: string | null;
+  /** CARD (a single card, the default) or SEALED (booster box/pack, ETB, bundle) - see lib/sealedType.ts. */
+  productType: ProductType;
+  /** Only meaningful/shown when productType === "SEALED"; cleared to null otherwise. */
+  sealedType: SealedType | null;
 }
 
 const emptyForm: FormState = {
@@ -61,6 +66,8 @@ const emptyForm: FormState = {
   quantity: "1",
   rarity: DEFAULT_RARITY,
   pokemonType: FRANCHISES[0].slug === "pokemon" ? POKEMON_TYPES[0] : null,
+  productType: "CARD",
+  sealedType: null,
 };
 
 /** Best-effort reverse-parse of a stored "Raw NM" / "PSA 10" string back into structured fields. */
@@ -109,6 +116,13 @@ function formStateFromCard(card: CardItem): FormState {
           ? card.pokemonType
           : POKEMON_TYPES[0]
         : null,
+    productType: card.productType,
+    sealedType:
+      card.productType === "SEALED"
+        ? card.sealedType && (SEALED_TYPES as readonly string[]).includes(card.sealedType)
+          ? (card.sealedType as SealedType)
+          : SEALED_TYPES[0]
+        : null,
   };
 }
 
@@ -146,7 +160,16 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       ...f,
       franchise,
       rarity: raritiesForFranchise(franchise).includes(f.rarity) ? f.rarity : DEFAULT_RARITY,
-      pokemonType: franchise === "pokemon" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
+      pokemonType: franchise === "pokemon" && f.productType === "CARD" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
+    }));
+  };
+
+  const handleProductTypeChange = (productType: ProductType) => {
+    setForm((f) => ({
+      ...f,
+      productType,
+      sealedType: productType === "SEALED" ? (f.sealedType ?? SEALED_TYPES[0]) : null,
+      pokemonType: productType === "CARD" && f.franchise === "pokemon" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
     }));
   };
 
@@ -194,16 +217,27 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       return;
     }
 
-    const conditionGrade =
-      form.cardType === "RAW" ? `Raw ${form.condition}` : `${form.grader} ${form.gradeNumber}`;
+    const isSealed = form.productType === "SEALED";
+    if (isSealed && !form.sealedType) {
+      setError("Pick a sealed product type.");
+      return;
+    }
+
+    const conditionGrade = isSealed
+      ? SEALED_CONDITION_GRADE
+      : form.cardType === "RAW"
+        ? `Raw ${form.condition}`
+        : `${form.grader} ${form.gradeNumber}`;
 
     const input = {
       title: form.title,
       setName: form.setName,
       price,
       conditionGrade,
-      rarity: form.rarity,
-      pokemonType: form.franchise === "pokemon" ? form.pokemonType : null,
+      rarity: isSealed ? SEALED_RARITY : form.rarity,
+      pokemonType: !isSealed && form.franchise === "pokemon" ? form.pokemonType : null,
+      productType: form.productType,
+      sealedType: isSealed ? form.sealedType : null,
       images,
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
@@ -255,6 +289,32 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           </p>
         )}
       </Field>
+      <Field label="Product Type *" className="sm:col-span-2">
+        <div className="flex gap-2">
+          {(
+            [
+              { key: "CARD" as const, label: "Card", icon: Sparkles },
+              { key: "SEALED" as const, label: "Sealed Product", icon: Package },
+            ]
+          ).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleProductTypeChange(key)}
+              className={cn(
+                "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
+                form.productType === key
+                  ? "border-gold bg-gold text-navy-950"
+                  : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+              )}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
       <Field label="Seller Handle *">
         {form.sellerHandle ? (
           <Input value={form.sellerHandle} disabled title="Set from your Seller Profile - not editable here" />
@@ -279,17 +339,31 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         </Select>
       </Field>
 
-      <Field label="Rarity *" className="sm:col-span-2">
-        <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
-          {raritiesForFranchise(form.franchise).map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {form.productType === "SEALED" && (
+        <Field label="Sealed Type *" className="sm:col-span-2">
+          <Select value={form.sealedType ?? SEALED_TYPES[0]} onChange={(e) => set("sealedType", e.target.value as SealedType)}>
+            {SEALED_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {SEALED_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
 
-      {form.franchise === "pokemon" && (
+      {form.productType === "CARD" && (
+        <Field label="Rarity *" className="sm:col-span-2">
+          <Select value={form.rarity} onChange={(e) => set("rarity", e.target.value)}>
+            {raritiesForFranchise(form.franchise).map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+
+      {form.productType === "CARD" && form.franchise === "pokemon" && (
         <Field label="Type *" className="sm:col-span-2">
           <Select value={form.pokemonType ?? POKEMON_TYPES[0]} onChange={(e) => set("pokemonType", e.target.value)}>
             {POKEMON_TYPES.map((t) => (
@@ -301,27 +375,29 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         </Field>
       )}
 
-      <Field label="Card Type *" className="sm:col-span-2">
-        <div className="flex gap-2">
-          {(["RAW", "GRADED"] as const).map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => set("cardType", type)}
-              className={cn(
-                "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
-                form.cardType === type
-                  ? "border-gold bg-gold text-navy-950"
-                  : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
-              )}
-            >
-              {type === "RAW" ? "Raw" : "Graded"}
-            </button>
-          ))}
-        </div>
-      </Field>
+      {form.productType === "CARD" && (
+        <Field label="Card Type *" className="sm:col-span-2">
+          <div className="flex gap-2">
+            {(["RAW", "GRADED"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => set("cardType", type)}
+                className={cn(
+                  "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
+                  form.cardType === type
+                    ? "border-gold bg-gold text-navy-950"
+                    : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                )}
+              >
+                {type === "RAW" ? "Raw" : "Graded"}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
 
-      {form.cardType === "RAW" ? (
+      {form.productType === "CARD" && form.cardType === "RAW" ? (
         <Field label="Condition *" className="sm:col-span-2">
           <Select value={form.condition} onChange={(e) => set("condition", e.target.value)}>
             {CONDITIONS.map((c) => (
@@ -331,7 +407,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             ))}
           </Select>
         </Field>
-      ) : (
+      ) : form.productType === "CARD" ? (
         <>
           <Field label="Grader *">
             <Select value={form.grader} onChange={(e) => set("grader", e.target.value)}>
@@ -352,7 +428,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             </Select>
           </Field>
         </>
-      )}
+      ) : null}
 
       <Field label="Seller Messenger Username *">
         <Input placeholder="username in m.me/username" value={form.sellerMessenger} onChange={(e) => set("sellerMessenger", e.target.value)} required />

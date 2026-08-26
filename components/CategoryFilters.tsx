@@ -7,6 +7,7 @@ const options: { value: CategoryFilter; label: string }[] = [
   { value: "ALL", label: "All" },
   { value: "RAW", label: "Raw" },
   { value: "GRADED", label: "Graded" },
+  { value: "SEALED", label: "Sealed" },
   { value: "FLASH_SALE", label: "Flash Sale" },
 ];
 

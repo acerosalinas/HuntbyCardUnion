@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImageOff, Pause, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConditionBadges } from "@/components/ConditionBadges";
+import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
@@ -108,7 +109,11 @@ export function LiveModeStack({ cards, intervalSeconds }: { cards: CardItem[]; i
                   </div>
                 )}
                 <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-                  <ConditionBadges conditionGrade={card.conditionGrade} />
+                  {card.productType === "SEALED" ? (
+                    <SealedTypeBadge sealedType={card.sealedType} />
+                  ) : (
+                    <ConditionBadges conditionGrade={card.conditionGrade} />
+                  )}
                 </div>
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-navy-950/90 to-transparent p-4 pt-10">
                   <p className="line-clamp-1 font-semibold text-ivory">{card.title}</p>

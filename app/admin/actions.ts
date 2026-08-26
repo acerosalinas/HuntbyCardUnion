@@ -699,6 +699,9 @@ export interface CreateCardInput {
   rarity: string;
   /** Pokemon TCG energy type (see lib/pokemonType.ts) - null for every non-Pokemon card. */
   pokemonType: string | null;
+  /** 'CARD' (default) or 'SEALED' - see lib/sealedType.ts. The form is responsible for setting conditionGrade/rarity to the fixed placeholder values for a sealed item; this action just persists whatever it's given. */
+  productType: "CARD" | "SEALED";
+  sealedType: string | null;
   images: string[];
   sellerHandle: string;
   sellerMessenger: string;
@@ -719,6 +722,8 @@ export async function createCard(input: CreateCardInput) {
     condition_grade: input.conditionGrade,
     rarity: input.rarity,
     pokemon_type: input.pokemonType,
+    product_type: input.productType,
+    sealed_type: input.sealedType,
     images: input.images,
     seller_handle: input.sellerHandle,
     seller_messenger: input.sellerMessenger,
@@ -766,6 +771,8 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
       condition_grade: input.conditionGrade,
       rarity: input.rarity,
       pokemon_type: input.pokemonType,
+      product_type: input.productType,
+      sealed_type: input.sealedType,
       images: input.images,
       seller_handle: input.sellerHandle,
       seller_messenger: input.sellerMessenger,

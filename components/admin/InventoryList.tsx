@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
+import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
@@ -67,7 +68,11 @@ export function InventoryList({ cards }: { cards: CardItem[] }) {
                 <td className="px-4 py-3 text-foreground-muted">{card.setName}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
-                    <ConditionBadges conditionGrade={card.conditionGrade} />
+                    {card.productType === "SEALED" ? (
+                      <SealedTypeBadge sealedType={card.sealedType} />
+                    ) : (
+                      <ConditionBadges conditionGrade={card.conditionGrade} />
+                    )}
                   </div>
                 </td>
                 <td className="px-4 py-3">{formatCurrency(card.price)}</td>
