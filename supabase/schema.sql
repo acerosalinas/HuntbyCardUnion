@@ -2278,6 +2278,58 @@ revoke execute on function place_order(jsonb, text, text, text, text) from publi
 grant execute on function place_order(jsonb, text, text, text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
+-- MIGRATION 12: Wanted Cards - a buyer's "can't find it" request for a card
+-- that isn't listed yet (name + reference photo), visible to every admin as
+-- a shared want-list so any seller can see what buyers are hunting for. Safe
+-- to run once on an existing project; no-ops on re-run. Like wishlists, this
+-- has no cross-table business logic, so buyer writes go straight through
+-- RLS rather than a security-definer RPC; admin reads use the service-role
+-- client (bypasses RLS) same as every other admin view in this app - not
+-- scoped per-admin, since demand isn't owned by any one seller.
+-- ---------------------------------------------------------------------------
+create table if not exists wanted_cards (
+  id uuid primary key default gen_random_uuid(),
+  buyer_id uuid not null references auth.users (id) on delete cascade,
+  buyer_handle text not null,
+  card_name text not null,
+  photo_url text not null,
+  status text not null default 'OPEN' check (status in ('OPEN', 'FULFILLED', 'CLOSED')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists wanted_cards_buyer_id_idx on wanted_cards (buyer_id, created_at desc);
+create index if not exists wanted_cards_status_idx on wanted_cards (status, created_at desc);
+
+alter table wanted_cards enable row level security;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wanted_cards' and policyname = 'buyers can view their own wanted cards'
+  ) then
+    create policy "buyers can view their own wanted cards" on wanted_cards
+      for select using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wanted_cards' and policyname = 'buyers can add their own wanted cards'
+  ) then
+    create policy "buyers can add their own wanted cards" on wanted_cards
+      for insert with check (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (
+    select 1 from pg_policies where tablename = 'wanted_cards' and policyname = 'buyers can remove their own wanted cards'
+  ) then
+    create policy "buyers can remove their own wanted cards" on wanted_cards
+      for delete using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only
 -- runs cleanly on a fresh install (re-running inserts duplicates); skip this
 -- block entirely on an existing project.

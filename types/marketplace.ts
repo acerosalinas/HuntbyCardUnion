@@ -472,6 +472,41 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
   };
 }
 
+export type WantedCardStatus = "OPEN" | "FULFILLED" | "CLOSED";
+
+/** A buyer's "can't find it" request for a card that isn't listed yet - see supabase/schema.sql's wanted_cards table. */
+export interface WantedCard {
+  id: string;
+  buyerId: string;
+  buyerHandle: string;
+  cardName: string;
+  photoUrl: string;
+  status: WantedCardStatus;
+  createdAt: number;
+}
+
+export interface WantedCardRow {
+  id: string;
+  buyer_id: string;
+  buyer_handle: string;
+  card_name: string;
+  photo_url: string;
+  status: WantedCardStatus;
+  created_at: string;
+}
+
+export function wantedCardFromRow(row: WantedCardRow): WantedCard {
+  return {
+    id: row.id,
+    buyerId: row.buyer_id,
+    buyerHandle: row.buyer_handle,
+    cardName: row.card_name,
+    photoUrl: row.photo_url,
+    status: row.status,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
 export interface AppNotification {
   id: string;
   recipientId: string;

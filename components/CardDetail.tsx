@@ -71,7 +71,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    addToCart(card.id, qty, fulfillmentMethod, codAvailable ? paymentMethod : "PREPAID");
+    addToCart(card.id, qty, fulfillmentMethod, codAvailable && fulfillmentMethod === "SHIP" ? paymentMethod : "PREPAID");
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -271,7 +271,14 @@ export function CardDetail({
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setFulfillmentMethod(key)}
+                    onClick={() => {
+                      setFulfillmentMethod(key);
+                      // Cash on Delivery implies a courier delivering the item - doesn't
+                      // apply if the seller is just holding it, so switching to Stash
+                      // resets payment back to Pay Now instead of leaving a stale COD
+                      // choice that the Payment toggle below is about to hide anyway.
+                      if (key === "STASH") setPaymentMethod("PREPAID");
+                    }}
                     className={cn(
                       "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                       fulfillmentMethod === key
@@ -287,7 +294,7 @@ export function CardDetail({
             </div>
           )}
 
-          {inStock && codAvailable && !inCart && !isQueued && (
+          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment</label>
               <div className="flex gap-2">
