@@ -132,6 +132,11 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       conditionGrade,
       rarity: form.rarity,
       pokemonType: form.franchise === "pokemon" ? form.pokemonType : null,
+      // Rapid Fill is scoped to individual cards only (see the file's own
+      // doc comment) - sealed products go through the regular Add Listing
+      // form instead.
+      productType: "CARD",
+      sealedType: null,
       images: current.images,
       sellerHandle: current.sellerHandle,
       sellerMessenger: current.sellerMessenger,

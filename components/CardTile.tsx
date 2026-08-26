@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
 import { RarityBadge } from "@/components/RarityBadge";
+import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useWishlist } from "@/hooks/useWishlist";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -44,8 +45,14 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
           </div>
         )}
         <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
-          <ConditionBadges conditionGrade={card.conditionGrade} />
-          <RarityBadge rarity={card.rarity} franchise={card.franchise} />
+          {card.productType === "SEALED" ? (
+            <SealedTypeBadge sealedType={card.sealedType} />
+          ) : (
+            <>
+              <ConditionBadges conditionGrade={card.conditionGrade} />
+              <RarityBadge rarity={card.rarity} franchise={card.franchise} />
+            </>
+          )}
           {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
         </div>
         {buyer && (

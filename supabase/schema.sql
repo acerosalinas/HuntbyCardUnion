@@ -40,6 +40,17 @@ create table cards (
   -- rarity there's no One Piece equivalent, so this stays null for every
   -- non-Pokemon card and is never required.
   pokemon_type text,
+  -- CARD (default) or SEALED (booster box/pack, ETB, bundle - see
+  -- lib/sealedType.ts). A sealed listing reuses this same table/claim
+  -- pipeline rather than a parallel system; condition_grade/rarity above
+  -- stay NOT NULL for it but hold fixed placeholder values the UI knows to
+  -- never display for a sealed row.
+  product_type text not null default 'CARD' check (product_type in ('CARD', 'SEALED')),
+  sealed_type text check (sealed_type in ('BOOSTER_BOX', 'BOOSTER_PACK', 'ETB', 'BUNDLE')),
+  constraint cards_product_type_sealed_type_check check (
+    (product_type = 'SEALED' and sealed_type is not null)
+    or (product_type = 'CARD' and sealed_type is null)
+  ),
   images text[] not null default '{}',
   seller_handle text not null,
   seller_messenger text not null,
@@ -2326,6 +2337,44 @@ do $$ begin
   ) then
     create policy "buyers can remove their own wanted cards" on wanted_cards
       for delete using (auth.uid() = buyer_id);
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- MIGRATION 13: Sealed Products (booster boxes, packs, ETBs, bundles) as a
+-- second product_type on the existing cards table, rather than a parallel
+-- system - a sealed listing reuses claiming, cart, shipping, disputes, and
+-- reviews exactly as-is. condition_grade/rarity don't apply to a sealed
+-- item, but both stay NOT NULL elsewhere in this file (ConditionBadges/
+-- RarityBadge and a fair amount of app code assume a real string), so a
+-- sealed row just gets fixed placeholder values ('Sealed' / 'Other') that
+-- the UI knows to never actually display for product_type = 'SEALED' - see
+-- lib/sealedType.ts. Safe to run once on an existing project; no-ops on
+-- re-run.
+-- ---------------------------------------------------------------------------
+
+alter table cards add column if not exists product_type text not null default 'CARD';
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cards_product_type_check') then
+    alter table cards add constraint cards_product_type_check check (product_type in ('CARD', 'SEALED'));
+  end if;
+end $$;
+
+alter table cards add column if not exists sealed_type text;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cards_sealed_type_check') then
+    alter table cards add constraint cards_sealed_type_check
+      check (sealed_type in ('BOOSTER_BOX', 'BOOSTER_PACK', 'ETB', 'BUNDLE'));
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cards_product_type_sealed_type_check') then
+    alter table cards add constraint cards_product_type_sealed_type_check
+      check (
+        (product_type = 'SEALED' and sealed_type is not null)
+        or (product_type = 'CARD' and sealed_type is null)
+      );
   end if;
 end $$;
 

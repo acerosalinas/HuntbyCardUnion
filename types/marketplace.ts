@@ -1,6 +1,7 @@
 import { normalizeFranchise } from "@/lib/franchises";
 
 export type CardStatus = "DRAFT" | "AVAILABLE" | "PENDING" | "SOLD";
+export type ProductType = "CARD" | "SEALED";
 export type OfferStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
 export type QueueStatus = "WAITING" | "PROMOTED" | "CANCELLED";
 export type DisputeStatus = "OPEN" | "SELLER_RESPONDED" | "UNDER_REVIEW" | "RESOLVED_REFUND" | "RESOLVED_DISMISSED";
@@ -32,6 +33,9 @@ export interface CardItem {
   rarity: string; // fixed dropdown vocabulary - see lib/rarity.ts
   /** Pokemon TCG energy type (see lib/pokemonType.ts) - null for every non-Pokemon card. */
   pokemonType: string | null;
+  /** 'CARD' (default) or 'SEALED' (booster box/pack, ETB, bundle) - see lib/sealedType.ts. conditionGrade/rarity above still hold fixed placeholder values for a sealed row; never display them directly. */
+  productType: ProductType;
+  sealedType: string | null;
   images: string[];
   sellerHandle: string;
   sellerMessenger: string; // m.me username used for the Claim Dibs redirect
@@ -387,6 +391,8 @@ export interface CardRow {
   condition_grade: string;
   rarity: string;
   pokemon_type: string | null;
+  product_type: ProductType;
+  sealed_type: string | null;
   images: string[];
   seller_handle: string;
   seller_messenger: string;
@@ -432,6 +438,8 @@ export function cardFromRow(row: CardRow): CardItem {
     conditionGrade: row.condition_grade,
     rarity: row.rarity,
     pokemonType: row.pokemon_type,
+    productType: row.product_type,
+    sealedType: row.sealed_type,
     images: row.images ?? [],
     sellerHandle: row.seller_handle,
     sellerMessenger: row.seller_messenger,

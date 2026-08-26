@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
 import { RarityBadge } from "@/components/RarityBadge";
+import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { OfferModal } from "@/components/OfferModal";
 import { Input } from "@/components/ui/Input";
 import { useCart } from "@/components/CartProvider";
@@ -128,8 +129,14 @@ export function CardDetail({
 
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <ConditionBadges conditionGrade={card.conditionGrade} />
-            <RarityBadge rarity={card.rarity} franchise={card.franchise} />
+            {card.productType === "SEALED" ? (
+              <SealedTypeBadge sealedType={card.sealedType} />
+            ) : (
+              <>
+                <ConditionBadges conditionGrade={card.conditionGrade} />
+                <RarityBadge rarity={card.rarity} franchise={card.franchise} />
+              </>
+            )}
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
             <StatusBadge status={card.status} />
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
