@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hourglass, ImageOff, PackageCheck, PackageSearch, Truck } from "lucide-react";
+import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -20,6 +21,7 @@ import {
   queueEntryFromRow,
   ClaimStatus,
   FulfillmentMethod,
+  PaymentMethod,
 } from "@/types/marketplace";
 
 interface ClaimedCardView {
@@ -30,6 +32,7 @@ interface ClaimedCardView {
   shipped: boolean;
   receivedAt: number | null;
   fulfillmentMethod: FulfillmentMethod;
+  paymentMethod: PaymentMethod;
 }
 
 function claimStage(c: ClaimedCardView): ClaimStage {
@@ -59,6 +62,7 @@ interface ClaimJoinRow {
   shipped: boolean;
   received_at: string | null;
   fulfillment_method: FulfillmentMethod;
+  payment_method: PaymentMethod;
   cards: CardRow | null;
 }
 
@@ -81,7 +85,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, fulfillment_method, cards(*)")
+        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -99,6 +103,7 @@ export function MyDibsContents() {
             shipped: row.shipped,
             receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
             fulfillmentMethod: row.fulfillment_method,
+            paymentMethod: row.payment_method,
           })),
       );
 
@@ -234,6 +239,12 @@ export function MyDibsContents() {
               {claim.card.setName} • {formatCurrency(claim.card.price)}
               {claim.quantity > 1 ? ` × ${claim.quantity}` : ""}
             </p>
+            {claim.paymentMethod === "COD" && (
+              <span className="inline-flex w-fit items-center gap-1 rounded-full bg-pending-bg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pending">
+                <Banknote size={10} />
+                Cash on Delivery
+              </span>
+            )}
           </div>
         </Link>
         <div className="px-3 pb-3">
@@ -275,7 +286,12 @@ export function MyDibsContents() {
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <h1 className="mb-6 text-2xl font-bold text-foreground">My Dibs {buyer ? `— ${buyer.handle}` : ""}</h1>
 
-      {loading && <p className="text-sm text-foreground-muted">Loading...</p>}
+      {loading && (
+        <div className="flex flex-col items-center gap-2 py-10">
+          <LogoSpinner size={28} />
+          <p className="text-sm text-foreground-muted">Loading...</p>
+        </div>
+      )}
 
       {isEmpty && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">

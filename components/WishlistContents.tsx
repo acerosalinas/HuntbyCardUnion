@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Heart } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CardGrid } from "@/components/CardGrid";
+import { LogoSpinner } from "@/components/LogoSpinner";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -64,7 +65,10 @@ export function WishlistContents() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <h1 className="mb-4 text-lg font-bold text-foreground">My Wishlist</h1>
       {loading ? (
-        <p className="py-16 text-center text-sm text-foreground-muted">Loading...</p>
+        <div className="flex flex-col items-center gap-2 py-16">
+          <LogoSpinner size={28} />
+          <p className="text-sm text-foreground-muted">Loading...</p>
+        </div>
       ) : cards.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-card-border py-24 text-center">
           <Heart size={28} className="text-foreground-muted" />

@@ -297,6 +297,7 @@ export async function promoteNextInQueue(cardId: string) {
     unit_price: card.list_price,
     status: "PENDING",
     fulfillment_method: next.fulfillment_method,
+    payment_method: next.payment_method,
   });
   if (claimError) throw new Error(claimError.message);
 
@@ -375,10 +376,11 @@ export async function acceptOffer(offerId: string) {
   // (what any other buyer pays for the remaining stock) is left untouched,
   // unlike the old single-claimant model where accepting an offer discounted
   // the whole listing for whoever claimed it next.
-  // Offers have no fulfillment concept of their own (buyers don't pick
-  // Ship/Stash when making one) - defaults to SHIP, same as the column's
-  // own default; the seller and buyer sort out delivery via Messenger same
-  // as everything else in an offer negotiation.
+  // Offers have no fulfillment/payment concept of their own (buyers don't
+  // pick Ship/Stash or Cash on Delivery when making one) - defaults to
+  // SHIP/PREPAID, same as each column's own default; the seller and buyer
+  // sort out delivery and payment via Messenger same as everything else in
+  // an offer negotiation.
   const { error: claimError } = await supabase.from("card_claims").insert({
     card_id: offer.card_id,
     buyer_id: offer.buyer_id,
@@ -387,6 +389,7 @@ export async function acceptOffer(offerId: string) {
     unit_price: offer.offered_amount,
     status: "PENDING",
     fulfillment_method: "SHIP",
+    payment_method: "PREPAID",
   });
   if (claimError) throw new Error(claimError.message);
 
@@ -665,6 +668,28 @@ export async function uploadAvatarImage(formData: FormData): Promise<string> {
   return data.publicUrl;
 }
 
+/** Uploads a seller's GCash/bank payment QR code, reusing the public card-images bucket (same upload path/policy as avatars). */
+export async function uploadPaymentQrImage(formData: FormData): Promise<string> {
+  await requireAdmin();
+  const file = formData.get("file");
+  if (!(file instanceof File)) throw new Error("No file provided.");
+
+  const { bytes, contentType } = await validateImageFile(file);
+
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `payment-qr/${crypto.randomUUID()}.${ext}`;
+
+  const supabase = createAdminClient();
+  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
+    contentType,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export interface CreateCardInput {
   title: string;
   setName: string;
@@ -913,6 +938,9 @@ export interface SellerProfileInput {
   facebookUrl: string;
   instagramUrl: string;
   messengerUsername: string;
+  paymentQrUrl: string;
+  codEnabled: boolean;
+  codWeekday: number | null;
   liveModeSeconds: number;
 }
 
@@ -941,6 +969,9 @@ export async function updateSellerProfile(input: SellerProfileInput) {
     throw new Error("Display name is required.");
   }
   const liveModeSeconds = Math.min(30, Math.max(1, Math.round(input.liveModeSeconds) || 4));
+  if (input.codEnabled && (input.codWeekday === null || input.codWeekday < 0 || input.codWeekday > 6)) {
+    throw new Error("Pick a weekday for Cash on Delivery shipping.");
+  }
 
   const supabase = createAdminClient();
   const { error } = await supabase.from("seller_profiles").upsert(
@@ -954,6 +985,9 @@ export async function updateSellerProfile(input: SellerProfileInput) {
       facebook_url: input.facebookUrl.trim() || null,
       instagram_url: input.instagramUrl.trim() || null,
       messenger_username: input.messengerUsername.trim() || null,
+      payment_qr_url: input.paymentQrUrl.trim() || null,
+      cod_enabled: input.codEnabled,
+      cod_weekday: input.codEnabled ? input.codWeekday : null,
       live_mode_seconds: liveModeSeconds,
       updated_at: new Date().toISOString(),
     },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid } from "lucide-react";
+import { LayoutDashboard, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
 import { SearchBar } from "@/components/SearchBar";
@@ -17,6 +17,7 @@ import { useNavPending } from "@/components/NavPendingProvider";
 import { BuyerNotificationBell } from "@/components/BuyerNotificationBell";
 import { AdminNotificationBell } from "@/components/AdminNotificationBell";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { useAdminSession } from "@/hooks/useAdminSession";
 
 const AUTH_PATH_PREFIXES = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
 
@@ -24,6 +25,7 @@ export function Navbar() {
   const pathname = usePathname();
   const { pending, markPending } = useNavPending();
   const { buyer } = useBuyerIdentity();
+  const hasAdminSession = useAdminSession();
   const isAdmin = pathname?.startsWith("/admin");
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
@@ -72,6 +74,16 @@ export function Navbar() {
                 <MyDibsNavLink />
                 <AccountNavLink />
                 <BuyerNotificationBell />
+                {hasAdminSession && (
+                  <Link
+                    href="/admin"
+                    title="Back to Admin Dashboard"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10 sm:px-3"
+                  >
+                    <LayoutDashboard size={18} />
+                    <span className="hidden sm:inline">Admin</span>
+                  </Link>
+                )}
               </div>
             )}
             <ThemeToggle />

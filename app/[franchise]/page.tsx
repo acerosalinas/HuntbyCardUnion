@@ -6,7 +6,8 @@ import { createServerReadClient } from "@/lib/supabase/server";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardRow, cardFromRow } from "@/types/marketplace";
 
-export const dynamic = "force-dynamic";
+// Same reasoning as app/marketplace/page.tsx.
+export const revalidate = 15;
 
 export async function generateMetadata({ params }: PageProps<"/[franchise]">) {
   const { franchise } = await params;

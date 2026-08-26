@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -18,7 +18,8 @@ import { useMyClaims } from "@/hooks/useMyClaims";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, formatCurrency } from "@/lib/utils";
-import { CardItem, FulfillmentMethod, SellerProfile } from "@/types/marketplace";
+import { weekdayLabel } from "@/lib/codSchedule";
+import { CardItem, FulfillmentMethod, PaymentMethod, SellerProfile } from "@/types/marketplace";
 
 export function CardDetail({
   initialCard,
@@ -41,6 +42,8 @@ export function CardDetail({
   const [addedNotice, setAddedNotice] = useState(false);
   const [qty, setQty] = useState(1);
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PREPAID");
+  const codAvailable = Boolean(initialSellerProfile?.codEnabled);
 
   const inStock = card.quantityAvailable > 0;
   const isSold = card.status === "SOLD";
@@ -68,7 +71,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    addToCart(card.id, qty, fulfillmentMethod);
+    addToCart(card.id, qty, fulfillmentMethod, codAvailable ? paymentMethod : "PREPAID");
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -281,6 +284,40 @@ export function CardDetail({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {inStock && codAvailable && !inCart && !isQueued && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment</label>
+              <div className="flex gap-2">
+                {(
+                  [
+                    { key: "PREPAID" as const, label: "Pay Now", icon: Wallet },
+                    { key: "COD" as const, label: "Cash on Delivery", icon: Banknote },
+                  ]
+                ).map(({ key, label, icon: Icon }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPaymentMethod(key)}
+                    className={cn(
+                      "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      paymentMethod === key
+                        ? "border-gold bg-gold text-navy-950"
+                        : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {paymentMethod === "COD" && initialSellerProfile?.codWeekday != null && (
+                <p className="text-xs text-foreground-muted">
+                  Ships out the next {weekdayLabel(initialSellerProfile.codWeekday)} - pay in cash when it arrives.
+                </p>
+              )}
             </div>
           )}
 
