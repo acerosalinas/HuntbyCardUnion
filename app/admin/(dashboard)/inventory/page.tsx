@@ -4,7 +4,7 @@ import { InventoryForm } from "@/components/admin/InventoryForm";
 import { InventoryView } from "@/components/admin/InventoryView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
-import { CardRow, cardFromRow } from "@/types/marketplace";
+import { CardRow, SellerProfileRow, cardFromRow, sellerProfileFromRow } from "@/types/marketplace";
 
 export default async function AdminInventoryPage() {
   const admin = await requireAdmin();
@@ -15,8 +15,12 @@ export default async function AdminInventoryPage() {
     query = query.eq("admin_id", admin.id);
   }
 
-  const { data } = await query;
+  const [{ data }, { data: profileRow }] = await Promise.all([
+    query,
+    supabase.from("seller_profiles").select("*").eq("admin_id", admin.id).maybeSingle(),
+  ]);
   const cards = ((data as CardRow[] | null) ?? []).map(cardFromRow);
+  const sellerProfile = profileRow ? sellerProfileFromRow(profileRow as SellerProfileRow) : null;
 
   return (
     <div className="space-y-6">
@@ -29,7 +33,7 @@ export default async function AdminInventoryPage() {
           Bulk Upload
         </Link>
       </div>
-      <InventoryForm />
+      <InventoryForm sellerProfile={sellerProfile} />
       <InventoryView cards={cards} />
     </div>
   );
