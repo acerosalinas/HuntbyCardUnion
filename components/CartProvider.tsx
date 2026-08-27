@@ -9,7 +9,13 @@ interface CartContextValue {
   items: StoredCartItem[];
   isInCart: (cardId: string) => boolean;
   getQuantity: (cardId: string) => number;
-  addToCart: (cardId: string, quantity: number, fulfillmentMethod: FulfillmentMethod, paymentMethod: PaymentMethod) => void;
+  addToCart: (
+    cardId: string,
+    quantity: number,
+    fulfillmentMethod: FulfillmentMethod,
+    paymentMethod: PaymentMethod,
+    offer?: { offerId: string; agreedAmount: number },
+  ) => void;
   setQuantity: (cardId: string, quantity: number) => void;
   removeFromCart: (cardId: string) => void;
   clearCart: () => void;
@@ -38,12 +44,26 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems(getStoredCartItems());
   }, [buyer?.id]);
 
-  const addToCart = (cardId: string, quantity: number, fulfillmentMethod: FulfillmentMethod, paymentMethod: PaymentMethod) => {
+  const addToCart = (
+    cardId: string,
+    quantity: number,
+    fulfillmentMethod: FulfillmentMethod,
+    paymentMethod: PaymentMethod,
+    offer?: { offerId: string; agreedAmount: number },
+  ) => {
     setItems((prev) => {
       if (prev.some((item) => item.cardId === cardId)) return prev;
       const next = [
         ...prev,
-        { cardId, quantity: Math.max(1, Math.round(quantity) || 1), fulfillmentMethod, paymentMethod },
+        {
+          cardId,
+          // Offers are always single-unit, regardless of what's passed in.
+          quantity: offer ? 1 : Math.max(1, Math.round(quantity) || 1),
+          fulfillmentMethod,
+          paymentMethod,
+          offerId: offer?.offerId ?? null,
+          agreedAmount: offer?.agreedAmount ?? null,
+        },
       ];
       setStoredCartItems(next);
       return next;
@@ -53,7 +73,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const setQuantity = (cardId: string, quantity: number) => {
     setItems((prev) => {
       const next = prev.map((item) =>
-        item.cardId === cardId ? { ...item, quantity: Math.max(1, Math.round(quantity) || 1) } : item,
+        // Locked at 1 for an offer-priced item - offers are single-unit, no stepper for it in the UI.
+        item.cardId === cardId && !item.offerId
+          ? { ...item, quantity: Math.max(1, Math.round(quantity) || 1) }
+          : item,
       );
       setStoredCartItems(next);
       return next;

@@ -2,7 +2,15 @@ import { normalizeFranchise } from "@/lib/franchises";
 
 export type CardStatus = "DRAFT" | "AVAILABLE" | "PENDING" | "SOLD";
 export type ProductType = "CARD" | "SEALED";
-export type OfferStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "SUPERSEDED";
+export type OfferStatus =
+  | "PENDING"
+  | "COUNTERED"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "BUYER_DECLINED"
+  | "EXPIRED"
+  | "SUPERSEDED"
+  | "FULFILLED";
 export type QueueStatus = "WAITING" | "PROMOTED" | "CANCELLED";
 export type DisputeStatus = "OPEN" | "SELLER_RESPONDED" | "UNDER_REVIEW" | "RESOLVED_REFUND" | "RESOLVED_DISMISSED";
 export type DisputeReason = "ITEM_NOT_RECEIVED" | "NOT_AS_DESCRIBED" | "DAMAGED_IN_TRANSIT" | "OTHER";
@@ -10,6 +18,9 @@ export type DisputeEvidenceUploaderRole = "BUYER" | "ADMIN";
 export type NotificationType =
   | "offer_received"
   | "offer_countered"
+  | "offer_accepted"
+  | "offer_declined"
+  | "offer_expired"
   | "card_claimed"
   | "queue_promoted"
   | "payment_confirmed"
@@ -75,6 +86,8 @@ export interface CardClaim {
   receivedAt: number | null;
   fulfillmentMethod: FulfillmentMethod;
   paymentMethod: PaymentMethod;
+  /** Set when this claim was purchased through an accepted offer instead of the card's listed price - see offers.agreed_amount. */
+  offerId: string | null;
 }
 
 export interface CardClaimRow {
@@ -92,6 +105,7 @@ export interface CardClaimRow {
   received_at: string | null;
   fulfillment_method: FulfillmentMethod;
   payment_method: PaymentMethod;
+  offer_id: string | null;
 }
 
 export function cardClaimFromRow(row: CardClaimRow): CardClaim {
@@ -110,6 +124,7 @@ export function cardClaimFromRow(row: CardClaimRow): CardClaim {
     receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
     fulfillmentMethod: row.fulfillment_method,
     paymentMethod: row.payment_method,
+    offerId: row.offer_id,
   };
 }
 
@@ -139,7 +154,7 @@ export function orderFromRow(row: OrderRow): Order {
   };
 }
 
-export type PlaceOrderItemResult = "claimed" | "queued" | "not_found";
+export type PlaceOrderItemResult = "claimed" | "queued" | "not_found" | "offer_stock_unavailable";
 
 export interface PlaceOrderItem {
   cardId: string;
@@ -155,6 +170,8 @@ export interface PlaceOrderCartItem {
   quantity: number;
   fulfillmentMethod: FulfillmentMethod;
   paymentMethod: PaymentMethod;
+  /** Set when this item is being purchased at a negotiated price via an accepted offer - see offers.agreed_amount. */
+  offerId?: string | null;
 }
 
 export interface PlaceOrderResult {
@@ -171,6 +188,10 @@ export interface CardOffer {
   offeredAmount: number;
   note?: string | null;
   status: OfferStatus;
+  /** Admin's counter price - set once status is COUNTERED. */
+  counterAmount: number | null;
+  /** The final agreed price, spendable via place_order - set once status is ACCEPTED. */
+  agreedAmount: number | null;
   createdAt: number;
 }
 
@@ -413,6 +434,8 @@ export interface OfferRow {
   offered_amount: number;
   note: string | null;
   status: OfferStatus;
+  counter_amount: number | null;
+  agreed_amount: number | null;
   created_at: string;
 }
 
@@ -462,6 +485,8 @@ export function offerFromRow(row: OfferRow): CardOffer {
     offeredAmount: row.offered_amount,
     note: row.note,
     status: row.status,
+    counterAmount: row.counter_amount,
+    agreedAmount: row.agreed_amount,
     createdAt: new Date(row.created_at).getTime(),
   };
 }

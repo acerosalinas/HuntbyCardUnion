@@ -360,65 +360,32 @@ export async function acceptOffer(offerId: string) {
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
+  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
 
-  const { data: card, error: cardFetchError } = await supabase
-    .from("cards")
-    .select("admin_id, quantity_available")
-    .eq("id", offer.card_id)
-    .single();
-  if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
-  assertOwnsOrSuper(admin, card.admin_id);
+  assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
-  if (card.quantity_available < 1) {
-    throw new Error("No stock left on this card to accept an offer for.");
-  }
-
-  // Only this one unit is sold at the negotiated price - `cards.price`
-  // (what any other buyer pays for the remaining stock) is left untouched,
-  // unlike the old single-claimant model where accepting an offer discounted
-  // the whole listing for whoever claimed it next.
-  // Offers have no fulfillment/payment concept of their own (buyers don't
-  // pick Ship/Stash or Cash on Delivery when making one) - defaults to
-  // SHIP/PREPAID, same as each column's own default; the seller and buyer
-  // sort out delivery and payment via Messenger same as everything else in
-  // an offer negotiation.
-  const { error: claimError } = await supabase.from("card_claims").insert({
-    card_id: offer.card_id,
-    buyer_id: offer.buyer_id,
-    buyer_handle: offer.buyer_handle,
-    quantity: 1,
-    unit_price: offer.offered_amount,
-    status: "PENDING",
-    fulfillment_method: "SHIP",
-    payment_method: "PREPAID",
-  });
-  if (claimError) throw new Error(claimError.message);
-
-  const newAvailable = card.quantity_available - 1;
-  const { error: cardError } = await supabase
-    .from("cards")
-    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
-    .eq("id", offer.card_id);
-  if (cardError) throw new Error(cardError.message);
-
+  // No claim is created here anymore, and no stock is touched - accepting
+  // just unlocks the negotiated price. The buyer still goes through a
+  // normal Add to Cart -> Place Order like any other purchase (choosing
+  // Ship/Stash, Pay Now/COD) - see place_order's offer_id handling in
+  // supabase/schema.sql (MIGRATION 14). This replaces the old behavior of
+  // inserting a Pending Payment card_claims row the instant Accept was
+  // clicked, before the buyer had done anything.
   const { error: offerError } = await supabase
     .from("offers")
-    .update({ status: "ACCEPTED" })
+    .update({ status: "ACCEPTED", agreed_amount: offer.offered_amount })
     .eq("id", offerId);
   if (offerError) throw new Error(offerError.message);
 
-  // Only decline other buyers' offers once stock is genuinely gone - with
-  // several units in play, one accepted offer no longer means nobody else
-  // can still buy in.
-  if (newAvailable <= 0) {
-    await supabase
-      .from("offers")
-      .update({ status: "SUPERSEDED" })
-      .eq("card_id", offer.card_id)
-      .eq("status", "PENDING");
-  }
-
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: offer.buyer_id,
+    type: "offer_accepted",
+    title: "Your offer was accepted",
+    body: `Add it to your cart at ${formatCurrency(offer.offered_amount)} to finish checkout.`,
+    link: `/card/${offer.card_id}`,
+  });
 }
 
 export async function counterOffer(offerId: string, counterAmount: number) {
@@ -427,19 +394,17 @@ export async function counterOffer(offerId: string, counterAmount: number) {
 
   const { data: offer, error: fetchError } = await supabase
     .from("offers")
-    .select("card_id, buyer_id")
+    .select("card_id, buyer_id, status")
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
+  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
   const { error } = await supabase
     .from("offers")
-    .update({
-      offered_amount: counterAmount,
-      note: `Countered by admin: ${counterAmount}`,
-    })
+    .update({ status: "COUNTERED", counter_amount: counterAmount })
     .eq("id", offerId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
@@ -448,8 +413,8 @@ export async function counterOffer(offerId: string, counterAmount: number) {
     recipientId: offer.buyer_id,
     type: "offer_countered",
     title: "Seller countered your offer",
-    body: `New offer: ${formatCurrency(counterAmount)}`,
-    link: "/account/dibs",
+    body: `New offer: ${formatCurrency(counterAmount)} - accept or decline it on the card page.`,
+    link: `/card/${offer.card_id}`,
   });
 }
 
@@ -459,16 +424,24 @@ export async function declineOffer(offerId: string) {
 
   const { data: offer, error: fetchError } = await supabase
     .from("offers")
-    .select("card_id")
+    .select("card_id, buyer_id, status")
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
+  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
   const { error } = await supabase.from("offers").update({ status: "DECLINED" }).eq("id", offerId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: offer.buyer_id,
+    type: "offer_declined",
+    title: "Your offer was declined",
+    link: `/card/${offer.card_id}`,
+  });
 }
 
 // ---------------------------------------------------------------------------

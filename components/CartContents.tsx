@@ -80,9 +80,12 @@ export function CartContents() {
     items.find((i) => i.cardId === cardId)?.fulfillmentMethod ?? "SHIP";
   const getPaymentMethod = (cardId: string): PaymentMethod =>
     items.find((i) => i.cardId === cardId)?.paymentMethod ?? "PREPAID";
+  const getOfferId = (cardId: string): string | null => items.find((i) => i.cardId === cardId)?.offerId ?? null;
+  // A negotiated-price item is charged its agreed offer price, not the card's listed price.
+  const getUnitPrice = (card: CardItem) => items.find((i) => i.cardId === card.id)?.agreedAmount ?? card.price;
   const shipCards = cards.filter((c) => getFulfillment(c.id) === "SHIP");
   const stashCards = cards.filter((c) => getFulfillment(c.id) === "STASH");
-  const total = cards.reduce((sum, c) => sum + c.price * getQty(c.id), 0);
+  const total = cards.reduce((sum, c) => sum + getUnitPrice(c) * getQty(c.id), 0);
   const totalUnits = cards.reduce((sum, c) => sum + getQty(c.id), 0);
 
   const handlePlaceOrder = async () => {
@@ -116,6 +119,7 @@ export function CartContents() {
           quantity: i.quantity,
           fulfillment_method: i.fulfillmentMethod,
           payment_method: i.paymentMethod,
+          offer_id: i.offerId ?? null,
         })),
         p_ship_name: shipName.trim(),
         p_ship_phone: shipPhone.trim(),
@@ -128,6 +132,7 @@ export function CartContents() {
       const claimedItems = result.items.filter((i) => i.result === "claimed");
       const queuedItems = result.items.filter((i) => i.result === "queued");
       const missingItems = result.items.filter((i) => i.result === "not_found");
+      const offerUnavailableItems = result.items.filter((i) => i.result === "offer_stock_unavailable");
 
       let copiedToClipboard = false;
       if (claimedItems.length > 0) {
@@ -248,6 +253,11 @@ export function CartContents() {
       if (missingItems.length > 0) {
         summary.push(`${missingItems.length} item${missingItems.length === 1 ? "" : "s"} no longer available and removed.`);
       }
+      if (offerUnavailableItems.length > 0) {
+        summary.push(
+          `${offerUnavailableItems.length} item${offerUnavailableItems.length === 1 ? "" : "s"} didn't have enough stock left for your offer price - your offer is still accepted, so you can try again once more comes in.`,
+        );
+      }
       setResultSummary(summary);
       clearCart();
     } catch (err) {
@@ -274,8 +284,15 @@ export function CartContents() {
           <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
           <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>
         </div>
-        <p className="text-sm font-bold text-foreground">{formatCurrency(card.price)}</p>
-        {card.quantityAvailable > 1 && (
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-bold text-foreground">{formatCurrency(getUnitPrice(card))}</p>
+          {getOfferId(card.id) && (
+            <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold">
+              Offer Price
+            </span>
+          )}
+        </div>
+        {!getOfferId(card.id) && card.quantityAvailable > 1 && (
           <div className="flex items-center gap-1.5">
             <label className="text-[10px] font-medium uppercase tracking-wide text-foreground-muted">Qty</label>
             <Input

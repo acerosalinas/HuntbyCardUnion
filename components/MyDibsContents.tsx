@@ -53,8 +53,6 @@ interface OfferedCardView {
   offer: CardOffer;
 }
 
-const COUNTERED_PREFIX = "Countered by admin";
-
 interface ClaimJoinRow {
   id: string;
   quantity: number;
@@ -87,6 +85,7 @@ export function MyDibsContents() {
     setLoading(true);
     const supabase = createClient();
 
+    const load = () => {
     Promise.all([
       supabase
         .from("card_claims")
@@ -194,6 +193,26 @@ export function MyDibsContents() {
       setQueuedCards(result);
       setLoading(false);
     });
+    };
+
+    load();
+
+    // My Offers used to only fetch once on mount, which is exactly how a
+    // buyer could accept/decline a counter and still see stale data here
+    // until a manual refresh - subscribed live now, same as every other
+    // section on this page.
+    const channel = supabase
+      .channel(`my-offers-${buyer.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "offers", filter: `buyer_id=eq.${buyer.id}` },
+        load,
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [buyer]);
 
   const handleCancel = async (claim: ClaimedCardView) => {
@@ -425,15 +444,16 @@ export function MyDibsContents() {
           <h2 className="mb-4 text-lg font-semibold text-foreground">My Offers</h2>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
             {offeredCards.map(({ card, offer }) => {
-              const countered = offer.status === "PENDING" && offer.note?.startsWith(COUNTERED_PREFIX);
-              const superseded = offer.status === "SUPERSEDED";
+              const inactive = ["DECLINED", "BUYER_DECLINED", "EXPIRED", "SUPERSEDED", "FULFILLED"].includes(
+                offer.status,
+              );
               return (
                 <Link
                   key={offer.id}
                   href={`/card/${card.id}`}
                   className={cn(
                     "flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold",
-                    superseded && "opacity-60",
+                    inactive && "opacity-60",
                   )}
                 >
                   <div className="relative aspect-[3/4] w-full bg-navy-950/5">
@@ -446,9 +466,24 @@ export function MyDibsContents() {
                       </div>
                     )}
                     <div className="absolute right-2 top-2">
+                      {offer.status === "PENDING" && (
+                        <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+                          Offer pending
+                        </span>
+                      )}
+                      {offer.status === "COUNTERED" && (
+                        <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+                          Countered: {formatCurrency(offer.counterAmount ?? 0)}
+                        </span>
+                      )}
                       {offer.status === "ACCEPTED" && (
                         <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
-                          Accepted
+                          Accepted — add to cart
+                        </span>
+                      )}
+                      {offer.status === "FULFILLED" && (
+                        <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
+                          Purchased
                         </span>
                       )}
                       {offer.status === "DECLINED" && (
@@ -456,14 +491,19 @@ export function MyDibsContents() {
                           Declined
                         </span>
                       )}
-                      {superseded && (
-                        <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
-                          Superseded
+                      {offer.status === "BUYER_DECLINED" && (
+                        <span className="rounded-full bg-sold-bg px-2 py-0.5 text-xs font-semibold text-sold">
+                          You declined
                         </span>
                       )}
-                      {offer.status === "PENDING" && (
-                        <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
-                          {countered ? `Countered: ${formatCurrency(offer.offeredAmount)}` : "Offer pending"}
+                      {offer.status === "EXPIRED" && (
+                        <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
+                          No response - expired
+                        </span>
+                      )}
+                      {offer.status === "SUPERSEDED" && (
+                        <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
+                          Superseded
                         </span>
                       )}
                     </div>
@@ -473,8 +513,8 @@ export function MyDibsContents() {
                     <p className="text-sm text-foreground-muted">
                       Your offer: {formatCurrency(offer.offeredAmount)}
                     </p>
-                    {countered && offer.note && (
-                      <p className="line-clamp-2 text-xs text-foreground-muted">{offer.note}</p>
+                    {offer.status === "COUNTERED" && (
+                      <p className="text-xs text-gold">Accept or decline on the card page.</p>
                     )}
                   </div>
                 </Link>
