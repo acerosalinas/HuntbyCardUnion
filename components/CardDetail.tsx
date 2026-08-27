@@ -52,6 +52,15 @@ export function CardDetail({
 
   const myPendingClaims = myClaims.filter((c) => c.status === "PENDING");
   const myPendingQuantity = myPendingClaims.reduce((sum, c) => sum + c.quantity, 0);
+  // Covers both an unpaid claim (PENDING) and an already-paid one (SOLD) -
+  // either way, this buyer already secured a unit of this card, most often
+  // via an accepted offer. Without this, "Add to Cart" stayed clickable for
+  // them even though the card had simultaneously gone SOLD (their own
+  // claim took the last unit) - clicking it silently queued them for a
+  // second unit of something they already have, at the card's regular
+  // listed price instead of their negotiated one, since a plain cart add
+  // has no idea an offer/claim exists.
+  const alreadyHoldsClaim = myClaims.length > 0;
   const myQueueIndex = buyer ? queue.findIndex((q) => q.buyerId === buyer.id) : -1;
   const isQueued = myQueueIndex !== -1;
   const inCart = isInCart(card.id);
@@ -59,7 +68,10 @@ export function CardDetail({
 
   let cartLabel = inStock ? "Add to Cart" : "Join Waitlist";
   let cartDisabled = false;
-  if (isQueued) {
+  if (alreadyHoldsClaim) {
+    cartLabel = "Already Claimed";
+    cartDisabled = true;
+  } else if (isQueued) {
     cartLabel = "In Queue";
     cartDisabled = true;
   } else if (inCart) {
@@ -217,7 +229,7 @@ export function CardDetail({
             </div>
           )}
 
-          {isSold && (
+          {isSold && !alreadyHoldsClaim && (
             <div className="rounded-xl bg-sold-bg px-4 py-3 text-sm font-medium text-sold">Sold Out</div>
           )}
 
@@ -228,7 +240,7 @@ export function CardDetail({
             </p>
           )}
 
-          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && (
+          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && (
             <div className="flex items-center gap-3">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
               <div className="inline-flex items-center rounded-lg border border-card-border">
@@ -263,7 +275,7 @@ export function CardDetail({
             </div>
           )}
 
-          {inStock && !inCart && !isQueued && (
+          {inStock && !inCart && !isQueued && !alreadyHoldsClaim && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
                 Fulfillment
@@ -301,7 +313,7 @@ export function CardDetail({
             </div>
           )}
 
-          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && (
+          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && !alreadyHoldsClaim && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment</label>
               <div className="flex gap-2">
@@ -345,8 +357,8 @@ export function CardDetail({
               {cartLabel}
             </Button>
             <Button
-              variant={inStock ? "gold" : "disabled"}
-              disabled={!inStock}
+              variant={inStock && !alreadyHoldsClaim ? "gold" : "disabled"}
+              disabled={!inStock || alreadyHoldsClaim}
               onClick={() => setOfferOpen(true)}
             >
               Make Offer
