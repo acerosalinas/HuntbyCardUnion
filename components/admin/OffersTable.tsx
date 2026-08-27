@@ -14,6 +14,15 @@ export interface OfferRowView {
   offeredAmount: number;
   buyerHandle: string;
   note: string | null;
+  createdAt: number;
+}
+
+/** Rough "time left before expire_stale_offers auto-expires this" readout - see the pg_cron job in supabase/schema.sql (MIGRATION 14). */
+function timeLeftLabel(createdAt: number): string {
+  const hoursLeft = 24 - (Date.now() - createdAt) / (1000 * 60 * 60);
+  if (hoursLeft <= 0) return "Expiring soon";
+  if (hoursLeft < 1) return `Expires in ${Math.round(hoursLeft * 60)}m`;
+  return `Expires in ${Math.round(hoursLeft)}h`;
 }
 
 export function OffersTable({ offers }: { offers: OfferRowView[] }) {
@@ -51,7 +60,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
                 <p className="text-sm text-foreground-muted">
                   Listed {formatCurrency(offer.listedPrice)} • Offered{" "}
                   <span className="font-semibold text-gold">{formatCurrency(offer.offeredAmount)}</span> •{" "}
-                  {offer.buyerHandle}
+                  {offer.buyerHandle} • <span className="text-pending">{timeLeftLabel(offer.createdAt)}</span>
                 </p>
                 {offer.note && <p className="mt-1 text-sm italic text-foreground-muted">&ldquo;{offer.note}&rdquo;</p>}
               </div>
