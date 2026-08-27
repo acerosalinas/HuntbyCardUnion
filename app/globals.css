@@ -71,9 +71,18 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  /* Clips any single element that's ever a hair wider than the viewport
+     (a stray fixed-width child, a rounding error, etc.) so it can't turn
+     the whole page horizontally draggable - the "screen moves sideways"
+     feeling on mobile. Doesn't touch vertical scroll or pinch-zoom. */
+  overflow-x: hidden;
+}
+
 body {
   background: var(--color-background);
   color: var(--color-foreground);
+  overflow-x: hidden;
 }
 
 * {
