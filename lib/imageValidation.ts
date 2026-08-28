@@ -1,7 +1,5 @@
 import "server-only";
-import { ACCEPTED_IMAGE_TYPES } from "@/lib/imageAccept";
-
-export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+import { ACCEPTED_IMAGE_TYPES, MAX_IMAGE_BYTES } from "@/lib/imageAccept";
 
 /**
  * Identifies an image format from its magic bytes, independent of the
