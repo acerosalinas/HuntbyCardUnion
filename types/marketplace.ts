@@ -23,6 +23,8 @@ export type NotificationType =
   | "offer_expired"
   | "card_claimed"
   | "queue_promoted"
+  | "claim_shipped"
+  | "wanted_card_fulfilled"
   | "payment_confirmed"
   | "listing_cancelled"
   | "dispute_opened"
@@ -204,6 +206,8 @@ export interface QueueEntry {
   fulfillmentMethod: FulfillmentMethod;
   paymentMethod: PaymentMethod;
   status: QueueStatus;
+  /** The price in effect when this buyer joined the queue - what they'll actually be charged if promoted, regardless of what the card's price has since become. Null for queue entries that predate this column. */
+  lockedPrice: number | null;
   createdAt: number;
 }
 
@@ -448,6 +452,7 @@ export interface QueueEntryRow {
   fulfillment_method: FulfillmentMethod;
   payment_method: PaymentMethod;
   status: QueueStatus;
+  locked_price: number | null;
   created_at: string;
 }
 
@@ -501,6 +506,7 @@ export function queueEntryFromRow(row: QueueEntryRow): QueueEntry {
     fulfillmentMethod: row.fulfillment_method,
     paymentMethod: row.payment_method,
     status: row.status,
+    lockedPrice: row.locked_price,
     createdAt: new Date(row.created_at).getTime(),
   };
 }

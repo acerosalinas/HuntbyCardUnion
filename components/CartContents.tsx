@@ -63,15 +63,19 @@ export function CartContents() {
       return;
     }
     setLoading(true);
+    setError(null);
     const supabase = createClient();
-    supabase
-      .from("cards")
-      .select("*")
-      .in("id", cardIds)
-      .then(({ data }) => {
+    (async () => {
+      try {
+        const { data, error: fetchError } = await supabase.from("cards").select("*").in("id", cardIds);
+        if (fetchError) throw fetchError;
         setCards(((data as CardRow[] | null) ?? []).map(cardFromRow));
+      } catch {
+        setError("Couldn't load your cart - check your connection and try again.");
+      } finally {
         setLoading(false);
-      });
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- cardIds is derived from items every render; re-fetching on its stringified identity avoids looping on a fresh array reference
   }, [cardIds.join(",")]);
 
@@ -378,7 +382,16 @@ export function CartContents() {
         </div>
       )}
 
-      {!loading && cards.length === 0 && (
+      {!loading && error && cards.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-24 text-center">
+          <p className="text-sm text-sold">{error}</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      )}
+
+      {!loading && !error && cards.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">
           <ShoppingCart size={28} className="mb-3 text-foreground-muted" />
           <p className="mb-4 text-sm text-foreground-muted">Your cart is empty.</p>

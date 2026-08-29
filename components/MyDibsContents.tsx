@@ -47,6 +47,7 @@ interface QueuedCardView {
   card: CardItem;
   position: number;
   requestedQuantity: number;
+  lockedPrice: number | null;
 }
 
 interface OfferedCardView {
@@ -83,6 +84,7 @@ export function MyDibsContents() {
   const [loading, setLoading] = useState(false);
   const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // All negotiation actions (accept/decline a counter, add an accepted
   // offer to cart) happen right here on the My Offers tiles now, instead of
   // requiring a trip to each card's own page - see CardDetail.tsx, which
@@ -96,6 +98,7 @@ export function MyDibsContents() {
   useEffect(() => {
     if (!buyer || !isSupabaseConfigured()) return;
     setLoading(true);
+    setLoadError(null);
     const supabase = createClient();
 
     const load = () => {
@@ -230,9 +233,18 @@ export function MyDibsContents() {
         if (!card) continue;
         const group = allQueue.filter((q) => q.cardId === row.card_id);
         const idx = group.findIndex((q) => q.buyerId === buyer.id);
-        result.push({ card, position: idx + 1, requestedQuantity: row.requested_quantity });
+        result.push({
+          card,
+          position: idx + 1,
+          requestedQuantity: row.requested_quantity,
+          lockedPrice: row.locked_price,
+        });
       }
       setQueuedCards(result);
+      setLoading(false);
+    })
+    .catch((err) => {
+      setLoadError(extractErrorMessage(err) ?? "Failed to load My Dibs - check your connection and try again.");
       setLoading(false);
     });
     };
@@ -326,7 +338,7 @@ export function MyDibsContents() {
   };
 
   const isEmpty =
-    !loading && claims.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
+    !loading && !loadError && claims.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
   const shipClaims = claims.filter((c) => c.fulfillmentMethod === "SHIP");
   const stashClaims = claims.filter((c) => c.fulfillmentMethod === "STASH");
 
@@ -605,6 +617,15 @@ export function MyDibsContents() {
         </div>
       )}
 
+      {!loading && loadError && (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-24 text-center">
+          <p className="text-sm text-sold">{loadError}</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      )}
+
       {isEmpty && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">
           <PackageSearch size={28} className="mb-3 text-foreground-muted" />
@@ -654,7 +675,7 @@ export function MyDibsContents() {
             Waiting in Queue
           </h2>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {queuedCards.map(({ card, position, requestedQuantity }) => (
+            {queuedCards.map(({ card, position, requestedQuantity, lockedPrice }) => (
               <Link
                 key={card.id}
                 href={`/card/${card.id}`}
@@ -679,10 +700,11 @@ export function MyDibsContents() {
                 <div className="flex flex-col gap-1 p-3">
                   <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
                   <p className="text-sm text-foreground-muted">
-                    {card.setName} • {formatCurrency(card.price)}
+                    {card.setName} • {formatCurrency(lockedPrice ?? card.price)}
                   </p>
                   <p className="text-xs text-foreground-muted">
                     Waiting for {requestedQuantity} unit{requestedQuantity === 1 ? "" : "s"}
+                    {lockedPrice != null && " at your locked-in price"}
                   </p>
                 </div>
               </Link>

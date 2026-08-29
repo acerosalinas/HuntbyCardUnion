@@ -5,6 +5,7 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateImageFile } from "@/lib/imageValidation";
 import { isDisputeResolved } from "@/lib/disputeStatus";
+import { notifyUser } from "@/lib/notify";
 import { DisputeStatus } from "@/types/marketplace";
 
 /**
@@ -29,7 +30,7 @@ export async function uploadDisputeEvidence(disputeId: string, note: string, fil
   const admin = createAdminClient();
   const { data: dispute, error: fetchError } = await admin
     .from("disputes")
-    .select("buyer_id, status")
+    .select("buyer_id, status, seller_admin_id")
     .eq("id", disputeId)
     .single();
   if (fetchError || !dispute) throw new Error("Dispute not found.");
@@ -67,4 +68,16 @@ export async function uploadDisputeEvidence(disputeId: string, note: string, fil
   if (insertError) throw new Error(insertError.message);
 
   revalidatePath(`/account/disputes/${disputeId}`);
+
+  // Mirrors the admin's own respondToDispute, which already notifies the
+  // buyer on a seller reply - a buyer reply notified nobody until now.
+  if (dispute.seller_admin_id) {
+    await notifyUser(admin, {
+      recipientId: dispute.seller_admin_id,
+      type: "dispute_response",
+      title: "Buyer replied to a dispute",
+      body: note.trim() || "The buyer added a photo response.",
+      link: "/admin/disputes",
+    });
+  }
 }
