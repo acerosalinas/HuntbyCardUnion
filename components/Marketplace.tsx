@@ -8,7 +8,7 @@ import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveDropBanner } from "@/components/LiveDropBanner";
-import { matchesCardFilter } from "@/lib/cardFilter";
+import { matchesCardFilter, sortSoldLast } from "@/lib/cardFilter";
 import { CardItem } from "@/types/marketplace";
 
 export function Marketplace({
@@ -34,10 +34,11 @@ export function Marketplace({
   }, [franchiseSlug, setFranchiseScope]);
 
   const filtered = useMemo(() => {
-    return cards.filter((card) => {
+    const matches = cards.filter((card) => {
       if (franchiseSlug && card.franchise !== franchiseSlug) return false;
       return matchesCardFilter(card, { query, category, rarity, pokemonType });
     });
+    return sortSoldLast(matches);
   }, [cards, query, category, rarity, pokemonType, franchiseSlug]);
 
   return (

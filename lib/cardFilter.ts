@@ -19,6 +19,7 @@ export function matchesCardFilter(
   if (category === "GRADED" && (card.productType === "SEALED" || !isGraded(card.conditionGrade))) return false;
   if (category === "SEALED" && card.productType !== "SEALED") return false;
   if (category === "FLASH_SALE" && !card.isFlashSale) return false;
+  if (category === "SOLD" && card.status !== "SOLD") return false;
   if (rarity !== "ALL" && card.rarity !== rarity) return false;
   if (pokemonType !== "ALL" && card.pokemonType !== pokemonType) return false;
 
@@ -31,4 +32,18 @@ export function matchesCardFilter(
     card.conditionGrade.toLowerCase().includes(q) ||
     card.rarity.toLowerCase().includes(q)
   );
+}
+
+/**
+ * Sinks sold-out cards to the end of the list without disturbing the
+ * relative order of everything else (or of the sold cards among
+ * themselves) - Array.prototype.sort is a stable sort in every modern JS
+ * engine, so this is just "sold cards compare greater than everything
+ * else". Applied by each grid-rendering view (Marketplace, SellerListingsView,
+ * admin InventoryView) after their own filtering, not baked into the
+ * server query, so it stays correct live as a card's status flips via
+ * Realtime.
+ */
+export function sortSoldLast(cards: CardItem[]): CardItem[] {
+  return [...cards].sort((a, b) => Number(a.status === "SOLD") - Number(b.status === "SOLD"));
 }

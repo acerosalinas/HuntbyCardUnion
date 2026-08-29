@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, Search } from "lucide-react";
+import { LayoutGrid, List, PackageX, Search } from "lucide-react";
 import { InventoryList } from "@/components/admin/InventoryList";
 import { InventoryGrid } from "@/components/admin/InventoryGrid";
 import { Input } from "@/components/ui/Input";
+import { sortSoldLast } from "@/lib/cardFilter";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
@@ -14,12 +15,18 @@ type View = "list" | "tiles";
 export function InventoryView({ cards }: { cards: CardItem[] }) {
   const [view, setView] = useState<View>("list");
   const [query, setQuery] = useState("");
+  const [soldOnly, setSoldOnly] = useState(false);
+  const soldCount = useMemo(() => cards.filter((c) => c.status === "SOLD").length, [cards]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return cards;
-    return cards.filter((c) => c.title.toLowerCase().includes(q) || c.setName.toLowerCase().includes(q));
-  }, [cards, query]);
+    let result = cards;
+    if (soldOnly) result = result.filter((c) => c.status === "SOLD");
+    if (q) result = result.filter((c) => c.title.toLowerCase().includes(q) || c.setName.toLowerCase().includes(q));
+    // Sold-out stock sinks to the end even with the filter off, instead of
+    // being interspersed among what's still actually sellable.
+    return sortSoldLast(result);
+  }, [cards, query, soldOnly]);
 
   return (
     <div>
@@ -34,6 +41,20 @@ export function InventoryView({ cards }: { cards: CardItem[] }) {
           />
         </div>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setSoldOnly((v) => !v)}
+            disabled={soldCount === 0}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+              soldOnly
+                ? "border-gold bg-gold text-navy-950"
+                : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+            )}
+          >
+            <PackageX size={14} />
+            Sold Out ({soldCount})
+          </button>
           {([
             { key: "list" as const, label: "List", icon: List },
             { key: "tiles" as const, label: "Tiles", icon: LayoutGrid },
