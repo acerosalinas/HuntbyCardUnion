@@ -22,7 +22,7 @@ export default async function HomePage() {
 
   const supabase = createServerReadClient();
   const [{ data: profileRows }, { data: cardRows }] = await Promise.all([
-    supabase.from("seller_profiles").select("*").order("created_at", { ascending: false }),
+    supabase.from("seller_profiles").select("*").order("created_at", { ascending: true }),
     supabase.from("cards").select("admin_id").neq("status", "SOLD"),
   ]);
 
