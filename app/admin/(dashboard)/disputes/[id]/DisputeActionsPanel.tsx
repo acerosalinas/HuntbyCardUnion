@@ -8,10 +8,19 @@ import { Textarea } from "@/components/ui/Input";
 import { canTransitionDispute, isDisputeResolved } from "@/lib/disputeStatus";
 import { extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide } from "@/lib/imageAccept";
-import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
-import { markDisputeUnderReview, resolveDispute, respondToDispute } from "@/app/admin/actions";
+import { ClaimStatus, Dispute, DisputeEvidenceItem } from "@/types/marketplace";
+import { markDisputeUnderReview, resolveDispute, resolveDisputeRestock, respondToDispute } from "@/app/admin/actions";
 
-export function DisputeActionsPanel({ dispute, evidence }: { dispute: Dispute; evidence: DisputeEvidenceItem[] }) {
+export function DisputeActionsPanel({
+  dispute,
+  evidence,
+  claimStatus,
+}: {
+  dispute: Dispute;
+  evidence: DisputeEvidenceItem[];
+  /** The linked claim's current status - null if there's no linked claim. Drives the "restock decision needed" prompt below (see resolveDisputeRestock). */
+  claimStatus: ClaimStatus | null;
+}) {
   const router = useRouter();
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -147,6 +156,27 @@ export function DisputeActionsPanel({ dispute, evidence }: { dispute: Dispute; e
         <div className="rounded-xl border border-card-border bg-card p-3 text-sm">
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-foreground-muted">Resolution</p>
           <p className="text-foreground">{dispute.resolutionNote}</p>
+        </div>
+      )}
+
+      {dispute.status === "RESOLVED_REFUND" && claimStatus === "SOLD" && (
+        <div className="space-y-2 rounded-xl border border-gold/40 bg-card p-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-gold">Restock decision needed</h3>
+          <p className="text-sm text-foreground-muted">
+            This was refunded. Put the unit back up for sale, or write it off if it&apos;s gone or damaged.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="gold" disabled={pending} onClick={() => run(() => resolveDisputeRestock(dispute.id, true))}>
+              Re-list Card
+            </Button>
+            <Button
+              variant="outline"
+              disabled={pending}
+              onClick={() => run(() => resolveDisputeRestock(dispute.id, false))}
+            >
+              Write Off - Don&apos;t Re-list
+            </Button>
+          </div>
         </div>
       )}
     </div>

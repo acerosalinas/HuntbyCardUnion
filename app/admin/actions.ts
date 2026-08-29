@@ -178,6 +178,9 @@ export async function confirmPaid(claimId: string) {
 
   const claim = await getClaimWithCard(supabase, claimId);
   assertOwnsOrSuper(admin, claim.cards?.admin_id ?? null);
+  if (claim.status !== "PENDING") {
+    throw new Error("This claim is no longer awaiting payment - it may have already been confirmed or cancelled.");
+  }
 
   const { error } = await supabase
     .from("card_claims")
@@ -211,6 +214,9 @@ export async function cancelRelist(claimId: string) {
   const card = claim.cards;
   if (!card) throw new Error("Card not found");
   assertOwnsOrSuper(admin, card.admin_id);
+  if (claim.status !== "PENDING") {
+    throw new Error("This claim is no longer awaiting payment - it may have already been cancelled or confirmed.");
+  }
 
   const { count } = await supabase
     .from("disputes")
@@ -288,14 +294,19 @@ export async function promoteNextInQueue(cardId: string) {
     return { promoted: false as const };
   }
 
-  // The buyer being promoted never negotiated any previous claimant's
-  // offer-discounted price, so this claims at the real listed price.
+  // Charges whatever price was actually in effect when this buyer joined
+  // the queue (dibs_queue.locked_price), not whatever cards.list_price has
+  // since become - otherwise a price change while someone's waiting would
+  // silently charge them more (or less) than what they queued for, with no
+  // warning. Falls back to list_price only for queue entries that predate
+  // this column.
+  const unitPrice = next.locked_price ?? card.list_price;
   const { error: claimError } = await supabase.from("card_claims").insert({
     card_id: cardId,
     buyer_id: next.buyer_id,
     buyer_handle: next.buyer_handle,
     quantity: next.requested_quantity,
-    unit_price: card.list_price,
+    unit_price: unitPrice,
     status: "PENDING",
     fulfillment_method: next.fulfillment_method,
     payment_method: next.payment_method,
@@ -321,7 +332,7 @@ export async function promoteNextInQueue(cardId: string) {
     recipientId: next.buyer_id,
     type: "queue_promoted",
     title: "You're up next",
-    body: "A card you were waiting on is now yours to pay for - the seller will message you.",
+    body: `A card you were waiting on is now yours to pay for at ${formatCurrency(unitPrice)} - the seller will message you.`,
     link: "/account/dibs",
   });
 
@@ -338,6 +349,17 @@ export async function setShipped(claimId: string, shipped: boolean) {
   const { error } = await supabase.from("card_claims").update({ shipped }).eq("id", claimId);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+
+  if (shipped && claim.buyer_id) {
+    const title = claim.cards?.title ?? "Card";
+    await notifyUser(supabase, {
+      recipientId: claim.buyer_id,
+      type: "claim_shipped",
+      title: "Your order is on the way",
+      body: `"${title}" has been marked as shipped/stashed.`,
+      link: "/account/dibs",
+    });
+  }
 }
 
 export async function deleteCard(cardId: string) {
@@ -456,11 +478,11 @@ export async function declineOffer(offerId: string) {
 async function getDisputeOwner(supabase: ReturnType<typeof createAdminClient>, disputeId: string) {
   const { data, error } = await supabase
     .from("disputes")
-    .select("seller_admin_id, status, buyer_id")
+    .select("seller_admin_id, status, buyer_id, claim_id")
     .eq("id", disputeId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Dispute not found");
-  return data as { seller_admin_id: string | null; status: DisputeStatus; buyer_id: string };
+  return data as { seller_admin_id: string | null; status: DisputeStatus; buyer_id: string; claim_id: string | null };
 }
 
 /**
@@ -583,6 +605,71 @@ export async function resolveDispute(disputeId: string, resolution: "REFUND" | "
     body: resolutionNote.trim() || undefined,
     link: `/account/disputes/${disputeId}`,
   });
+
+  // A refund doesn't move the physical unit by itself (see the comment on
+  // this function) - the seller still has to decide whether it's sellable
+  // again or a write-off, via resolveDisputeRestock below. Without this
+  // notification that decision had no prompt at all: the claim just sat
+  // SOLD forever with the unit permanently unavailable.
+  if (resolution === "REFUND" && dispute.seller_admin_id) {
+    await notifyUser(supabase, {
+      recipientId: dispute.seller_admin_id,
+      type: "dispute_resolved",
+      title: "Refund issued - restock decision needed",
+      body: "Decide whether to re-list this card or write it off.",
+      link: `/admin/disputes/${disputeId}`,
+    });
+  }
+}
+
+/**
+ * Follow-up to a REFUND resolution: the seller decides whether the unit
+ * goes back on sale (relist = true, mirrors cancelRelist's stock-restore
+ * logic) or is written off (relist = false - claim just goes CANCELLED,
+ * stock untouched, for a lost/damaged item that can't actually be resold).
+ * Guarded by claim.status = 'SOLD' so this can only run once per dispute.
+ */
+export async function resolveDisputeRestock(disputeId: string, relist: boolean) {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  const dispute = await getDisputeOwner(supabase, disputeId);
+  assertOwnsOrSuper(admin, dispute.seller_admin_id);
+
+  if (dispute.status !== "RESOLVED_REFUND") {
+    throw new Error("This dispute hasn't been resolved as a refund.");
+  }
+  if (!dispute.claim_id) {
+    throw new Error("This dispute has no linked claim to restock.");
+  }
+
+  const claim = await getClaimWithCard(supabase, dispute.claim_id);
+  if (claim.status !== "SOLD") {
+    throw new Error("This claim has already been dealt with.");
+  }
+  const card = claim.cards;
+  if (!card) throw new Error("Card not found");
+
+  const { error: claimError } = await supabase
+    .from("card_claims")
+    .update({ status: "CANCELLED" })
+    .eq("id", dispute.claim_id);
+  if (claimError) throw new Error(claimError.message);
+
+  if (relist) {
+    const newAvailable = card.quantity_available + claim.quantity;
+    const { error: cardError } = await supabase
+      .from("cards")
+      .update({
+        quantity_available: newAvailable,
+        status: newAvailable > 0 ? "AVAILABLE" : "SOLD",
+        price: card.list_price,
+      })
+      .eq("id", claim.card_id);
+    if (cardError) throw new Error(cardError.message);
+    await cancelQueue(supabase, claim.card_id);
+  }
+
+  revalidateAdmin();
 }
 
 export async function logout() {
@@ -1002,7 +1089,24 @@ export async function markPricesReviewed() {
 export async function updateWantedCardStatus(id: string, status: WantedCardStatus) {
   await requireAdmin();
   const supabase = createAdminClient();
+
+  const { data: wanted } = await supabase
+    .from("wanted_cards")
+    .select("buyer_id, card_name")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await supabase.from("wanted_cards").update({ status }).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/wanted");
+
+  if (status === "FULFILLED" && wanted?.buyer_id) {
+    await notifyUser(supabase, {
+      recipientId: wanted.buyer_id,
+      type: "wanted_card_fulfilled",
+      title: "Someone's got what you were looking for",
+      body: `"${wanted.card_name}" is now listed - check the marketplace.`,
+      link: "/marketplace",
+    });
+  }
 }

@@ -266,7 +266,8 @@ export function CardDetail({
                 <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
                   <Hourglass size={14} />
                   You&apos;re #{myQueueIndex + 1} in queue, waiting for {queue[myQueueIndex].requestedQuantity} unit
-                  {queue[myQueueIndex].requestedQuantity === 1 ? "" : "s"}.
+                  {queue[myQueueIndex].requestedQuantity === 1 ? "" : "s"}
+                  {queue[myQueueIndex].lockedPrice != null && ` at ${formatCurrency(queue[myQueueIndex].lockedPrice)}`}.
                 </span>
               )}
               {queue.length > 0 && (
