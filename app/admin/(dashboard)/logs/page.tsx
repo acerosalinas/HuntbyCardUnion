@@ -11,6 +11,7 @@ interface ClaimJoinRow {
   unit_price: number;
   confirmed_at: string | null;
   shipped: boolean;
+  ship_requested_at: string | null;
   cards: { title: string; admin_id: string | null } | null;
 }
 
@@ -21,7 +22,9 @@ export default async function AdminLogsPage() {
 
   let query = supabase
     .from("card_claims")
-    .select("id, card_id, buyer_handle, order_id, quantity, unit_price, confirmed_at, shipped, cards!inner(title, admin_id)")
+    .select(
+      "id, card_id, buyer_handle, order_id, quantity, unit_price, confirmed_at, shipped, ship_requested_at, cards!inner(title, admin_id)",
+    )
     .eq("status", "SOLD")
     .order("confirmed_at", { ascending: false });
 
@@ -61,6 +64,7 @@ export default async function AdminLogsPage() {
     unitPrice: row.unit_price,
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
     shipped: row.shipped,
+    shipRequestedAt: row.ship_requested_at ? new Date(row.ship_requested_at).getTime() : null,
     sellerAdminId: row.cards?.admin_id ?? null,
     sellerName: row.cards?.admin_id ? (sellerNameByAdminId.get(row.cards.admin_id) ?? "Unnamed seller") : null,
   }));

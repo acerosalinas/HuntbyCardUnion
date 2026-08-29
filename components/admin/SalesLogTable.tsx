@@ -18,6 +18,8 @@ export interface SoldClaimView {
   unitPrice: number;
   confirmedAt: number | null;
   shipped: boolean;
+  /** Buyer-requested via requestShipping() (app/account/actions.ts) on a stashed claim - "please ship this now" instead of holding it. */
+  shipRequestedAt: number | null;
   /** Only populated for a super admin (see app/admin/(dashboard)/logs/page.tsx) - a regular admin's log is already scoped to just themselves. */
   sellerAdminId: string | null;
   sellerName: string | null;
@@ -226,6 +228,11 @@ export function SalesLogTable({
                       />
                       <span className="text-foreground-muted">{claim.shipped ? "Shipped" : "Not shipped"}</span>
                     </label>
+                    {!claim.shipped && claim.shipRequestedAt && (
+                      <Badge tone="gold" className="mt-1">
+                        Buyer requested shipping
+                      </Badge>
+                    )}
                   </td>
                 </tr>
               ))}
