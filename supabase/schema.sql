@@ -270,7 +270,14 @@ alter table profiles enable row level security;
 create policy "cards are publicly readable" on cards for select using (status <> 'DRAFT');
 create policy "offers are publicly readable" on offers for select using (true);
 create policy "dibs queue is publicly readable" on dibs_queue for select using (true);
-create policy "orders are publicly readable" on orders for select using (true);
+-- orders carries real buyer PII (ship_name/ship_phone/ship_address/ship_zip -
+-- see the orders table comment) added well after this comment block was
+-- written and buyer accounts existed - "publicly readable" was never
+-- actually revisited for it. No client code reads this table (buyer order
+-- history goes through card_claims, already owner-scoped below; admin
+-- reads go through the service-role client, which bypasses RLS anyway), so
+-- this is owner-only.
+create policy "buyers can view their own orders" on orders for select using (auth.uid() = buyer_id);
 create policy "profiles are self-readable" on profiles for select using (auth.uid() = id);
 
 -- No direct insert/update/delete policies are defined for the anon/
@@ -662,11 +669,20 @@ create index if not exists cards_order_id_idx on cards (order_id);
 
 alter table orders enable row level security;
 
+-- Was "orders are publicly readable" (using (true)) - tightened to
+-- owner-only once ship_name/ship_phone/ship_address/ship_zip made that a
+-- real PII leak. Drops the old insecure policy if a prior run of this
+-- block already created it, then creates the replacement if missing.
 do $$ begin
-  if not exists (
+  if exists (
     select 1 from pg_policies where tablename = 'orders' and policyname = 'orders are publicly readable'
   ) then
-    create policy "orders are publicly readable" on orders for select using (true);
+    drop policy "orders are publicly readable" on orders;
+  end if;
+  if not exists (
+    select 1 from pg_policies where tablename = 'orders' and policyname = 'buyers can view their own orders'
+  ) then
+    create policy "buyers can view their own orders" on orders for select using (auth.uid() = buyer_id);
   end if;
 end $$;
 
