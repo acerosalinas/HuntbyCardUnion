@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { formatCurrency } from "@/lib/utils";
+import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { acceptOffer, counterOffer, declineOffer } from "@/app/admin/actions";
 
 export interface OfferRowView {
@@ -30,12 +30,16 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [counteringId, setCounteringId] = useState<string | null>(null);
   const [counterValue, setCounterValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const run = (id: string, action: () => Promise<void>) => {
+    setError(null);
     setBusyId(id);
     startTransition(async () => {
       try {
         await action();
+      } catch (err) {
+        setError(extractErrorMessage(err) ?? "Action failed");
       } finally {
         setBusyId(null);
         setCounteringId(null);
@@ -49,6 +53,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
 
   return (
     <div className="space-y-3">
+      {error && <p className="text-sm text-sold">{error}</p>}
       {offers.map((offer) => {
         const busy = pending && busyId === offer.id;
         const isCountering = counteringId === offer.id;
