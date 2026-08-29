@@ -8,6 +8,7 @@ import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useCart } from "@/components/CartProvider";
+import { requestShipping } from "@/app/account/actions";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
@@ -34,6 +35,7 @@ interface ClaimedCardView {
   receivedAt: number | null;
   fulfillmentMethod: FulfillmentMethod;
   paymentMethod: PaymentMethod;
+  shipRequestedAt: number | null;
 }
 
 function claimStage(c: ClaimedCardView): ClaimStage {
@@ -63,6 +65,7 @@ interface ClaimJoinRow {
   received_at: string | null;
   fulfillment_method: FulfillmentMethod;
   payment_method: PaymentMethod;
+  ship_requested_at: string | null;
   cards: CardRow | null;
 }
 
@@ -105,7 +108,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, cards(*)")
+        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -123,6 +126,7 @@ export function MyDibsContents() {
           receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
           fulfillmentMethod: row.fulfillment_method,
           paymentMethod: row.payment_method,
+          shipRequestedAt: row.ship_requested_at ? new Date(row.ship_requested_at).getTime() : null,
         }));
       setClaims(mappedClaims);
 
@@ -311,6 +315,21 @@ export function MyDibsContents() {
     }
   };
 
+  const handleRequestShipping = async (claim: ClaimedCardView) => {
+    setActionError(null);
+    setBusyClaimId(claim.claimId);
+    try {
+      await requestShipping(claim.claimId);
+      setClaims((prev) =>
+        prev.map((c) => (c.claimId === claim.claimId ? { ...c, shipRequestedAt: Date.now() } : c)),
+      );
+    } catch (err) {
+      setActionError(extractErrorMessage(err) ?? "Failed to request shipping");
+    } finally {
+      setBusyClaimId(null);
+    }
+  };
+
   const handleRespondToOffer = async (offer: CardOffer, accept: boolean) => {
     setOfferErrorById((prev) => ({ ...prev, [offer.id]: "" }));
     setOfferBusyId(offer.id);
@@ -404,6 +423,22 @@ export function MyDibsContents() {
             <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
               {busy ? "Cancelling..." : "Cancel"}
             </Button>
+          )}
+          {stage === "PAID" && claim.fulfillmentMethod === "STASH" && (
+            claim.shipRequestedAt ? (
+              <p className="rounded-lg border border-card-border px-3 py-1.5 text-center text-xs font-medium text-foreground-muted">
+                Shipping requested
+              </p>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => handleRequestShipping(claim)}
+                className="w-full"
+              >
+                {busy ? "Sending..." : "Request Shipping"}
+              </Button>
+            )
           )}
           {stage === "SHIPPED" && (
             <Button variant="gold" disabled={busy} onClick={() => handleMarkReceived(claim)} className="w-full">

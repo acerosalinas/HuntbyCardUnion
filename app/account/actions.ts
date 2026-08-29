@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
 import { validateImageFile } from "@/lib/imageValidation";
+import { notifyUser } from "@/lib/notify";
 
 export async function logout() {
   const supabase = await createAuthServerClient("buyer");
@@ -126,4 +127,48 @@ export async function uploadWantedCardPhoto(formData: FormData): Promise<string>
 
   const { data } = supabase.storage.from("card-images").getPublicUrl(path);
   return data.publicUrl;
+}
+
+/**
+ * A buyer flagging a paid, stashed claim as "please ship this now" -
+ * previously there was no way to ask for that once a card was stashed with
+ * the seller. One-time per claim (ship_requested_at is set, not toggled),
+ * notifies the owning admin, who marks it shipped the same way as any
+ * other order (setShipped in app/admin/actions.ts, from the Sales Log).
+ */
+export async function requestShipping(claimId: string): Promise<void> {
+  const buyer = await getCurrentBuyer();
+  if (!buyer) throw new Error("Not signed in.");
+
+  const supabase = createAdminClient();
+  const { data: claim, error: fetchError } = await supabase
+    .from("card_claims")
+    .select("buyer_id, fulfillment_method, status, shipped, ship_requested_at, cards(admin_id, title)")
+    .eq("id", claimId)
+    .single();
+  if (fetchError || !claim) throw new Error("Claim not found.");
+  if (claim.buyer_id !== buyer.id) throw new Error("Claim not found.");
+  if (claim.fulfillment_method !== "STASH") throw new Error("This item isn't stashed.");
+  if (claim.status !== "SOLD") throw new Error("This item hasn't been paid for yet.");
+  if (claim.shipped) throw new Error("This item has already been shipped.");
+  if (claim.ship_requested_at) throw new Error("You've already requested shipping for this item.");
+
+  const { error: updateError } = await supabase
+    .from("card_claims")
+    .update({ ship_requested_at: new Date().toISOString() })
+    .eq("id", claimId);
+  if (updateError) throw new Error(updateError.message);
+
+  revalidatePath("/account/dibs");
+
+  const card = claim.cards as unknown as { admin_id: string | null; title: string } | null;
+  if (card?.admin_id) {
+    await notifyUser(supabase, {
+      recipientId: card.admin_id,
+      type: "ship_requested",
+      title: "Buyer wants their stashed card shipped",
+      body: `${buyer.handle} wants "${card.title}" shipped now.`,
+      link: "/admin/logs",
+    });
+  }
 }

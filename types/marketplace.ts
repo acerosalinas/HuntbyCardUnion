@@ -25,6 +25,7 @@ export type NotificationType =
   | "queue_promoted"
   | "claim_shipped"
   | "wanted_card_fulfilled"
+  | "ship_requested"
   | "payment_confirmed"
   | "listing_cancelled"
   | "dispute_opened"
@@ -90,6 +91,8 @@ export interface CardClaim {
   paymentMethod: PaymentMethod;
   /** Set when this claim was purchased through an accepted offer instead of the card's listed price - see offers.agreed_amount. */
   offerId: string | null;
+  /** Buyer-set via requestShipping() (app/account/actions.ts) on a paid, stashed, not-yet-shipped claim - "please ship this now" instead of holding it. One-time; null until requested. */
+  shipRequestedAt: number | null;
 }
 
 export interface CardClaimRow {
@@ -108,6 +111,7 @@ export interface CardClaimRow {
   fulfillment_method: FulfillmentMethod;
   payment_method: PaymentMethod;
   offer_id: string | null;
+  ship_requested_at: string | null;
 }
 
 export function cardClaimFromRow(row: CardClaimRow): CardClaim {
@@ -124,6 +128,7 @@ export function cardClaimFromRow(row: CardClaimRow): CardClaim {
     confirmedAt: row.confirmed_at ? new Date(row.confirmed_at).getTime() : null,
     shipped: row.shipped,
     receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
+    shipRequestedAt: row.ship_requested_at ? new Date(row.ship_requested_at).getTime() : null,
     fulfillmentMethod: row.fulfillment_method,
     paymentMethod: row.payment_method,
     offerId: row.offer_id,

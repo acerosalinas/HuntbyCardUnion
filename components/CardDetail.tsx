@@ -48,11 +48,16 @@ export function CardDetail({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PREPAID");
   const codAvailable = Boolean(initialSellerProfile?.codEnabled);
 
-  // An open offer (PENDING/COUNTERED/ACCEPTED - see useMyOffer) means the
-  // buyer either can't make a new one yet (submit_offer's duplicate guard),
-  // or has something to respond to/act on - all of which now happens on
-  // the My Offers section of My Dibs instead of here, so a buyer juggling
-  // several negotiations isn't hopping between card pages one at a time.
+  // An open offer (PENDING/COUNTERED/ACCEPTED - see useMyOffer) blocks a
+  // new one (submit_offer's own duplicate guard) and drives the status
+  // note below pointing to My Dibs - but it does NOT block a normal
+  // purchase at the listed price while PENDING/COUNTERED: a buyer waiting
+  // on a negotiation can always still just buy normally instead of
+  // waiting, same as anyone else (place_order auto-supersedes their own
+  // stale offer the moment they do). ACCEPTED is the one exception that
+  // still blocks the normal Add to Cart button below - buying at the full
+  // listed price there would forfeit the discount they already secured,
+  // which is only available via My Dibs.
   const hasOpenOffer = myOffer !== null;
   const offerPending = myOffer?.status === "PENDING";
   const offerCountered = myOffer?.status === "COUNTERED";
@@ -86,11 +91,10 @@ export function CardDetail({
   } else if (isQueued) {
     cartLabel = "In Queue";
     cartDisabled = true;
-  } else if (hasOpenOffer) {
-    // Buying (at listed or negotiated price) and negotiating are mutually
-    // exclusive here on purpose - an accepted offer is bought from My Dibs
-    // instead, which is also where the negotiated price actually lives.
-    cartLabel = "Offer in Progress";
+  } else if (offerAccepted) {
+    // Only ACCEPTED blocks the normal button - that price lives in My
+    // Dibs, and buying here would charge full price instead.
+    cartLabel = "Offer Accepted - Buy in My Dibs";
     cartDisabled = true;
   } else if (inCart) {
     cartLabel = "Remove from Cart";
@@ -289,7 +293,7 @@ export function CardDetail({
             </p>
           )}
 
-          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
+          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
             <div className="flex items-center gap-3">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
               <div className="inline-flex items-center rounded-lg border border-card-border">
@@ -324,7 +328,7 @@ export function CardDetail({
             </div>
           )}
 
-          {inStock && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
+          {inStock && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
                 Fulfillment
@@ -362,7 +366,7 @@ export function CardDetail({
             </div>
           )}
 
-          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
+          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment</label>
               <div className="flex gap-2">

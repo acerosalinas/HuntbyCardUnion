@@ -3271,6 +3271,37 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- MIGRATION 16: a buyer stashing a card had no way to later ask the seller
+-- to actually ship it - requestShipping() (app/account/actions.ts) lets
+-- them flag a paid, stashed, not-yet-shipped claim once, notifying the
+-- owning admin. Safe to run once on an existing project; no-ops on re-run.
+-- ---------------------------------------------------------------------------
+
+alter table card_claims add column if not exists ship_requested_at timestamptz;
+
+do $$
+declare
+  v_conname text;
+begin
+  select conname into v_conname
+    from pg_constraint
+    where conrelid = 'public.notifications'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%type = ANY%';
+  if v_conname is not null then
+    execute format('alter table notifications drop constraint %I', v_conname);
+  end if;
+end $$;
+
+alter table notifications add constraint notifications_type_check check (type in (
+  'offer_received', 'offer_countered', 'offer_accepted', 'offer_declined', 'offer_expired',
+  'card_claimed', 'queue_promoted', 'claim_shipped', 'wanted_card_fulfilled', 'ship_requested',
+  'payment_confirmed', 'listing_cancelled', 'dispute_opened',
+  'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
+  'claim_cancelled_by_buyer', 'review_received'
+));
+
+-- ---------------------------------------------------------------------------
 -- Seed data (optional) - a few sample cards so the grid isn't empty. Only
 -- runs cleanly on a fresh install (re-running inserts duplicates); skip this
 -- block entirely on an existing project.
