@@ -300,7 +300,8 @@ create table if not exists notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_id uuid not null references auth.users (id) on delete cascade,
   type text not null check (type in (
-    'offer_received', 'offer_countered', 'card_claimed', 'queue_promoted',
+    'offer_received', 'offer_countered', 'offer_accepted', 'offer_declined', 'offer_expired',
+    'card_claimed', 'queue_promoted',
     'payment_confirmed', 'listing_cancelled', 'dispute_opened',
     'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
     'claim_cancelled_by_buyer', 'review_received'
@@ -2437,6 +2438,35 @@ alter table offers add column if not exists agreed_amount numeric(10, 2);
 
 alter table card_claims add column if not exists offer_id uuid references offers (id) on delete set null;
 create index if not exists card_claims_offer_id_idx on card_claims (offer_id);
+
+-- notifications.type gains three more values for this batch - same
+-- pattern-lookup-then-drop-then-recreate approach as the dispute-era
+-- migration above, since the auto-generated constraint name isn't
+-- guaranteed. Without this, the offer_accepted/offer_declined/offer_expired
+-- notifyUser() calls below insert a row that violates the OLD constraint,
+-- fails, and gets silently swallowed by notifyUser's own try/catch - the
+-- buyer never finds out their offer was accepted, declined, or expired.
+do $$
+declare
+  v_conname text;
+begin
+  select conname into v_conname
+    from pg_constraint
+    where conrelid = 'public.notifications'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%type = ANY%';
+  if v_conname is not null then
+    execute format('alter table notifications drop constraint %I', v_conname);
+  end if;
+end $$;
+
+alter table notifications add constraint notifications_type_check check (type in (
+  'offer_received', 'offer_countered', 'offer_accepted', 'offer_declined', 'offer_expired',
+  'card_claimed', 'queue_promoted',
+  'payment_confirmed', 'listing_cancelled', 'dispute_opened',
+  'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
+  'claim_cancelled_by_buyer', 'review_received'
+));
 
 -- Same signature as before - adds a guard against stacking a second open
 -- offer on a card the buyer already has one on.
