@@ -473,7 +473,7 @@ export function MyDibsContents() {
                       )}
                       {offer.status === "COUNTERED" && (
                         <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
-                          Countered: {formatCurrency(offer.counterAmount ?? 0)}
+                          Countered: {formatCurrency(offer.counterAmount ?? offer.offeredAmount)}
                         </span>
                       )}
                       {offer.status === "ACCEPTED" && (

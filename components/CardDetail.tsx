@@ -108,7 +108,13 @@ export function CardDetail({
     // place_order handles an out-of-stock offer purchase with a clear
     // 'offer_stock_unavailable' result instead of silently queuing it at
     // the full listed price (see the offer_id branch in place_order).
-    cartLabel = inCart ? "Remove from Cart" : `Add to Cart — ${formatCurrency(myOffer?.agreedAmount ?? 0)} (Offer Price)`;
+    cartLabel = inCart
+      ? "Remove from Cart"
+      // agreedAmount should always be set once ACCEPTED - offeredAmount is
+      // the fallback for any pre-existing offer accepted by an older
+      // version of this flow (before agreed_amount existed), so this can
+      // never show a bogus ₱0.
+      : `Add to Cart — ${formatCurrency(myOffer?.agreedAmount ?? myOffer?.offeredAmount ?? 0)} (Offer Price)`;
   } else if (inCart) {
     cartLabel = "Remove from Cart";
   }
@@ -123,7 +129,7 @@ export function CardDetail({
     if (offerAccepted && myOffer) {
       addToCart(card.id, 1, fulfillmentMethod, paymentToUse, {
         offerId: myOffer.id,
-        agreedAmount: myOffer.agreedAmount ?? card.price,
+        agreedAmount: myOffer.agreedAmount ?? myOffer.offeredAmount ?? card.price,
       });
     } else {
       addToCart(card.id, qty, fulfillmentMethod, paymentToUse);
@@ -266,7 +272,7 @@ export function CardDetail({
                 <>
                   <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
                     <Handshake size={14} />
-                    Seller countered at {formatCurrency(myOffer.counterAmount ?? 0)}
+                    Seller countered at {formatCurrency(myOffer.counterAmount ?? myOffer.offeredAmount)}
                   </span>
                   {respondError && <p className="text-xs text-sold">{respondError}</p>}
                   <div className="flex gap-2">
@@ -282,7 +288,7 @@ export function CardDetail({
               {offerAccepted && (
                 <span className="flex items-center gap-1.5 text-sm font-medium text-available">
                   <CheckCircle2 size={14} />
-                  Your offer of {formatCurrency(myOffer.agreedAmount ?? 0)} was accepted — add it to your cart to finish
+                  Your offer of {formatCurrency(myOffer.agreedAmount ?? myOffer.offeredAmount)} was accepted — add it to your cart to finish
                   checkout.
                 </span>
               )}
