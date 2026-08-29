@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, QrCode, Truck } from "lucide-react";
+import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, QrCode, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { useCart } from "@/components/CartProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
@@ -66,22 +67,34 @@ interface ClaimJoinRow {
 
 export function MyDibsContents() {
   const { buyer } = useBuyerIdentity();
+  const { addToCart, isInCart } = useCart();
   const [claims, setClaims] = useState<ClaimedCardView[]>([]);
   // Seller QR codes for still-unpaid claims - keyed by admin_id so the QR
   // stays reachable here for as long as payment is pending, instead of only
   // ever showing once on the cart's order-confirmation screen (which is
   // easy to navigate away from and lose).
   const [qrByAdminId, setQrByAdminId] = useState<Map<string, string>>(new Map());
+  // Whether an accepted offer's seller accepts Cash on Delivery - drives
+  // whether the compact Pay Now/COD toggle shows on that offer's tile below.
+  const [codEnabledByAdminId, setCodEnabledByAdminId] = useState<Map<string, boolean>>(new Map());
   const [queuedCards, setQueuedCards] = useState<QueuedCardView[]>([]);
   const [offeredCards, setOfferedCards] = useState<OfferedCardView[]>([]);
   const [reviewedClaimIds, setReviewedClaimIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // All negotiation actions (accept/decline a counter, add an accepted
+  // offer to cart) happen right here on the My Offers tiles now, instead of
+  // requiring a trip to each card's own page - see CardDetail.tsx, which
+  // now just links back here instead of duplicating these controls.
+  const [offerFulfillment, setOfferFulfillment] = useState<Record<string, FulfillmentMethod>>({});
+  const [offerPayment, setOfferPayment] = useState<Record<string, PaymentMethod>>({});
+  const [offerBusyId, setOfferBusyId] = useState<string | null>(null);
+  const [offerErrorById, setOfferErrorById] = useState<Record<string, string>>({});
+  const [addedOfferId, setAddedOfferId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!buyer || !isSupabaseConfigured()) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- toggling a loading flag before an async fetch
     setLoading(true);
     const supabase = createClient();
 
@@ -155,8 +168,37 @@ export function MyDibsContents() {
             })
             .filter((v): v is OfferedCardView => v !== null),
         );
+
+        // Only accepted offers can reach the compact Add to Cart controls
+        // below, so this is the only case that needs to know whether COD
+        // is on the table for that seller.
+        const codAdminIds = [
+          ...new Set(
+            myOfferRows
+              .filter((r) => r.status === "ACCEPTED")
+              .map((r) => offerCardsById.get(r.card_id)?.adminId)
+              .filter((id): id is string => Boolean(id)),
+          ),
+        ];
+        if (codAdminIds.length > 0) {
+          const { data: codProfiles } = await supabase
+            .from("seller_profiles")
+            .select("admin_id, cod_enabled")
+            .in("admin_id", codAdminIds);
+          setCodEnabledByAdminId(
+            new Map(
+              ((codProfiles ?? []) as { admin_id: string; cod_enabled: boolean }[]).map((p) => [
+                p.admin_id,
+                p.cod_enabled,
+              ]),
+            ),
+          );
+        } else {
+          setCodEnabledByAdminId(new Map());
+        }
       } else {
         setOfferedCards([]);
+        setCodEnabledByAdminId(new Map());
       }
 
       const myQueueRows = (myQueueRes.data as QueueEntryRow[] | null) ?? [];
@@ -257,6 +299,32 @@ export function MyDibsContents() {
     }
   };
 
+  const handleRespondToOffer = async (offer: CardOffer, accept: boolean) => {
+    setOfferErrorById((prev) => ({ ...prev, [offer.id]: "" }));
+    setOfferBusyId(offer.id);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.rpc("respond_to_offer", { p_offer_id: offer.id, p_accept: accept });
+      if (error) throw error;
+    } catch (err) {
+      setOfferErrorById((prev) => ({
+        ...prev,
+        [offer.id]: extractErrorMessage(err) ?? "Failed to respond to offer",
+      }));
+    } finally {
+      setOfferBusyId(null);
+    }
+  };
+
+  const handleAddOfferToCart = (offer: CardOffer, card: CardItem) => {
+    addToCart(card.id, 1, offerFulfillment[offer.id] ?? "SHIP", offerPayment[offer.id] ?? "PREPAID", {
+      offerId: offer.id,
+      agreedAmount: offer.agreedAmount ?? offer.offeredAmount,
+    });
+    setAddedOfferId(offer.id);
+    setTimeout(() => setAddedOfferId(null), 3000);
+  };
+
   const isEmpty =
     !loading && claims.length === 0 && queuedCards.length === 0 && offeredCards.length === 0;
   const shipClaims = claims.filter((c) => c.fulfillmentMethod === "SHIP");
@@ -351,6 +419,181 @@ export function MyDibsContents() {
     );
   };
 
+  const renderOfferTile = ({ card, offer }: OfferedCardView) => {
+    const inactive = ["DECLINED", "BUYER_DECLINED", "EXPIRED", "SUPERSEDED", "FULFILLED"].includes(offer.status);
+    const busy = offerBusyId === offer.id;
+    const tileError = offerErrorById[offer.id];
+    const fulfillment = offerFulfillment[offer.id] ?? "SHIP";
+    const payment = offerPayment[offer.id] ?? "PREPAID";
+    const codAvailable = Boolean(card.adminId && codEnabledByAdminId.get(card.adminId));
+    const addedJustNow = addedOfferId === offer.id;
+    const inCart = isInCart(card.id);
+
+    return (
+      <div
+        key={offer.id}
+        className={cn(
+          "flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold",
+          inactive && "opacity-60",
+        )}
+      >
+        <Link href={`/card/${card.id}`} className="relative block aspect-[3/4] w-full bg-navy-950/5">
+          {card.images[0] ? (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
+            <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-foreground-muted">
+              <ImageOff size={24} />
+            </div>
+          )}
+          <div className="absolute right-2 top-2">
+            {offer.status === "PENDING" && (
+              <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+                Offer pending
+              </span>
+            )}
+            {offer.status === "COUNTERED" && (
+              <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+                Countered: {formatCurrency(offer.counterAmount ?? offer.offeredAmount)}
+              </span>
+            )}
+            {offer.status === "ACCEPTED" && (
+              <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
+                Accepted
+              </span>
+            )}
+            {offer.status === "FULFILLED" && (
+              <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
+                Purchased
+              </span>
+            )}
+            {offer.status === "DECLINED" && (
+              <span className="rounded-full bg-sold-bg px-2 py-0.5 text-xs font-semibold text-sold">Declined</span>
+            )}
+            {offer.status === "BUYER_DECLINED" && (
+              <span className="rounded-full bg-sold-bg px-2 py-0.5 text-xs font-semibold text-sold">
+                You declined
+              </span>
+            )}
+            {offer.status === "EXPIRED" && (
+              <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
+                No response - expired
+              </span>
+            )}
+            {offer.status === "SUPERSEDED" && (
+              <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
+                Superseded
+              </span>
+            )}
+          </div>
+        </Link>
+        <div className="flex flex-col gap-2 p-3">
+          <Link href={`/card/${card.id}`}>
+            <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
+            <p className="text-sm text-foreground-muted">Your offer: {formatCurrency(offer.offeredAmount)}</p>
+          </Link>
+
+          {offer.status === "COUNTERED" && (
+            <>
+              {tileError && <p className="text-xs text-sold">{tileError}</p>}
+              <div className="flex gap-1.5">
+                <Button
+                  variant="gold"
+                  disabled={busy}
+                  onClick={() => handleRespondToOffer(offer, true)}
+                  className="flex-1 px-2 py-1.5 text-xs"
+                >
+                  Accept
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => handleRespondToOffer(offer, false)}
+                  className="flex-1 px-2 py-1.5 text-xs"
+                >
+                  Decline
+                </Button>
+              </div>
+            </>
+          )}
+
+          {offer.status === "ACCEPTED" &&
+            (inCart ? (
+              <Link
+                href="/cart"
+                className="block w-full rounded-lg border border-gold/40 px-3 py-1.5 text-center text-xs font-medium text-gold transition-colors hover:bg-gold/10"
+              >
+                In Cart - View Cart
+              </Link>
+            ) : (
+              <>
+                {addedJustNow && <p className="text-xs text-available">Added to cart.</p>}
+                <div className="flex gap-1.5">
+                  {(
+                    [
+                      { key: "SHIP" as const, label: "Ship", icon: Truck },
+                      { key: "STASH" as const, label: "Stash", icon: PackageCheck },
+                    ]
+                  ).map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setOfferFulfillment((prev) => ({ ...prev, [offer.id]: key }));
+                        // COD implies a courier - doesn't apply once stashing with the seller.
+                        if (key === "STASH") setOfferPayment((prev) => ({ ...prev, [offer.id]: "PREPAID" }));
+                      }}
+                      className={cn(
+                        "inline-flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors",
+                        fulfillment === key
+                          ? "border-gold bg-gold text-navy-950"
+                          : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                      )}
+                    >
+                      <Icon size={11} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {codAvailable && fulfillment === "SHIP" && (
+                  <div className="flex gap-1.5">
+                    {(
+                      [
+                        { key: "PREPAID" as const, label: "Pay Now", icon: Wallet },
+                        { key: "COD" as const, label: "COD", icon: Banknote },
+                      ]
+                    ).map(({ key, label, icon: Icon }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setOfferPayment((prev) => ({ ...prev, [offer.id]: key }))}
+                        className={cn(
+                          "inline-flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors",
+                          payment === key
+                            ? "border-gold bg-gold text-navy-950"
+                            : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+                        )}
+                      >
+                        <Icon size={11} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  variant="gold"
+                  onClick={() => handleAddOfferToCart(offer, card)}
+                  className="w-full px-2 py-1.5 text-xs"
+                >
+                  Add to Cart — {formatCurrency(offer.agreedAmount ?? offer.offeredAmount)}
+                </Button>
+              </>
+            ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <h1 className="mb-6 text-2xl font-bold text-foreground">My Dibs {buyer ? `— ${buyer.handle}` : ""}</h1>
@@ -370,6 +613,15 @@ export function MyDibsContents() {
       )}
 
       {actionError && <p className="mb-4 text-sm text-sold">{actionError}</p>}
+
+      {offeredCards.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">My Offers</h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {offeredCards.map(renderOfferTile)}
+          </div>
+        </div>
+      )}
 
       {shipClaims.length > 0 && (
         <div className="mb-8">
@@ -435,91 +687,6 @@ export function MyDibsContents() {
                 </div>
               </Link>
             ))}
-          </div>
-        </div>
-      )}
-
-      {offeredCards.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-4 text-lg font-semibold text-foreground">My Offers</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {offeredCards.map(({ card, offer }) => {
-              const inactive = ["DECLINED", "BUYER_DECLINED", "EXPIRED", "SUPERSEDED", "FULFILLED"].includes(
-                offer.status,
-              );
-              return (
-                <Link
-                  key={offer.id}
-                  href={`/card/${card.id}`}
-                  className={cn(
-                    "flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold",
-                    inactive && "opacity-60",
-                  )}
-                >
-                  <div className="relative aspect-[3/4] w-full bg-navy-950/5">
-                    {card.images[0] ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
-                      <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-foreground-muted">
-                        <ImageOff size={24} />
-                      </div>
-                    )}
-                    <div className="absolute right-2 top-2">
-                      {offer.status === "PENDING" && (
-                        <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
-                          Offer pending
-                        </span>
-                      )}
-                      {offer.status === "COUNTERED" && (
-                        <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
-                          Countered: {formatCurrency(offer.counterAmount ?? offer.offeredAmount)}
-                        </span>
-                      )}
-                      {offer.status === "ACCEPTED" && (
-                        <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
-                          Accepted — add to cart
-                        </span>
-                      )}
-                      {offer.status === "FULFILLED" && (
-                        <span className="rounded-full bg-available-bg px-2 py-0.5 text-xs font-semibold text-available">
-                          Purchased
-                        </span>
-                      )}
-                      {offer.status === "DECLINED" && (
-                        <span className="rounded-full bg-sold-bg px-2 py-0.5 text-xs font-semibold text-sold">
-                          Declined
-                        </span>
-                      )}
-                      {offer.status === "BUYER_DECLINED" && (
-                        <span className="rounded-full bg-sold-bg px-2 py-0.5 text-xs font-semibold text-sold">
-                          You declined
-                        </span>
-                      )}
-                      {offer.status === "EXPIRED" && (
-                        <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
-                          No response - expired
-                        </span>
-                      )}
-                      {offer.status === "SUPERSEDED" && (
-                        <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-xs font-semibold text-foreground-muted">
-                          Superseded
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1 p-3">
-                    <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
-                    <p className="text-sm text-foreground-muted">
-                      Your offer: {formatCurrency(offer.offeredAmount)}
-                    </p>
-                    {offer.status === "COUNTERED" && (
-                      <p className="text-xs text-gold">Accept or decline on the card page.</p>
-                    )}
-                  </div>
-                </Link>
-              );
-            })}
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Handshake, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -19,8 +19,7 @@ import { useMyClaims } from "@/hooks/useMyClaims";
 import { useMyOffer } from "@/hooks/useMyOffer";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
-import { createClient } from "@/lib/supabase/client";
-import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { weekdayLabel } from "@/lib/codSchedule";
 import { CardItem, FulfillmentMethod, PaymentMethod, SellerProfile } from "@/types/marketplace";
 
@@ -47,33 +46,17 @@ export function CardDetail({
   const [qty, setQty] = useState(1);
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PREPAID");
-  const [respondBusy, setRespondBusy] = useState(false);
-  const [respondError, setRespondError] = useState<string | null>(null);
   const codAvailable = Boolean(initialSellerProfile?.codEnabled);
 
   // An open offer (PENDING/COUNTERED/ACCEPTED - see useMyOffer) means the
-  // buyer either can't make a new one yet (submit_offer's duplicate guard)
-  // or, once ACCEPTED, gets to buy at the negotiated price instead of the
-  // listed one - see handleCartToggle/cartLabel below.
+  // buyer either can't make a new one yet (submit_offer's duplicate guard),
+  // or has something to respond to/act on - all of which now happens on
+  // the My Offers section of My Dibs instead of here, so a buyer juggling
+  // several negotiations isn't hopping between card pages one at a time.
   const hasOpenOffer = myOffer !== null;
   const offerPending = myOffer?.status === "PENDING";
   const offerCountered = myOffer?.status === "COUNTERED";
   const offerAccepted = myOffer?.status === "ACCEPTED";
-
-  const handleRespondToOffer = async (accept: boolean) => {
-    if (!myOffer) return;
-    setRespondBusy(true);
-    setRespondError(null);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.rpc("respond_to_offer", { p_offer_id: myOffer.id, p_accept: accept });
-      if (error) throw error;
-    } catch (err) {
-      setRespondError(extractErrorMessage(err) ?? "Failed to respond to the offer.");
-    } finally {
-      setRespondBusy(false);
-    }
-  };
 
   const inStock = card.quantityAvailable > 0;
   const isSold = card.status === "SOLD";
@@ -103,18 +86,12 @@ export function CardDetail({
   } else if (isQueued) {
     cartLabel = "In Queue";
     cartDisabled = true;
-  } else if (offerAccepted) {
-    // No "Join Waitlist" wording here even if stock is momentarily at 0 -
-    // place_order handles an out-of-stock offer purchase with a clear
-    // 'offer_stock_unavailable' result instead of silently queuing it at
-    // the full listed price (see the offer_id branch in place_order).
-    cartLabel = inCart
-      ? "Remove from Cart"
-      // agreedAmount should always be set once ACCEPTED - offeredAmount is
-      // the fallback for any pre-existing offer accepted by an older
-      // version of this flow (before agreed_amount existed), so this can
-      // never show a bogus ₱0.
-      : `Add to Cart — ${formatCurrency(myOffer?.agreedAmount ?? myOffer?.offeredAmount ?? 0)} (Offer Price)`;
+  } else if (hasOpenOffer) {
+    // Buying (at listed or negotiated price) and negotiating are mutually
+    // exclusive here on purpose - an accepted offer is bought from My Dibs
+    // instead, which is also where the negotiated price actually lives.
+    cartLabel = "Offer in Progress";
+    cartDisabled = true;
   } else if (inCart) {
     cartLabel = "Remove from Cart";
   }
@@ -125,15 +102,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    const paymentToUse = codAvailable && fulfillmentMethod === "SHIP" ? paymentMethod : "PREPAID";
-    if (offerAccepted && myOffer) {
-      addToCart(card.id, 1, fulfillmentMethod, paymentToUse, {
-        offerId: myOffer.id,
-        agreedAmount: myOffer.agreedAmount ?? myOffer.offeredAmount ?? card.price,
-      });
-    } else {
-      addToCart(card.id, qty, fulfillmentMethod, paymentToUse);
-    }
+    addToCart(card.id, qty, fulfillmentMethod, codAvailable && fulfillmentMethod === "SHIP" ? paymentMethod : "PREPAID");
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -258,40 +227,30 @@ export function CardDetail({
           {myOffer && (
             <div
               className={cn(
-                "flex flex-col gap-2 rounded-xl px-4 py-3",
+                "flex items-center justify-between gap-3 rounded-xl px-4 py-3",
                 offerAccepted ? "bg-available-bg" : "bg-pending-bg",
               )}
             >
-              {offerPending && (
-                <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
-                  <Hourglass size={14} />
-                  Waiting for the seller to respond to your offer of {formatCurrency(myOffer.offeredAmount)}.
-                </span>
-              )}
-              {offerCountered && (
-                <>
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-pending">
-                    <Handshake size={14} />
-                    Seller countered at {formatCurrency(myOffer.counterAmount ?? myOffer.offeredAmount)}
-                  </span>
-                  {respondError && <p className="text-xs text-sold">{respondError}</p>}
-                  <div className="flex gap-2">
-                    <Button variant="gold" disabled={respondBusy} onClick={() => handleRespondToOffer(true)}>
-                      Accept
-                    </Button>
-                    <Button variant="outline" disabled={respondBusy} onClick={() => handleRespondToOffer(false)}>
-                      Decline
-                    </Button>
-                  </div>
-                </>
-              )}
-              {offerAccepted && (
-                <span className="flex items-center gap-1.5 text-sm font-medium text-available">
-                  <CheckCircle2 size={14} />
-                  Your offer of {formatCurrency(myOffer.agreedAmount ?? myOffer.offeredAmount)} was accepted — add it to your cart to finish
-                  checkout.
-                </span>
-              )}
+              <span
+                className={cn(
+                  "flex items-center gap-1.5 text-sm font-medium",
+                  offerAccepted ? "text-available" : "text-pending",
+                )}
+              >
+                {offerAccepted ? <CheckCircle2 size={14} /> : <Hourglass size={14} />}
+                {offerPending &&
+                  `Waiting for the seller to respond to your offer of ${formatCurrency(myOffer.offeredAmount)}.`}
+                {offerCountered && `Seller countered at ${formatCurrency(myOffer.counterAmount ?? myOffer.offeredAmount)}.`}
+                {offerAccepted &&
+                  `Your offer of ${formatCurrency(myOffer.agreedAmount ?? myOffer.offeredAmount)} was accepted.`}
+              </span>
+              {/* All negotiations - responding to a counter, adding an accepted offer to cart - happen in My Dibs now, not here, so managing several offers at once doesn't mean hopping between card pages. */}
+              <Link
+                href="/account/dibs"
+                className="shrink-0 whitespace-nowrap text-sm font-semibold text-gold underline-offset-2 hover:underline"
+              >
+                {offerPending ? "View in My Dibs" : "Manage in My Dibs"}
+              </Link>
             </div>
           )}
 
@@ -329,7 +288,7 @@ export function CardDetail({
             </p>
           )}
 
-          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
+          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
             <div className="flex items-center gap-3">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
               <div className="inline-flex items-center rounded-lg border border-card-border">
@@ -364,7 +323,7 @@ export function CardDetail({
             </div>
           )}
 
-          {(inStock || offerAccepted) && !inCart && !isQueued && !alreadyHoldsClaim && (
+          {inStock && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
                 Fulfillment
@@ -402,7 +361,7 @@ export function CardDetail({
             </div>
           )}
 
-          {(inStock || offerAccepted) && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && !alreadyHoldsClaim && (
+          {inStock && codAvailable && fulfillmentMethod === "SHIP" && !inCart && !isQueued && !alreadyHoldsClaim && !hasOpenOffer && (
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment</label>
               <div className="flex gap-2">
