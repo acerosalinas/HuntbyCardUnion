@@ -10,6 +10,7 @@ import { WantedCardForm } from "@/components/WantedCardForm";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { sortSoldLast } from "@/lib/cardFilter";
 import { CardItem, CardRow, cardFromRow } from "@/types/marketplace";
 
 interface WishlistJoinRow {
@@ -78,7 +79,7 @@ export function WishlistContents() {
           </p>
         </div>
       ) : (
-        <CardGrid cards={cards} />
+        <CardGrid cards={sortSoldLast(cards)} />
       )}
       <WantedCardForm />
     </div>

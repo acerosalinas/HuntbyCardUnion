@@ -5,7 +5,7 @@ import { LayoutGrid, Radio } from "lucide-react";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
-import { matchesCardFilter } from "@/lib/cardFilter";
+import { matchesCardFilter, sortSoldLast } from "@/lib/cardFilter";
 import { FRANCHISES } from "@/lib/franchises";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
@@ -41,7 +41,7 @@ export function SellerListingsView({
   }, [cards, sellerTags, setFranchiseScope]);
 
   const filtered = useMemo(
-    () => cards.filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
+    () => sortSoldLast(cards.filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType }))),
     [cards, query, category, rarity, pokemonType],
   );
   const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
