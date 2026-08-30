@@ -51,7 +51,7 @@ export function NotificationBell({ notifications, onOpen, onMarkRead, onMarkAllR
         type="button"
         onClick={toggle}
         aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
-        className="relative inline-flex items-center justify-center rounded-lg p-2 text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+        className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
       >
         <Bell size={18} />
         {unreadCount > 0 && (

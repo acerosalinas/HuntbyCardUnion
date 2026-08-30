@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { DynamicLogoProps } from "@/types/marketplace";
 
-export function Logo({ src, alt = "Hunt by Card Union", className, size = "sm" }: DynamicLogoProps) {
+export function Logo({ src, alt = "Hunt by Card Union", className, size = "sm", iconOnly = false }: DynamicLogoProps) {
   const isLarge = size === "lg";
 
   return (
@@ -27,24 +27,26 @@ export function Logo({ src, alt = "Hunt by Card Union", className, size = "sm" }
           <circle cx="19" cy="14" r="3.2" stroke="var(--color-gold)" strokeWidth="1.4" fill="none" />
         </svg>
       )}
-      <span className="flex min-w-0 flex-col leading-none">
-        <span
-          className={cn(
-            "font-bold tracking-tight",
-            isLarge ? "text-lg sm:text-3xl" : "text-xs whitespace-nowrap sm:text-lg",
-          )}
-        >
-          Hunt <span className="font-normal">by Card Union</span>
+      {!iconOnly && (
+        <span className="flex min-w-0 flex-col leading-none">
+          <span
+            className={cn(
+              "font-bold tracking-tight",
+              isLarge ? "text-lg sm:text-3xl" : "text-xs whitespace-nowrap sm:text-lg",
+            )}
+          >
+            Hunt <span className="font-normal">by Card Union</span>
+          </span>
+          <span
+            className={cn(
+              "font-semibold uppercase tracking-[0.25em] text-gold",
+              isLarge ? "text-[10px] sm:text-xs" : "text-[9px]",
+            )}
+          >
+            Marketplace
+          </span>
         </span>
-        <span
-          className={cn(
-            "font-semibold uppercase tracking-[0.25em] text-gold",
-            isLarge ? "text-[10px] sm:text-xs" : "text-[9px]",
-          )}
-        >
-          Marketplace
-        </span>
-      </span>
+      )}
     </span>
   );
 }

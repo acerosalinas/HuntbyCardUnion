@@ -24,9 +24,17 @@ function getAdminBrowserClient() {
   return adminBrowserClient;
 }
 
-/** Whether this browser also holds a live admin/seller session - false for the vast majority of buyers, who never have an admin cookie at all (cheap local check, no network round trip). Re-checked on every navigation - see BuyerIdentityProvider for why a one-time check alone would go stale after a server-side sign-in. */
-export function useAdminSession(): boolean {
-  const [isAdmin, setIsAdmin] = useState(false);
+export interface AdminSession {
+  isAdmin: boolean;
+  email: string | null;
+  role: "ADMIN" | "SUPER_ADMIN" | null;
+}
+
+const EMPTY_SESSION: AdminSession = { isAdmin: false, email: null, role: null };
+
+/** Whether this browser also holds a live admin/seller session - false for the vast majority of buyers, who never have an admin cookie at all (cheap local check, no network round trip), plus the admin's own email/role for display (e.g. the mobile drawer's profile card on /admin/* pages, where a live session is guaranteed by requireAdmin() at the page level). Re-checked on every navigation - see BuyerIdentityProvider for why a one-time check alone would go stale after a server-side sign-in. */
+export function useAdminSession(): AdminSession {
+  const [session, setSession] = useState<AdminSession>(EMPTY_SESSION);
   const pathname = usePathname();
   const requestIdRef = useRef(0);
 
@@ -40,12 +48,17 @@ export function useAdminSession(): boolean {
     if (requestId !== requestIdRef.current) return;
 
     const role = user?.app_metadata?.role;
-    setIsAdmin(role === "ADMIN" || role === "SUPER_ADMIN");
+    if (role === "ADMIN" || role === "SUPER_ADMIN") {
+      setSession({ isAdmin: true, email: user?.email ?? null, role });
+    } else {
+      setSession(EMPTY_SESSION);
+    }
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- setSession inside check() only runs after the async getUser() round-trip resolves, not synchronously during render
     check();
   }, [pathname, check]);
 
-  return isAdmin;
+  return session;
 }
