@@ -1,53 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { NotificationBell } from "@/components/NotificationBell";
-import { getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/admin/actions";
-import { AppNotification } from "@/types/marketplace";
-
-const POLL_INTERVAL_MS = 15_000;
+import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 
 /**
- * Admin-side notification bell - polls a Server Action rather than
- * subscribing to Realtime. Admin has zero client-side Supabase usage
- * anywhere else in the app (everything goes through Server Actions with the
- * service-role client); a live bell would mean standing up a whole new
- * admin-cookie-scoped browser client just to authenticate a websocket. This
- * stays consistent with the rest of the admin UI, which already relies on
- * full revalidate-and-reload after actions rather than being "live".
+ * Admin-side notification bell - thin wrapper around useAdminNotifications
+ * (the actual poll timer) for any call site that just wants a single
+ * self-contained bell. Navbar.tsx calls the hook directly instead, since it
+ * needs to render the bell UI in two places (mobile + desktop rows)
+ * without running two competing 15s poll timers.
  */
 export function AdminNotificationBell() {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const mountedRef = useRef(true);
-
-  const refetch = () => {
-    getMyNotifications()
-      .then((data) => {
-        if (mountedRef.current) setNotifications(data);
-      })
-      .catch((err) => console.error("Failed to load notifications:", err));
-  };
-
-  useEffect(() => {
-    mountedRef.current = true;
-    refetch();
-    const interval = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const markRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: Date.now() } : n)));
-    markNotificationRead(id).catch((err) => console.error("Failed to mark notification read:", err));
-  };
-
-  const markAllRead = () => {
-    const now = Date.now();
-    setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? now })));
-    markAllNotificationsRead().catch((err) => console.error("Failed to mark notifications read:", err));
-  };
+  const { notifications, refetch, markRead, markAllRead } = useAdminNotifications();
 
   return (
     <NotificationBell notifications={notifications} onOpen={refetch} onMarkRead={markRead} onMarkAllRead={markAllRead} />
