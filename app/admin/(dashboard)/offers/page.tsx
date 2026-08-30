@@ -7,7 +7,9 @@ interface OfferJoinRow {
   card_id: string;
   buyer_handle: string;
   offered_amount: number;
+  agreed_amount: number | null;
   note: string | null;
+  status: "PENDING" | "ACCEPTED";
   created_at: string;
   cards: { title: string; price: number; admin_id: string | null } | null;
 }
@@ -16,10 +18,15 @@ export default async function AdminOffersPage() {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
 
+  // ACCEPTED alongside PENDING - an admin can still retract an offer
+  // they already accepted, as long as the buyer hasn't spent it via
+  // place_order yet (see declineOffer's guard in app/admin/actions.ts).
   let query = supabase
     .from("offers")
-    .select("id, card_id, buyer_handle, offered_amount, note, created_at, cards!inner(title, price, admin_id)")
-    .eq("status", "PENDING")
+    .select(
+      "id, card_id, buyer_handle, offered_amount, agreed_amount, note, status, created_at, cards!inner(title, price, admin_id)",
+    )
+    .in("status", ["PENDING", "ACCEPTED"])
     .order("created_at", { ascending: false });
 
   if (admin.role !== "SUPER_ADMIN") {
@@ -34,8 +41,10 @@ export default async function AdminOffersPage() {
     cardTitle: row.cards?.title ?? "Unknown card",
     listedPrice: row.cards?.price ?? 0,
     offeredAmount: row.offered_amount,
+    agreedAmount: row.agreed_amount,
     buyerHandle: row.buyer_handle,
     note: row.note,
+    status: row.status,
     createdAt: new Date(row.created_at).getTime(),
   }));
 

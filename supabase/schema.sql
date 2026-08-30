@@ -2569,11 +2569,14 @@ begin
 end;
 $$;
 
--- Buyer-callable: responds to an admin's counter with an accept or decline.
--- Mirrors submit_offer's auth-check shape (security definer, auth.uid()
--- ownership check) rather than going through RLS, since this has real
--- business logic (status transition validation) beyond a plain owned-row
--- write.
+-- Buyer-callable: responds to an admin's counter with an accept or decline,
+-- OR backs out of an offer already ACCEPTED (p_accept = false only - "undo"
+-- makes no sense once already accepted, and a card_claims row only ever
+-- gets created via place_order's own offer_id handling, never here, so
+-- there's nothing to unwind on the claim side). Mirrors submit_offer's
+-- auth-check shape (security definer, auth.uid() ownership check) rather
+-- than going through RLS, since this has real business logic (status
+-- transition validation) beyond a plain owned-row write.
 create or replace function respond_to_offer(p_offer_id uuid, p_accept boolean)
 returns offers
 language plpgsql
@@ -2592,6 +2595,16 @@ begin
   select * into v_offer from offers where id = p_offer_id and buyer_id = v_buyer_id for update;
   if not found then
     raise exception 'Offer not found';
+  end if;
+
+  if v_offer.status = 'ACCEPTED' then
+    if p_accept then
+      raise exception 'This offer is already accepted.';
+    end if;
+    update offers set status = 'BUYER_DECLINED'
+      where id = p_offer_id
+      returning * into v_offer;
+    return v_offer;
   end if;
 
   if v_offer.status <> 'COUNTERED' then

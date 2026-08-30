@@ -93,13 +93,23 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
                 </span>
               </div>
 
-              <div className="flex gap-2 p-3 pt-0">
-                <Button variant="outline" disabled={busy} onClick={() => setEditingCard(card)} className="flex-1">
-                  <Pencil size={14} />
+              <div className="flex gap-1.5 p-3 pt-0">
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => setEditingCard(card)}
+                  className="flex-1 gap-1 px-2 py-1.5 text-xs"
+                >
+                  <Pencil size={13} />
                   Edit
                 </Button>
-                <Button variant="danger" disabled={busy} onClick={() => handleRemove(card)} className="flex-1">
-                  <Trash2 size={14} />
+                <Button
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() => handleRemove(card)}
+                  className="flex-1 gap-1 px-2 py-1.5 text-xs"
+                >
+                  <Trash2 size={13} />
                   Remove
                 </Button>
               </div>

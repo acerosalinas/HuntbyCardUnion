@@ -450,7 +450,13 @@ export async function declineOffer(offerId: string) {
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
-  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
+  // Also usable on an already-ACCEPTED offer - the seller retracting a
+  // price they agreed to but the buyer hasn't spent yet (no card_claims
+  // row exists until place_order's own offer_id handling creates one, so
+  // there's nothing to unwind on the claim side either way).
+  if (!["PENDING", "ACCEPTED"].includes(offer.status)) {
+    throw new Error("This offer can no longer be declined.");
+  }
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
