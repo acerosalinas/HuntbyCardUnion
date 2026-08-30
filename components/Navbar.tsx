@@ -55,8 +55,9 @@ export function Navbar() {
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
+    <>
+      <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
         {/* Mobile (<768px): single integrated row - logo, search, quick-access icons, hamburger. Primary nav lives in the drawer instead of a second row. */}
         <div className="flex flex-1 items-center gap-2 md:hidden">
           <Link href="/" className="shrink-0">
@@ -194,14 +195,23 @@ export function Navbar() {
             <PokemonTypeFilter className="w-auto" />
           </div>
         )}
-      </div>
+        </div>
+      </header>
 
+      {/*
+        Rendered outside <header>, not inside it: the header's backdrop-blur-md
+        (backdrop-filter) makes it a new containing block for `position: fixed`
+        descendants, same as `transform` would. A Drawer nested inside it had
+        its "fixed inset-0" sized to the header's own small box instead of the
+        viewport, squashing the drawer into a sliver that overlapped the page
+        instead of covering it.
+      */}
       {!isAuthPage &&
         (isAdmin ? (
           <AdminMobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} session={adminSession} />
         ) : (
           <MobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
         ))}
-    </header>
+    </>
   );
 }
