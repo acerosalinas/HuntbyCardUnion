@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LayoutGrid } from "lucide-react";
+import { LayoutDashboard, LayoutGrid, Menu, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
 import { SearchBar } from "@/components/SearchBar";
@@ -16,7 +17,10 @@ import { AccountNavLink } from "@/components/AccountNavLink";
 import { useNavPending } from "@/components/NavPendingProvider";
 import { BuyerNotificationBell } from "@/components/BuyerNotificationBell";
 import { AdminNotificationBell } from "@/components/AdminNotificationBell";
+import { MobileNavDrawer } from "@/components/MobileNavDrawer";
+import { AdminMobileNavDrawer } from "@/components/AdminMobileNavDrawer";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { useCart } from "@/components/CartProvider";
 import { useAdminSession } from "@/hooks/useAdminSession";
 
 const AUTH_PATH_PREFIXES = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
@@ -25,63 +29,127 @@ export function Navbar() {
   const pathname = usePathname();
   const { pending, markPending } = useNavPending();
   const { buyer } = useBuyerIdentity();
-  const hasAdminSession = useAdminSession();
+  const { items } = useCart();
+  const adminSession = useAdminSession();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const isAdmin = pathname?.startsWith("/admin");
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
 
+  // A link inside either drawer already closes it on click (see
+  // MobileNavDrawer/AdminMobileNavDrawer), but this covers every other way
+  // the route can change (browser back/forward, a redirect, etc.).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- closing a drawer left open from a previous route, not synchronizing render state
+    setDrawerOpen(false);
+  }, [pathname]);
+
   return (
     <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2 sm:gap-4">
+        {/* Mobile (<768px): single integrated row - logo, search, quick-access icons, hamburger. Primary nav lives in the drawer instead of a second row. */}
+        <div className="flex flex-1 items-center gap-2 md:hidden">
+          <Link href="/" className="shrink-0">
+            <Logo src="/crdunion.png" iconOnly />
+          </Link>
+          {showBrowseControls && <SearchBar className="min-w-0 flex-1" />}
+          {isAuthPage ? (
+            <ThemeToggle />
+          ) : isAdmin ? (
+            <div className="ml-auto flex items-center gap-1">
+              <AdminNotificationBell />
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open menu"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
+                <Menu size={22} />
+              </button>
+            </div>
+          ) : (
+            // Stays mounted (not conditionally removed) while `pending` is
+            // true so it keeps reserving its layout width - unmounting it
+            // here would free up flex space that SearchBar's flex-1
+            // immediately expands into. See the desktop row below for the
+            // full version of this comment.
+            <div className={cn("ml-auto flex items-center gap-1", pending && "invisible")}>
+              {buyer && (
+                <Link
+                  href="/cart"
+                  aria-label="Cart"
+                  className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+                >
+                  <ShoppingCart size={20} />
+                  {items.length > 0 && (
+                    <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-gold px-1 text-[10px] font-bold text-navy-950">
+                      {items.length}
+                    </span>
+                  )}
+                </Link>
+              )}
+              {buyer && <BuyerNotificationBell />}
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open menu"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+              >
+                <Menu size={22} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop (>=768px): full horizontal navbar, everything inline. */}
+        <div className="hidden flex-1 items-center gap-4 md:flex">
           <Link href="/" className="shrink-0">
             <Logo src="/crdunion.png" />
           </Link>
-          {showBrowseControls && <SearchBar className="hidden flex-1 md:block" />}
-          <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
+          {showBrowseControls && <SearchBar className="max-w-md flex-1" />}
+          <div className="ml-auto flex items-center gap-1">
             {isAdmin ? (
               <>
                 <Link
                   href="/"
-                  className="rounded-lg px-2 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground sm:px-3"
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
                 >
-                  <span className="sm:hidden">Marketplace</span>
-                  <span className="hidden sm:inline">View Marketplace</span>
+                  View Marketplace
                 </Link>
                 <AdminNotificationBell />
               </>
             ) : isAuthPage ? null : (
               // Stays mounted (not conditionally removed) while `pending` is
               // true so it keeps reserving its layout width - unmounting it
-              // here would free up flex space that the SearchBar's flex-1
+              // here would free up flex space that SearchBar's flex-1
               // immediately expands into. `invisible` hides the stale
               // content without touching layout; see NavPendingProvider.
               // markPending only fires below when signed out - a signed-in
               // click never redirects (no auth gate to bounce through), so
               // there's nothing stale to hide and the group should never
               // flicker for the common logged-in case.
-              <div className={cn("flex items-center gap-0.5 sm:gap-1", pending && "invisible")}>
+              <div className={cn("flex items-center gap-1", pending && "invisible")}>
                 <Link
                   href="/marketplace"
                   onClick={buyer ? undefined : markPending}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground sm:px-3"
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
                 >
                   <LayoutGrid size={18} />
-                  <span className="hidden sm:inline">Marketplace</span>
+                  Marketplace
                 </Link>
                 <CartNavLink />
                 <MyDibsNavLink />
                 <AccountNavLink />
                 <BuyerNotificationBell />
-                {hasAdminSession && (
+                {adminSession.isAdmin && (
                   <Link
                     href="/admin"
                     title="Back to Admin Dashboard"
-                    className="inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10 sm:px-3"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/10"
                   >
                     <LayoutDashboard size={18} />
-                    <span className="hidden sm:inline">Admin</span>
+                    Admin
                   </Link>
                 )}
               </div>
@@ -89,17 +157,22 @@ export function Navbar() {
             <ThemeToggle />
           </div>
         </div>
+
         {showBrowseControls && (
-          <>
-            <SearchBar className="md:hidden" />
-            <div className="flex flex-wrap items-center gap-2">
-              <CategoryFilters />
-              <RarityFilter className="w-auto" />
-              <PokemonTypeFilter className="w-auto" />
-            </div>
-          </>
+          <div className="flex flex-wrap items-center gap-2">
+            <CategoryFilters />
+            <RarityFilter className="w-auto" />
+            <PokemonTypeFilter className="w-auto" />
+          </div>
         )}
       </div>
+
+      {!isAuthPage &&
+        (isAdmin ? (
+          <AdminMobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} session={adminSession} />
+        ) : (
+          <MobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+        ))}
     </header>
   );
 }

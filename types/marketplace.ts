@@ -221,6 +221,8 @@ export interface DynamicLogoProps {
   alt?: string;
   className?: string;
   size?: "sm" | "lg";
+  /** Suppresses the wordmark text, leaving just the mark - used by the compact mobile header row, where the full "Hunt by Card Union / Marketplace" text is too wide to coexist with a usable search input at 320px. */
+  iconOnly?: boolean;
 }
 
 export interface Dispute {
