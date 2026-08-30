@@ -627,12 +627,23 @@ export function MyDibsContents() {
                     ))}
                   </div>
                 )}
+                {tileError && <p className="text-xs text-sold">{tileError}</p>}
                 <Button
                   variant="gold"
+                  disabled={busy}
                   onClick={() => handleAddOfferToCart(offer, card)}
                   className="w-full px-2 py-1.5 text-xs"
                 >
                   Add to Cart — {formatCurrency(offer.agreedAmount ?? offer.offeredAmount)}
+                </Button>
+                {/* Backs out of an offer already agreed to, before it's spent via checkout - respond_to_offer allows p_accept=false on an ACCEPTED offer too, not just a COUNTERED one. */}
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => handleRespondToOffer(offer, false)}
+                  className="w-full px-2 py-1.5 text-xs"
+                >
+                  Decline
                 </Button>
               </>
             ))}

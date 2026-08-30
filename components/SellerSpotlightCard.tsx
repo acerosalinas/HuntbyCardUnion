@@ -6,7 +6,9 @@ export function SellerSpotlightCard({ profile, cardCount }: { profile: SellerPro
   return (
     <Link
       href={`/sellers/${profile.handle}`}
-      className="group flex w-56 flex-col items-center rounded-2xl border border-card-border bg-card p-5 text-center transition-transform duration-200 hover:-translate-y-1 hover:glow-gold"
+      // 2-up on mobile (half the row width, minus half the gap so two cards
+      // plus the gap between them exactly fill it), fixed width from sm: up.
+      className="group flex w-[calc(50%-0.5rem)] flex-col items-center rounded-2xl border border-card-border bg-card p-4 text-center transition-transform duration-200 hover:-translate-y-1 hover:glow-gold sm:w-56 sm:p-5"
     >
       <div className="mb-3 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-gold bg-navy-950 text-gold">
         {profile.avatarUrl ? (
