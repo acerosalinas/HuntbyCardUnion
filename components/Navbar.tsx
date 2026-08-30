@@ -15,13 +15,14 @@ import { CartNavLink } from "@/components/CartNavLink";
 import { MyDibsNavLink } from "@/components/MyDibsNavLink";
 import { AccountNavLink } from "@/components/AccountNavLink";
 import { useNavPending } from "@/components/NavPendingProvider";
-import { BuyerNotificationBell } from "@/components/BuyerNotificationBell";
-import { AdminNotificationBell } from "@/components/AdminNotificationBell";
+import { NotificationBell } from "@/components/NotificationBell";
 import { MobileNavDrawer } from "@/components/MobileNavDrawer";
 import { AdminMobileNavDrawer } from "@/components/AdminMobileNavDrawer";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useCart } from "@/components/CartProvider";
 import { useAdminSession } from "@/hooks/useAdminSession";
+import { useBuyerNotifications } from "@/hooks/useBuyerNotifications";
+import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 
 const AUTH_PATH_PREFIXES = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
 
@@ -31,11 +32,19 @@ export function Navbar() {
   const { buyer } = useBuyerIdentity();
   const { items } = useCart();
   const adminSession = useAdminSession();
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const isAdmin = pathname?.startsWith("/admin");
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Called once here (not by two independent <BuyerNotificationBell>/
+  // <AdminNotificationBell> instances, one per mobile/desktop row) since
+  // both rows are always in the DOM at once (CSS just hides one) - two
+  // instances meant two competing Realtime subscriptions to the same
+  // channel, which crashed the page. One shared subscription/poll, fed
+  // into a <NotificationBell> in each row instead.
+  const buyerNotifications = useBuyerNotifications();
+  const adminNotifications = useAdminNotifications(Boolean(isAdmin));
 
   // A link inside either drawer already closes it on click (see
   // MobileNavDrawer/AdminMobileNavDrawer), but this covers every other way
@@ -58,7 +67,12 @@ export function Navbar() {
             <ThemeToggle />
           ) : isAdmin ? (
             <div className="ml-auto flex items-center gap-1">
-              <AdminNotificationBell />
+              <NotificationBell
+                notifications={adminNotifications.notifications}
+                onOpen={adminNotifications.refetch}
+                onMarkRead={adminNotifications.markRead}
+                onMarkAllRead={adminNotifications.markAllRead}
+              />
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}
@@ -89,7 +103,13 @@ export function Navbar() {
                   )}
                 </Link>
               )}
-              {buyer && <BuyerNotificationBell />}
+              {buyer && (
+                <NotificationBell
+                  notifications={buyerNotifications.notifications}
+                  onMarkRead={buyerNotifications.markRead}
+                  onMarkAllRead={buyerNotifications.markAllRead}
+                />
+              )}
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}
@@ -117,7 +137,12 @@ export function Navbar() {
                 >
                   View Marketplace
                 </Link>
-                <AdminNotificationBell />
+                <NotificationBell
+                  notifications={adminNotifications.notifications}
+                  onOpen={adminNotifications.refetch}
+                  onMarkRead={adminNotifications.markRead}
+                  onMarkAllRead={adminNotifications.markAllRead}
+                />
               </>
             ) : isAuthPage ? null : (
               // Stays mounted (not conditionally removed) while `pending` is
@@ -141,7 +166,11 @@ export function Navbar() {
                 <CartNavLink />
                 <MyDibsNavLink />
                 <AccountNavLink />
-                <BuyerNotificationBell />
+                <NotificationBell
+                  notifications={buyerNotifications.notifications}
+                  onMarkRead={buyerNotifications.markRead}
+                  onMarkAllRead={buyerNotifications.markAllRead}
+                />
                 {adminSession.isAdmin && (
                   <Link
                     href="/admin"
