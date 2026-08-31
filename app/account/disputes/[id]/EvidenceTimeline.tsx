@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useTransition } from "react";
+import { ChangeEvent, FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/Input";
 import { createClient } from "@/lib/supabase/client";
 import { isDisputeResolved } from "@/lib/disputeStatus";
 import { extractErrorMessage } from "@/lib/utils";
-import { checkImageTypeClientSide } from "@/lib/imageAccept";
+import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
+import { normalizeImageFile } from "@/lib/imageNormalize";
 import { Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { uploadDisputeEvidence } from "../actions";
 
@@ -16,11 +17,26 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
   const router = useRouter();
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [preparingFile, setPreparingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [withdrawing, setWithdrawing] = useState(false);
 
   const resolved = isDisputeResolved(dispute.status);
+
+  const handleFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0] ?? null;
+    if (!picked) {
+      setFile(null);
+      return;
+    }
+    setPreparingFile(true);
+    try {
+      setFile(await normalizeImageFile(picked));
+    } finally {
+      setPreparingFile(false);
+    }
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -91,8 +107,9 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
           <Textarea rows={3} placeholder="Add a note..." value={note} onChange={(e) => setNote(e.target.value)} />
           <input
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
+            disabled={preparingFile}
+            onChange={handleFileSelected}
             className="text-sm text-foreground-muted"
           />
           {error && <p className="text-sm text-sold">{error}</p>}
@@ -102,8 +119,8 @@ export function EvidenceTimeline({ dispute, evidence }: { dispute: Dispute; evid
                 {withdrawing ? "Withdrawing..." : "Withdraw Dispute"}
               </Button>
             )}
-            <Button type="submit" variant="gold" disabled={pending}>
-              {pending ? "Sending..." : "Add Update"}
+            <Button type="submit" variant="gold" disabled={pending || preparingFile}>
+              {preparingFile ? "Preparing photo..." : pending ? "Sending..." : "Add Update"}
             </Button>
           </div>
         </form>

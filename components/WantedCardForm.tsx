@@ -8,7 +8,8 @@ import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { extractErrorMessage } from "@/lib/utils";
-import { checkImageTypeClientSide } from "@/lib/imageAccept";
+import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
+import { normalizeImageFile } from "@/lib/imageNormalize";
 import { uploadWantedCardPhoto } from "@/app/account/actions";
 import { WantedCard, WantedCardRow, wantedCardFromRow } from "@/types/marketplace";
 
@@ -53,17 +54,17 @@ export function WantedCardForm() {
   }, [buyer]);
 
   const handlePhotoSelected = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
     setError(null);
-    const typeError = checkImageTypeClientSide(file);
-    if (typeError) {
-      setError(typeError);
-      e.target.value = "";
-      return;
-    }
     setUploading(true);
     try {
+      const file = await normalizeImageFile(picked);
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        return;
+      }
       const formData = new FormData();
       formData.append("file", file);
       setPhotoUrl(await uploadWantedCardPhoto(formData));
@@ -156,7 +157,7 @@ export function WantedCardForm() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
             onChange={handlePhotoSelected}
             className="hidden"
           />

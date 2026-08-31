@@ -3,13 +3,19 @@
 // authoritative server-side check, which also verifies magic bytes). No
 // "server-only" here specifically so client components can import it.
 export const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-export const ACCEPTED_IMAGE_ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
+// Includes HEIC/HEIF so the OS picker doesn't hide them - lib/imageNormalize.ts
+// converts those to JPEG client-side before they ever reach ACCEPTED_IMAGE_TYPES.
+export const ACCEPTED_IMAGE_ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif,.heic,.heif";
 // Shared with lib/imageValidation.ts's server-side check (the authoritative
-// one) so both sides agree on the same cap - see that file for why. 20MB
-// comfortably covers a modern phone's full-resolution JPEG (an 8MB cap
-// rejected plenty of real iPhone photos with a redacted "unexpected error",
-// since this used to only live server-side).
-export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+// one) so both sides agree on the same cap. Deliberately well under Vercel's
+// hard 4.5MB request body limit for serverless functions (a platform ceiling
+// no app-level config can raise) - a prior 20MB cap let full-resolution
+// phone photos (routinely 5-15MB) pass this check only to be rejected by the
+// platform itself with an opaque "unexpected error". Every call site now
+// runs the file through lib/imageNormalize.ts first, which downscales/
+// recompresses to comfortably clear this cap - this is a backstop for when
+// that fails (e.g. a very old browser), not the primary size control.
+export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Fast, client-side format + size check before ever calling an upload

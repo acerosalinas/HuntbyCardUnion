@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
-import { checkImageTypeClientSide } from "@/lib/imageAccept";
+import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
+import { normalizeImageFiles } from "@/lib/imageNormalize";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
@@ -179,20 +180,31 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
     if (!files || files.length === 0) return;
     setError(null);
 
-    for (const file of Array.from(files)) {
-      const typeError = checkImageTypeClientSide(file);
-      if (typeError) {
-        setError(typeError);
-        target.value = "";
-        return;
-      }
-    }
-
     setUploading(true);
     try {
-      const formData = new FormData();
-      Array.from(files).forEach((file) => formData.append("files", file));
-      const urls = await uploadCardImages(formData);
+      // Downscale/recompress (and convert HEIC/HEIF to JPEG) before the
+      // format/size check - a full-resolution phone photo needs this to
+      // ever fit under Vercel's 4.5MB request body limit. See
+      // lib/imageNormalize.ts.
+      const normalized = await normalizeImageFiles(Array.from(files));
+      for (const file of normalized) {
+        const typeError = checkImageTypeClientSide(file);
+        if (typeError) {
+          setError(typeError);
+          return;
+        }
+      }
+
+      // One Server Action call per file, not one call for the whole batch -
+      // Vercel's 4.5MB limit is on the total request body, so bundling
+      // several photos into one request could still blow past it even
+      // though each individual photo now fits comfortably on its own.
+      const urls: string[] = [];
+      for (const file of normalized) {
+        const formData = new FormData();
+        formData.append("files", file);
+        urls.push(...(await uploadCardImages(formData)));
+      }
       setImages((prev) => [...prev, ...urls]);
     } catch (err) {
       setError(extractErrorMessage(err) ?? "Failed to upload image(s)");
@@ -472,7 +484,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
+          accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
           multiple
           onChange={handleFilesSelected}
           className="hidden"
