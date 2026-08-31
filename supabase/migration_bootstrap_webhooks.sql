@@ -3,7 +3,10 @@
 -- this project is missing it, causing "schema supabase_functions does not
 -- exist" when trying to create a webhook. Run this once in the Supabase SQL
 -- editor, then retry creating the webhook from the Dashboard. Safe to run
--- more than once.
+-- more than once (re-running this corrected version replaces the earlier,
+-- buggy one - net.http_get/http_post return a plain bigint, not a table, so
+-- "select x into y from net.http_post(...)" silently failed every insert
+-- into notifications once the webhook trigger existed).
 
 create extension if not exists pg_net;
 
@@ -65,7 +68,7 @@ as $$
 
     case
       when method = 'GET' then
-        select net.http_get into request_id from net.http_get(
+        request_id := net.http_get(
           url,
           params,
           headers,
@@ -80,7 +83,7 @@ as $$
           'schema', TG_TABLE_SCHEMA
         );
 
-        select net.http_post into request_id from net.http_post(
+        request_id := net.http_post(
           url,
           payload,
           params,
