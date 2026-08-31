@@ -264,7 +264,11 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           await updateCard(card.id, input);
         } else {
           await createCard(input);
-          setForm(emptyForm);
+          // Re-derive sellerHandle from the seller profile, same as the
+          // initial mount - a bare emptyForm would blank it back to "" and
+          // incorrectly show the "set up your Seller Profile" message even
+          // though it's already set up.
+          setForm({ ...emptyForm, sellerHandle: sellerProfile ? `@${sellerProfile.handle}` : "" });
           setImages([]);
         }
         setSuccess(true);
