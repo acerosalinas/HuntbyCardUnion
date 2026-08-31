@@ -91,5 +91,10 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // "api/" excluded - API routes (e.g. app/api/webhooks/notifications) are
+  // called server-to-server with no browser session cookie at all, and have
+  // their own auth (a shared secret header) rather than a buyer/admin login.
+  // Redirecting those to /account/login instead of ever reaching the route
+  // is exactly what broke the notifications webhook.
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
