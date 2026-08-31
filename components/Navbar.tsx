@@ -210,7 +210,7 @@ export function Navbar() {
         (isAdmin ? (
           <AdminMobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} session={adminSession} />
         ) : (
-          <MobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+          <MobileNavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} isAdmin={adminSession.isAdmin} />
         ))}
     </>
   );

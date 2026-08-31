@@ -67,6 +67,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
               <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Handle</th>
               <th className="px-4 py-3">Role</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Created</th>
@@ -81,6 +82,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                 <Fragment key={admin.id}>
                   <tr className="border-t border-card-border">
                     <td className="px-4 py-3 font-medium">{admin.email}</td>
+                    <td className="px-4 py-3 text-foreground-muted">{admin.handle ?? "—"}</td>
                     <td className="px-4 py-3">
                       <Badge tone={admin.role === "SUPER_ADMIN" ? "gold" : "neutral"}>
                         {admin.role === "SUPER_ADMIN" ? "Super Admin" : "Admin"}
@@ -121,7 +123,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                   </tr>
                   {isResetting && (
                     <tr className="border-t border-card-border bg-card">
-                      <td colSpan={5} className="px-4 py-3">
+                      <td colSpan={6} className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <PasswordInput
                             placeholder="New password (min 6 characters)"
