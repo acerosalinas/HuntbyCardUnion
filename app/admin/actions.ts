@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
-import { assertOwnsOrSuper, requireAdmin, AdminRole } from "@/lib/adminAuth";
+import { assertOwnsOrSuper, requireAdmin, roleFromMetadata, AdminRole } from "@/lib/adminAuth";
 import { sendOrderConfirmedEmail } from "@/lib/email";
 import { validateImageFile } from "@/lib/imageValidation";
 import { canTransitionDispute } from "@/lib/disputeStatus";
@@ -930,7 +930,17 @@ export interface AdminAccount {
   id: string;
   email: string;
   role: AdminRole;
+  /** This admin's public storefront handle (seller_profiles.handle), or null if they haven't set one up. */
+  handle: string | null;
   active: boolean;
+  createdAt: number;
+}
+
+export interface BuyerAccountSummary {
+  id: string;
+  email: string;
+  /** profiles.handle, already "@"-prefixed - null only if signup was interrupted before the profile row was created. */
+  handle: string | null;
   createdAt: number;
 }
 
@@ -940,21 +950,68 @@ async function requireSuperAdmin() {
   return admin;
 }
 
+/**
+ * supabase.auth.admin.listUsers() returns every account this project has
+ * ever authenticated - buyers and admins alike, since both sign in through
+ * the same Supabase Auth users table (see BUYER_AUTH_COOKIE_NAME vs
+ * ADMIN_AUTH_COOKIE_NAME - two separate sessions, one underlying user
+ * table). listAdmins()/listBuyers() partition that single list by
+ * roleFromMetadata() rather than each paying for their own full scan.
+ * perPage defaults to 50 - bumped to Supabase's max so a growing user base
+ * doesn't silently drop off the end of either list.
+ */
+async function listAllAuthUsers() {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) throw new Error(error.message);
+  return data.users;
+}
+
 export async function listAdmins(): Promise<AdminAccount[]> {
   await requireSuperAdmin();
-  const supabase = createAdminClient();
-  const { data, error } = await supabase.auth.admin.listUsers();
-  if (error) throw new Error(error.message);
+  const users = await listAllAuthUsers();
+  const adminUsers = users.filter((u) => roleFromMetadata(u.app_metadata) !== null);
 
-  return data.users
+  const supabase = createAdminClient();
+  const { data: profileRows } = await supabase
+    .from("seller_profiles")
+    .select("admin_id, handle")
+    .in("admin_id", adminUsers.map((u) => u.id));
+  const handleByAdminId = new Map((profileRows ?? []).map((r) => [r.admin_id as string, r.handle as string]));
+
+  return adminUsers
     .map((u) => ({
       id: u.id,
       email: u.email ?? "(no email)",
-      role: (u.app_metadata?.role === "SUPER_ADMIN" ? "SUPER_ADMIN" : "ADMIN") as AdminRole,
+      role: roleFromMetadata(u.app_metadata) as AdminRole,
+      handle: handleByAdminId.has(u.id) ? `@${handleByAdminId.get(u.id)}` : null,
       active: !u.banned_until || new Date(u.banned_until) <= new Date(),
       createdAt: new Date(u.created_at).getTime(),
     }))
     .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/** Read-only roster for the Manage Admins page - buyers have no account-management actions here (banning/password-reset is scoped to admin accounts only). */
+export async function listBuyers(): Promise<BuyerAccountSummary[]> {
+  await requireSuperAdmin();
+  const users = await listAllAuthUsers();
+  const buyerUsers = users.filter((u) => roleFromMetadata(u.app_metadata) === null);
+
+  const supabase = createAdminClient();
+  const { data: profileRows } = await supabase
+    .from("profiles")
+    .select("id, handle")
+    .in("id", buyerUsers.map((u) => u.id));
+  const handleById = new Map((profileRows ?? []).map((r) => [r.id as string, r.handle as string]));
+
+  return buyerUsers
+    .map((u) => ({
+      id: u.id,
+      email: u.email ?? "(no email)",
+      handle: handleById.get(u.id) ?? null,
+      createdAt: new Date(u.created_at).getTime(),
+    }))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function createAdminAccount(email: string, password: string, role: AdminRole) {

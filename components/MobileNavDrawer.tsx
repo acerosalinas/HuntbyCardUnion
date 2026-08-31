@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutGrid, ListChecks, LogOut, UserCircle } from "lucide-react";
+import { LayoutDashboard, LayoutGrid, ListChecks, LogOut, UserCircle } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
@@ -13,8 +13,16 @@ const NAV_ITEMS = [
   { href: "/account", label: "Account / Profile Settings", icon: UserCircle },
 ];
 
-/** Buyer-facing mobile drawer content - primary navigation only. Cart and Notifications stay as header icons on mobile (same as desktop), not duplicated here. */
-export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Buyer-facing mobile drawer content - primary navigation only. Cart and
+ * Notifications stay as header icons on mobile (same as desktop), not
+ * duplicated here.
+ *
+ * `isAdmin` mirrors the desktop row's "Back to Admin Dashboard" link
+ * (Navbar.tsx) - an admin browsing the marketplace on mobile needs the same
+ * way back, or /admin is only reachable by typing the URL.
+ */
+export function MobileNavDrawer({ open, onClose, isAdmin = false }: { open: boolean; onClose: () => void; isAdmin?: boolean }) {
   const { buyer } = useBuyerIdentity();
 
   return (
@@ -48,6 +56,16 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
             {label}
           </Link>
         ))}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            onClick={onClose}
+            className="flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-gold transition-colors hover:bg-gold/10"
+          >
+            <LayoutDashboard size={20} className="shrink-0" />
+            Back to Admin Dashboard
+          </Link>
+        )}
       </nav>
 
       <div className="flex items-center justify-between gap-3 border-t border-card-border p-4">
