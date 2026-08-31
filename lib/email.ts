@@ -57,3 +57,50 @@ export async function sendOrderConfirmedEmail({
     console.error("Failed to send order confirmation email:", err);
   }
 }
+
+interface SendSellerNotificationEmailInput {
+  to: string;
+  title: string;
+  body: string;
+  /** Path within the app, e.g. "/admin/offers" - turned into an absolute link using NEXT_PUBLIC_SITE_URL. */
+  link: string;
+}
+
+/**
+ * Emails an admin/seller when a buyer places an order or submits an offer -
+ * the in-app notification bell already covers this, but a seller isn't
+ * always watching the dashboard. Triggered by a Supabase Database Webhook on
+ * inserts into the `notifications` table (see app/api/webhooks/notifications/
+ * route.ts) rather than called directly, since submit_offer/place_order run
+ * as client-side RPCs with no Next.js server involved in that request.
+ * Never throws, same reasoning as sendOrderConfirmedEmail.
+ */
+export async function sendSellerNotificationEmail({ to, title, body, link }: SendSellerNotificationEmailInput): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) {
+    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping seller notification email.");
+    return;
+  }
+
+  const resend = new Resend(apiKey);
+  // Hardcoded, not resolveOrigin() (lib/origin.ts) - that reads the incoming
+  // request's Host header, which for this route is Supabase's webhook
+  // caller, not a real visitor's browser. There's only one production
+  // domain this could ever point at.
+  const siteUrl = "https://cardunion.online";
+
+  try {
+    await resend.emails.send({
+      from,
+      to,
+      subject: title,
+      html: `
+        <p>${body}</p>
+        <p><a href="${siteUrl}${link}">View it on Card Union</a></p>
+      `,
+    });
+  } catch (err) {
+    console.error("Failed to send seller notification email:", err);
+  }
+}
