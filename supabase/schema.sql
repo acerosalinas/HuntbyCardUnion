@@ -3386,7 +3386,7 @@ as $$
 
     case
       when method = 'GET' then
-        select net.http_get into request_id from net.http_get(
+        request_id := net.http_get(
           url,
           params,
           headers,
@@ -3401,7 +3401,7 @@ as $$
           'schema', TG_TABLE_SCHEMA
         );
 
-        select net.http_post into request_id from net.http_post(
+        request_id := net.http_post(
           url,
           payload,
           params,
