@@ -1,13 +1,14 @@
 "use client";
 
-import { FormEvent, useState, useTransition } from "react";
+import { ChangeEvent, FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { canTransitionDispute, isDisputeResolved } from "@/lib/disputeStatus";
 import { extractErrorMessage } from "@/lib/utils";
-import { checkImageTypeClientSide } from "@/lib/imageAccept";
+import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
+import { normalizeImageFile } from "@/lib/imageNormalize";
 import { ClaimStatus, Dispute, DisputeEvidenceItem } from "@/types/marketplace";
 import { markDisputeUnderReview, resolveDispute, resolveDisputeRestock, respondToDispute } from "@/app/admin/actions";
 
@@ -24,9 +25,24 @@ export function DisputeActionsPanel({
   const router = useRouter();
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [preparingFile, setPreparingFile] = useState(false);
   const [resolutionNote, setResolutionNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const handleFileSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0] ?? null;
+    if (!picked) {
+      setFile(null);
+      return;
+    }
+    setPreparingFile(true);
+    try {
+      setFile(await normalizeImageFile(picked));
+    } finally {
+      setPreparingFile(false);
+    }
+  };
 
   const run = (action: () => Promise<void>) => {
     setError(null);
@@ -106,12 +122,13 @@ export function DisputeActionsPanel({
             />
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
+              disabled={preparingFile}
+              onChange={handleFileSelected}
               className="text-sm text-foreground-muted"
             />
-            <Button type="submit" variant="outline" disabled={pending}>
-              {pending ? "Sending..." : "Send Response"}
+            <Button type="submit" variant="outline" disabled={pending || preparingFile}>
+              {preparingFile ? "Preparing photo..." : pending ? "Sending..." : "Send Response"}
             </Button>
           </form>
 

@@ -7,7 +7,8 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { FRANCHISES } from "@/lib/franchises";
 import { extractErrorMessage } from "@/lib/utils";
-import { checkImageTypeClientSide } from "@/lib/imageAccept";
+import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
+import { normalizeImageFile } from "@/lib/imageNormalize";
 import { weekdayLabel } from "@/lib/codSchedule";
 import { updateSellerProfile, uploadAvatarImage, uploadPaymentQrImage, SellerProfileInput } from "@/app/admin/actions";
 import { SellerProfile } from "@/types/marketplace";
@@ -44,17 +45,17 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   const qrInputRef = useRef<HTMLInputElement>(null);
 
   const handleAvatarSelected = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
     setError(null);
-    const typeError = checkImageTypeClientSide(file);
-    if (typeError) {
-      setError(typeError);
-      e.target.value = "";
-      return;
-    }
     setUploading(true);
     try {
+      const file = await normalizeImageFile(picked);
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        return;
+      }
       const formData = new FormData();
       formData.append("file", file);
       setAvatarUrl(await uploadAvatarImage(formData));
@@ -67,17 +68,17 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   };
 
   const handleQrSelected = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
     setError(null);
-    const typeError = checkImageTypeClientSide(file);
-    if (typeError) {
-      setError(typeError);
-      e.target.value = "";
-      return;
-    }
     setUploadingQr(true);
     try {
+      const file = await normalizeImageFile(picked);
+      const typeError = checkImageTypeClientSide(file);
+      if (typeError) {
+        setError(typeError);
+        return;
+      }
       const formData = new FormData();
       formData.append("file", file);
       setPaymentQrUrl(await uploadPaymentQrImage(formData));
@@ -176,7 +177,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
             onChange={handleAvatarSelected}
             className="hidden"
           />
@@ -246,7 +247,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
           <input
             ref={qrInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept={ACCEPTED_IMAGE_ACCEPT_ATTR}
             onChange={handleQrSelected}
             className="hidden"
           />
