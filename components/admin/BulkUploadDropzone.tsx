@@ -25,10 +25,14 @@ export function BulkUploadDropzone({ onCreated }: { onCreated: (drafts: CardItem
 
     setUploading(true);
     try {
-      setProgress("Preparing photos...");
       // Downscales/recompresses (and converts HEIC/HEIF to JPEG) before the
-      // format/size check - see lib/imageNormalize.ts.
-      const normalized = await normalizeImageFiles(capped);
+      // format/size check - see lib/imageNormalize.ts. Per-file progress
+      // here, not one static message - this step alone can take a while
+      // across 30 photos (HEIC conversion especially) and looked frozen
+      // without it.
+      const normalized = await normalizeImageFiles(capped, (i, total) =>
+        setProgress(`Preparing photo ${i} of ${total}...`),
+      );
 
       // Skip anything still the wrong format after normalization rather
       // than blocking the whole batch on one bad file - a directly-awaited

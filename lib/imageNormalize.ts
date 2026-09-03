@@ -10,6 +10,30 @@ const OUTPUT_TARGET_BYTES = 3 * 1024 * 1024;
 // Already-small accepted-format files skip re-encoding entirely - no reason
 // to degrade a photo that was never going to be the problem.
 const PASSTHROUGH_MAX_BYTES = 1.5 * 1024 * 1024;
+// heic2any (WASM, sometimes worker-based) and createImageBitmap can both
+// hang indefinitely - never reject, just never resolve - on a handful of
+// real-world HEIC files (Live Photos, burst-mode containers). Without this,
+// one bad file in a 30-photo batch stalls normalizeImageFiles() forever with
+// no error, since try/catch can't save you from a promise that never
+// settles - exactly the "no error, just waits forever" bulk-upload report
+// this was added for.
+const NORMALIZE_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+    );
+  });
+}
 
 function isHeicFile(file: File): boolean {
   return /\.(heic|heif)$/i.test(file.name) || file.type === "image/heic" || file.type === "image/heif";
@@ -88,11 +112,20 @@ export async function normalizeImageFile(file: File): Promise<File> {
   }
 }
 
-/** Sequential (not parallel) so a 30-photo bulk upload doesn't decode 30 bitmaps into memory at once. */
-export async function normalizeImageFiles(files: File[]): Promise<File[]> {
+/**
+ * Sequential (not parallel) so a 30-photo bulk upload doesn't decode 30
+ * bitmaps into memory at once. Each file is capped at NORMALIZE_TIMEOUT_MS -
+ * falls back to the original, untouched file rather than let one stuck file
+ * hang the rest of the batch (see the comment on that constant above).
+ * `onProgress`, if given, is called before each file starts (1-indexed) so
+ * the UI can show real per-file progress instead of one static message for
+ * however long the whole batch takes.
+ */
+export async function normalizeImageFiles(files: File[], onProgress?: (index: number, total: number) => void): Promise<File[]> {
   const out: File[] = [];
-  for (const file of files) {
-    out.push(await normalizeImageFile(file));
+  for (let i = 0; i < files.length; i++) {
+    onProgress?.(i + 1, files.length);
+    out.push(await withTimeout(normalizeImageFile(files[i]), NORMALIZE_TIMEOUT_MS, files[i]));
   }
   return out;
 }
