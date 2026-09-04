@@ -58,7 +58,7 @@ export async function sendOrderConfirmedEmail({
   }
 }
 
-interface SendSellerNotificationEmailInput {
+interface SendNotificationEmailInput {
   to: string;
   title: string;
   body: string;
@@ -67,19 +67,22 @@ interface SendSellerNotificationEmailInput {
 }
 
 /**
- * Emails an admin/seller when a buyer places an order or submits an offer -
- * the in-app notification bell already covers this, but a seller isn't
- * always watching the dashboard. Triggered by a Supabase Database Webhook on
- * inserts into the `notifications` table (see app/api/webhooks/notifications/
- * route.ts) rather than called directly, since submit_offer/place_order run
- * as client-side RPCs with no Next.js server involved in that request.
- * Never throws, same reasoning as sendOrderConfirmedEmail.
+ * Emails whoever a `notifications` row's recipient is - a buyer (offer
+ * accepted/countered/declined/expired) or an admin/seller (new offer, new
+ * order, buyer responded to a counter) - the in-app bell already covers all
+ * of these, but nobody's watching the dashboard every minute. Triggered by a
+ * Supabase Database Webhook on inserts into the `notifications` table (see
+ * app/api/webhooks/notifications/route.ts) rather than called directly,
+ * since submit_offer/place_order/respond_to_offer run as client-side RPCs
+ * with no Next.js server involved in that request - only EMAIL_WORTHY_TYPES
+ * there actually reach this. Never throws, same reasoning as
+ * sendOrderConfirmedEmail.
  */
-export async function sendSellerNotificationEmail({ to, title, body, link }: SendSellerNotificationEmailInput): Promise<void> {
+export async function sendNotificationEmail({ to, title, body, link }: SendNotificationEmailInput): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL;
   if (!apiKey || !from) {
-    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping seller notification email.");
+    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping notification email.");
     return;
   }
 
@@ -101,6 +104,6 @@ export async function sendSellerNotificationEmail({ to, title, body, link }: Sen
       `,
     });
   } catch (err) {
-    console.error("Failed to send seller notification email:", err);
+    console.error("Failed to send notification email:", err);
   }
 }
