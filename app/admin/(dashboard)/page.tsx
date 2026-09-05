@@ -10,7 +10,7 @@ interface ClaimJoinRow {
   quantity: number;
   unit_price: number;
   claimed_at: string;
-  cards: { title: string; admin_id: string | null } | null;
+  cards: { title: string; admin_id: string | null; images: string[] } | null;
 }
 
 export default async function AdminPendingPaymentsPage() {
@@ -19,7 +19,9 @@ export default async function AdminPendingPaymentsPage() {
 
   let query = supabase
     .from("card_claims")
-    .select("id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, cards!inner(title, admin_id)")
+    .select(
+      "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, cards!inner(title, admin_id, images)",
+    )
     .eq("status", "PENDING")
     .order("order_id", { ascending: true, nullsFirst: true })
     .order("claimed_at", { ascending: true });
@@ -33,6 +35,7 @@ export default async function AdminPendingPaymentsPage() {
     id: row.id,
     cardId: row.card_id,
     cardTitle: row.cards?.title ?? "Card",
+    cardImage: row.cards?.images?.[0] ?? null,
     buyerHandle: row.buyer_handle,
     orderId: row.order_id,
     quantity: row.quantity,
