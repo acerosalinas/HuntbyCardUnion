@@ -59,6 +59,8 @@ export interface CardItem {
   /** Units not yet claimed by anyone - see card_claims for who holds the rest. */
   quantityAvailable: number;
   isFlashSale: boolean;
+  /** Whether buyers can Make Offer on this listing - admin-set per card, defaults to true. */
+  isNegotiable: boolean;
   adminId: string | null;
   franchise: string | null; // slug, e.g. 'pokemon', 'one-piece' - see lib/franchises.ts
   createdAt: number;
@@ -432,6 +434,7 @@ export interface CardRow {
   quantity: number;
   quantity_available: number;
   is_flash_sale: boolean;
+  is_negotiable: boolean;
   admin_id: string | null;
   franchise: string | null;
   created_at: string;
@@ -482,6 +485,7 @@ export function cardFromRow(row: CardRow): CardItem {
     quantity: row.quantity,
     quantityAvailable: row.quantity_available,
     isFlashSale: row.is_flash_sale,
+    isNegotiable: row.is_negotiable,
     adminId: row.admin_id,
     franchise: normalizeFranchise(row.franchise),
     createdAt: new Date(row.created_at).getTime(),

@@ -41,6 +41,8 @@ interface FormState {
   sellerHandle: string;
   sellerMessenger: string;
   isFlashSale: boolean;
+  /** Whether buyers can Make Offer on this listing - see cards.is_negotiable. */
+  isNegotiable: boolean;
   franchise: string;
   quantity: string;
   rarity: string;
@@ -63,6 +65,7 @@ const emptyForm: FormState = {
   sellerHandle: "",
   sellerMessenger: "CardUnion1",
   isFlashSale: false,
+  isNegotiable: true,
   franchise: FRANCHISES[0].slug,
   quantity: "1",
   rarity: DEFAULT_RARITY,
@@ -104,6 +107,7 @@ function formStateFromCard(card: CardItem): FormState {
     sellerHandle: card.sellerHandle,
     sellerMessenger: card.sellerMessenger,
     isFlashSale: card.isFlashSale,
+    isNegotiable: card.isNegotiable,
     franchise,
     quantity: String(card.quantity),
     // Falls back to DEFAULT_RARITY if the stored value isn't in this
@@ -254,6 +258,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
       isFlashSale: form.isFlashSale,
+      isNegotiable: form.isNegotiable,
       franchise: form.franchise,
       quantity: Math.max(1, Math.round(Number(form.quantity)) || 1),
     };
@@ -512,6 +517,16 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           className="h-4 w-4 rounded border-card-border accent-gold"
         />
         Mark as Flash Sale
+      </label>
+
+      <label className="flex items-center gap-2 text-sm text-foreground-muted sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={form.isNegotiable}
+          onChange={(e) => set("isNegotiable", e.target.checked)}
+          className="h-4 w-4 rounded border-card-border accent-gold"
+        />
+        Negotiable - buyers can Make Offer on this listing
       </label>
 
       {error && <p className="text-sm text-sold sm:col-span-2">{error}</p>}

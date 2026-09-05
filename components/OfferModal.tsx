@@ -26,13 +26,13 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const minOffer = Math.ceil(card.price * 0.75);
+  const minOffer = Math.ceil(card.price * 0.85);
 
   const offerSchema = z
     .number({ error: "Enter a numeric offer" })
     .positive("Offer must be greater than 0")
     .max(card.price, `Offer can't exceed the listed price of ${formatCurrency(card.price)}`)
-    .min(minOffer, `Offer must be at least ${formatCurrency(minOffer)} (75% of listed price)`);
+    .min(minOffer, `Offer must be at least ${formatCurrency(minOffer)} (85% of listed price)`);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
