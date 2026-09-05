@@ -772,6 +772,8 @@ export interface CreateCardInput {
   sellerHandle: string;
   sellerMessenger: string;
   isFlashSale: boolean;
+  /** Whether buyers can Make Offer on this listing - see cards.is_negotiable. */
+  isNegotiable: boolean;
   franchise: string;
   quantity: number;
 }
@@ -794,6 +796,7 @@ export async function createCard(input: CreateCardInput) {
     seller_handle: input.sellerHandle,
     seller_messenger: input.sellerMessenger,
     is_flash_sale: input.isFlashSale,
+    is_negotiable: input.isNegotiable,
     franchise: input.franchise,
     admin_id: admin.id,
     quantity,
@@ -843,6 +846,7 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
       seller_handle: input.sellerHandle,
       seller_messenger: input.sellerMessenger,
       is_flash_sale: input.isFlashSale,
+      is_negotiable: input.isNegotiable,
       franchise: input.franchise,
       quantity,
       quantity_available: quantityAvailable,

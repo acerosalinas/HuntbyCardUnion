@@ -141,6 +141,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       sellerHandle: current.sellerHandle,
       sellerMessenger: current.sellerMessenger,
       isFlashSale: current.isFlashSale,
+      isNegotiable: current.isNegotiable,
       franchise: form.franchise,
       quantity,
     })

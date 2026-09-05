@@ -50,12 +50,13 @@ export function CardDetail({
 
   // An open offer (PENDING/COUNTERED/ACCEPTED - see useMyOffer) blocks a
   // new one (submit_offer's own duplicate guard) and drives the status
-  // note below pointing to My Dibs - but it does NOT block a normal
-  // purchase at the listed price while PENDING/COUNTERED: a buyer waiting
-  // on a negotiation can always still just buy normally instead of
-  // waiting, same as anyone else (place_order auto-supersedes their own
-  // stale offer the moment they do). ACCEPTED is the one exception that
-  // still blocks the normal Add to Cart button below - buying at the full
+  // note below pointing to My Dibs. PENDING also blocks the normal Add to
+  // Cart button below - the seller hasn't responded to the offer yet, so
+  // buying at full price out from under their own pending negotiation would
+  // be confusing. COUNTERED does not block it: the seller already
+  // responded, the ball's in the buyer's court, and place_order
+  // auto-supersedes their own stale offer the moment they buy normally
+  // instead of answering it. ACCEPTED also blocks it - buying at the full
   // listed price there would forfeit the discount they already secured,
   // which is only available via My Dibs.
   const hasOpenOffer = myOffer !== null;
@@ -92,9 +93,14 @@ export function CardDetail({
     cartLabel = "In Queue";
     cartDisabled = true;
   } else if (offerAccepted) {
-    // Only ACCEPTED blocks the normal button - that price lives in My
-    // Dibs, and buying here would charge full price instead.
+    // That price lives in My Dibs, and buying here would charge full price instead.
     cartLabel = "Offer Accepted - Buy in My Dibs";
+    cartDisabled = true;
+  } else if (offerPending) {
+    // Waiting on the seller's response - buying at full price out from
+    // under their own pending offer would be confusing. Doesn't apply once
+    // COUNTERED - the seller already responded, it's the buyer's turn.
+    cartLabel = "Offer Pending - Awaiting Response";
     cartDisabled = true;
   } else if (inCart) {
     cartLabel = "Remove from Cart";
@@ -400,7 +406,7 @@ export function CardDetail({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={cn("grid gap-3", card.isNegotiable ? "grid-cols-2" : "grid-cols-1")}>
             <Button
               variant={cartDisabled ? "disabled" : inCart ? "outline" : "primary"}
               disabled={cartDisabled}
@@ -409,13 +415,15 @@ export function CardDetail({
               <ShoppingCart size={15} />
               {cartLabel}
             </Button>
-            <Button
-              variant={inStock && !alreadyHoldsClaim && !hasOpenOffer ? "gold" : "disabled"}
-              disabled={!inStock || alreadyHoldsClaim || hasOpenOffer}
-              onClick={() => setOfferOpen(true)}
-            >
-              Make Offer
-            </Button>
+            {card.isNegotiable && (
+              <Button
+                variant={inStock && !alreadyHoldsClaim && !hasOpenOffer ? "gold" : "disabled"}
+                disabled={!inStock || alreadyHoldsClaim || hasOpenOffer}
+                onClick={() => setOfferOpen(true)}
+              >
+                Make Offer
+              </Button>
+            )}
           </div>
 
           {initialSellerProfile && (
