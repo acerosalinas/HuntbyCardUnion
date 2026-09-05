@@ -8,10 +8,11 @@ export function BuyersList({ buyers }: { buyers: BuyerAccountSummary[] }) {
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-card-border">
-      <table className="w-full min-w-120 text-left text-sm">
+      <table className="w-full min-w-140 text-left text-sm">
         <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
           <tr>
             <th className="px-4 py-3">Email</th>
+            <th className="px-4 py-3">Name</th>
             <th className="px-4 py-3">Handle</th>
             <th className="px-4 py-3">Joined</th>
           </tr>
@@ -20,6 +21,7 @@ export function BuyersList({ buyers }: { buyers: BuyerAccountSummary[] }) {
           {buyers.map((buyer) => (
             <tr key={buyer.id} className="border-t border-card-border">
               <td className="px-4 py-3 font-medium">{buyer.email}</td>
+              <td className="px-4 py-3 text-foreground-muted">{buyer.fullName ?? "—"}</td>
               <td className="px-4 py-3 text-foreground-muted">{buyer.handle ?? "—"}</td>
               <td className="px-4 py-3 text-foreground-muted">{new Date(buyer.createdAt).toLocaleDateString()}</td>
             </tr>

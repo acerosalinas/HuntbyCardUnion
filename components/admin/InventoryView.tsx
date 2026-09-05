@@ -13,7 +13,7 @@ type View = "list" | "tiles";
 
 /** List/Tiles toggle + search for an admin's (or super admin's) own stock - same underlying cards, two layouts. */
 export function InventoryView({ cards }: { cards: CardItem[] }) {
-  const [view, setView] = useState<View>("list");
+  const [view, setView] = useState<View>("tiles");
   const [query, setQuery] = useState("");
   const [soldOnly, setSoldOnly] = useState(false);
   const soldCount = useMemo(() => cards.filter((c) => c.status === "SOLD").length, [cards]);

@@ -945,6 +945,8 @@ export interface BuyerAccountSummary {
   email: string;
   /** profiles.handle, already "@"-prefixed - null only if signup was interrupted before the profile row was created. */
   handle: string | null;
+  /** profiles.full_name - null only if signup was interrupted before the profile row was created. */
+  fullName: string | null;
   createdAt: number;
 }
 
@@ -1004,15 +1006,18 @@ export async function listBuyers(): Promise<BuyerAccountSummary[]> {
   const supabase = createAdminClient();
   const { data: profileRows } = await supabase
     .from("profiles")
-    .select("id, handle")
+    .select("id, handle, full_name")
     .in("id", buyerUsers.map((u) => u.id));
-  const handleById = new Map((profileRows ?? []).map((r) => [r.id as string, r.handle as string]));
+  const profileById = new Map(
+    (profileRows ?? []).map((r) => [r.id as string, { handle: r.handle as string, fullName: r.full_name as string }]),
+  );
 
   return buyerUsers
     .map((u) => ({
       id: u.id,
       email: u.email ?? "(no email)",
-      handle: handleById.get(u.id) ?? null,
+      handle: profileById.get(u.id)?.handle ?? null,
+      fullName: profileById.get(u.id)?.fullName ?? null,
       createdAt: new Date(u.created_at).getTime(),
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
