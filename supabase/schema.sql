@@ -3430,7 +3430,7 @@ grant all on supabase_functions.hooks to postgres, anon, authenticated, service_
 grant all on sequence supabase_functions.hooks_id_seq to postgres, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- MIGRATION 18: raises the minimum offer from 75% to 85% of listed price,
+-- MIGRATION 18: raises the minimum offer from 75% to 80% of listed price,
 -- and adds cards.is_negotiable - an admin-set per-card toggle for whether
 -- buyers can Make Offer at all (CardDetail hides the button client-side;
 -- this is the server-side backstop, since a client check alone can't
@@ -3500,8 +3500,8 @@ begin
     raise exception 'This listing is not open to offers.';
   end if;
 
-  if p_offered_amount > v_card.price or p_offered_amount < v_card.price * 0.85 then
-    raise exception 'Offer must be between 85%% and 100%% of the listed price';
+  if p_offered_amount > v_card.price or p_offered_amount < v_card.price * 0.8 then
+    raise exception 'Offer must be between 80%% and 100%% of the listed price';
   end if;
 
   begin
