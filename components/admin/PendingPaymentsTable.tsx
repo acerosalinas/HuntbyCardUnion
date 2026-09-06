@@ -23,15 +23,13 @@ export interface PendingClaimView {
 
 type View = "list" | "tiles";
 
-/** Every claim from one checkout (same order_id), or a single standalone claim with no order - a dibs-queue promotion never gets one (see promoteNextInQueue in app/admin/actions.ts), so each of those is its own one-card group. */
-interface OrderGroup {
-  key: string;
-  orderId: string | null;
+/** Every pending claim from one buyer, regardless of which order(s) they came from - a buyer who ordered several cards at once (or across separate orders) otherwise scatters across the flat list with nothing tying their claims together. */
+interface BuyerGroup {
   buyerHandle: string;
   claims: PendingClaimView[];
   totalAmount: number;
-  /** Min, not max/latest - every claim in one order is inserted in the same transaction (place_order), so this is effectively "when the order was placed." */
-  earliestClaimedAt: number;
+  /** Max, not min - "most recent activity from this buyer," so the group sort surfaces whoever just did something over a buyer who's been sitting quiet. */
+  latestClaimedAt: number;
 }
 
 export function PendingPaymentsTable({
@@ -49,27 +47,21 @@ export function PendingPaymentsTable({
   // similarly-named cards apart, which a text-only row couldn't do.
   const [view, setView] = useState<View>("tiles");
 
-  // Grouped by order (or, absent one, treated as its own solo group) and
-  // sorted most-recent-first - a buyer who orders several cards at once
-  // otherwise scatters across the flat list with no visual link between
-  // them, which is exactly what made tracking a multi-card order hard.
-  const groups = useMemo<OrderGroup[]>(() => {
-    const byKey = new Map<string, PendingClaimView[]>();
+  // Grouped by buyer and sorted most-recent-first.
+  const groups = useMemo<BuyerGroup[]>(() => {
+    const byBuyer = new Map<string, PendingClaimView[]>();
     for (const claim of claims) {
-      const key = claim.orderId ?? `solo-${claim.id}`;
-      const bucket = byKey.get(key);
+      const bucket = byBuyer.get(claim.buyerHandle);
       if (bucket) bucket.push(claim);
-      else byKey.set(key, [claim]);
+      else byBuyer.set(claim.buyerHandle, [claim]);
     }
-    const result: OrderGroup[] = [...byKey.values()].map((groupClaims) => ({
-      key: groupClaims[0].orderId ?? `solo-${groupClaims[0].id}`,
-      orderId: groupClaims[0].orderId,
-      buyerHandle: groupClaims[0].buyerHandle,
+    const result: BuyerGroup[] = [...byBuyer.entries()].map(([buyerHandle, groupClaims]) => ({
+      buyerHandle,
       claims: groupClaims,
       totalAmount: groupClaims.reduce((sum, c) => sum + c.unitPrice * c.quantity, 0),
-      earliestClaimedAt: Math.min(...groupClaims.map((c) => c.claimedAt)),
+      latestClaimedAt: Math.max(...groupClaims.map((c) => c.claimedAt)),
     }));
-    result.sort((a, b) => b.earliestClaimedAt - a.earliestClaimedAt);
+    result.sort((a, b) => b.latestClaimedAt - a.latestClaimedAt);
     return result;
   }, [claims]);
 
@@ -119,17 +111,10 @@ export function PendingPaymentsTable({
 
       <div className="space-y-5">
         {groups.map((group) => (
-          <div key={group.key} className="overflow-hidden rounded-2xl border border-card-border">
+          <div key={group.buyerHandle} className="overflow-hidden rounded-2xl border border-card-border">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-card px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold text-foreground">{group.buyerHandle}</span>
-                {group.orderId ? (
-                  <Badge tone="neutral" title={group.orderId}>
-                    Order #{group.orderId.slice(0, 8)}
-                  </Badge>
-                ) : (
-                  <Badge tone="gold">Queue promotion</Badge>
-                )}
                 <span className="text-xs text-foreground-muted">
                   {group.claims.length} card{group.claims.length === 1 ? "" : "s"}
                 </span>
@@ -139,12 +124,12 @@ export function PendingPaymentsTable({
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 text-xs",
-                    isStalePending(group.earliestClaimedAt) ? "font-medium text-pending" : "text-foreground-muted",
+                    isStalePending(group.latestClaimedAt) ? "font-medium text-pending" : "text-foreground-muted",
                   )}
-                  title={isStalePending(group.earliestClaimedAt) ? "Claimed over 24 hours ago" : undefined}
+                  title={isStalePending(group.latestClaimedAt) ? "Claimed over 24 hours ago" : undefined}
                 >
-                  {isStalePending(group.earliestClaimedAt) && <AlertTriangle size={12} />}
-                  {formatRelativeTime(group.earliestClaimedAt)}
+                  {isStalePending(group.latestClaimedAt) && <AlertTriangle size={12} />}
+                  {formatRelativeTime(group.latestClaimedAt)}
                 </span>
               </div>
             </div>
@@ -180,6 +165,13 @@ export function PendingPaymentsTable({
 
                       <div className="flex flex-1 flex-col gap-1 p-3 text-xs">
                         <p className="line-clamp-1 text-sm font-semibold text-foreground">{claim.cardTitle}</p>
+                        {claim.orderId ? (
+                          <Badge tone="neutral" className="w-fit" title={claim.orderId}>
+                            Order #{claim.orderId.slice(0, 8)}
+                          </Badge>
+                        ) : (
+                          <Badge tone="gold" className="w-fit">Queue promotion</Badge>
+                        )}
                         <div className="mt-1 flex items-center justify-between">
                           <span className="font-bold text-foreground">{formatCurrency(claim.unitPrice * claim.quantity)}</span>
                           <span className="text-foreground-muted">Qty {claim.quantity}</span>
@@ -221,10 +213,11 @@ export function PendingPaymentsTable({
               </div>
             ) : (
               <div className="overflow-x-auto border-t border-card-border">
-                <table className="w-full min-w-160 text-left text-sm">
+                <table className="w-full min-w-180 text-left text-sm">
                   <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
                     <tr>
                       <th className="px-4 py-3">Card</th>
+                      <th className="px-4 py-3">Order</th>
                       <th className="px-4 py-3">Qty</th>
                       <th className="px-4 py-3">Price</th>
                       <th className="px-4 py-3">Queue</th>
@@ -242,6 +235,15 @@ export function PendingPaymentsTable({
                               {claim.cardTitle}
                               {negotiatingCardIds.has(claim.cardId) && <Badge tone="gold">Negotiating</Badge>}
                             </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {claim.orderId ? (
+                              <Badge tone="neutral" title={claim.orderId}>
+                                Order #{claim.orderId.slice(0, 8)}
+                              </Badge>
+                            ) : (
+                              <Badge tone="gold">Queue promotion</Badge>
+                            )}
                           </td>
                           <td className="px-4 py-3">{claim.quantity}</td>
                           <td className="px-4 py-3">{formatCurrency(claim.unitPrice * claim.quantity)}</td>
