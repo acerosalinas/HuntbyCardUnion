@@ -23,8 +23,10 @@ export default async function AdminPendingPaymentsPage() {
       "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, cards!inner(title, admin_id, images)",
     )
     .eq("status", "PENDING")
-    .order("order_id", { ascending: true, nullsFirst: true })
-    .order("claimed_at", { ascending: true });
+    // Most-recent-first - the component further groups these by order and
+    // re-sorts groups the same way, but this keeps the raw query itself
+    // sensible on its own too.
+    .order("claimed_at", { ascending: false });
 
   if (admin.role !== "SUPER_ADMIN") {
     query = query.eq("cards.admin_id", admin.id);
