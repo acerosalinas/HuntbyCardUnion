@@ -122,6 +122,12 @@ export async function uploadWantedCardPhoto(formData: FormData): Promise<string>
   const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
     contentType,
     upsert: false,
+    // 1 year - this path is a fresh random UUID, never overwritten, so the
+    // file here never changes. Supabase's 1-hour default meant every
+    // repeat view re-fetched the same unchanged bytes from origin storage
+    // instead of serving from cache - the direct driver of the project's
+    // Cached Egress quota being blown past.
+    cacheControl: "31536000",
   });
   if (error) throw new Error(error.message);
 

@@ -828,6 +828,13 @@ export async function uploadCardImages(formData: FormData): Promise<string[]> {
     const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
       contentType,
       upsert: false,
+      // 1 year - every path here is a fresh random UUID, never overwritten
+      // (upsert: false), so the file at this URL never changes. Supabase's
+      // default is 1 hour, which meant every repeat view re-fetched the
+      // same unchanged bytes from origin storage instead of serving from
+      // cache - the direct cause of blowing well past the project's Cached
+      // Egress quota.
+      cacheControl: "31536000",
     });
     if (error) throw new Error(`${file.name}: ${error.message}`);
 
@@ -853,6 +860,7 @@ export async function uploadAvatarImage(formData: FormData): Promise<string> {
   const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
     contentType,
     upsert: false,
+    cacheControl: "31536000", // 1 year - see uploadCardImages for why
   });
   if (error) throw new Error(error.message);
 
@@ -875,6 +883,7 @@ export async function uploadPaymentQrImage(formData: FormData): Promise<string> 
   const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
     contentType,
     upsert: false,
+    cacheControl: "31536000", // 1 year - see uploadCardImages for why
   });
   if (error) throw new Error(error.message);
 
