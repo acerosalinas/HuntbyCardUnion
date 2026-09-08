@@ -22,6 +22,10 @@ const EMAIL_WORTHY_TYPES = new Set([
   "offer_countered",
   "offer_declined",
   "offer_expired",
+  // A buyer assigned a card during a live stream (see assignLiveSale in
+  // app/admin/actions.ts) needs to know to go pay for it - as time-
+  // sensitive as any of the offer outcomes above.
+  "live_sale_assigned",
 ]);
 
 interface NotificationWebhookPayload {

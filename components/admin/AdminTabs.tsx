@@ -18,7 +18,9 @@ const baseTabs = [
 
 export function AdminTabs({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const pathname = usePathname();
-  const tabs = isSuperAdmin ? [...baseTabs, { href: "/admin/manage", label: "Manage Admins" }] : baseTabs;
+  const tabs = isSuperAdmin
+    ? [...baseTabs, { href: "/admin/live-sales", label: "Live Sales" }, { href: "/admin/manage", label: "Manage Admins" }]
+    : baseTabs;
 
   return (
     <div className="mb-6 flex items-center justify-between gap-2 border-b border-card-border">

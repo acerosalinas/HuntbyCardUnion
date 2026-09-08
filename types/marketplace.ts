@@ -34,7 +34,8 @@ export type NotificationType =
   | "dispute_under_review"
   | "dispute_resolved"
   | "claim_cancelled_by_buyer"
-  | "review_received";
+  | "review_received"
+  | "live_sale_assigned";
 
 export interface CardItem {
   id: string;

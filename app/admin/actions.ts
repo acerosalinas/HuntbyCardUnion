@@ -32,6 +32,7 @@ function revalidateAdmin() {
   revalidatePath("/admin/inventory");
   revalidatePath("/admin/manage");
   revalidatePath("/admin/logs");
+  revalidatePath("/admin/live-sales");
   revalidatePath("/admin/disputes");
   revalidatePath("/admin/profile");
   revalidatePath("/");
@@ -52,6 +53,7 @@ interface ClaimWithCard {
   unit_price: number;
   order_id: string | null;
   status: string;
+  is_live_sale: boolean;
   cards: { admin_id: string | null; title: string; list_price: number; quantity_available: number } | null;
 }
 
@@ -59,7 +61,9 @@ interface ClaimWithCard {
 async function getClaimWithCard(supabase: ReturnType<typeof createAdminClient>, claimId: string): Promise<ClaimWithCard> {
   const { data, error } = await supabase
     .from("card_claims")
-    .select("card_id, buyer_id, buyer_handle, quantity, unit_price, order_id, status, cards(admin_id, title, list_price, quantity_available)")
+    .select(
+      "card_id, buyer_id, buyer_handle, quantity, unit_price, order_id, status, is_live_sale, cards(admin_id, title, list_price, quantity_available)",
+    )
     .eq("id", claimId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "Claim not found");
@@ -360,6 +364,127 @@ export async function setShipped(claimId: string, shipped: boolean) {
       link: "/account/dibs",
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Live Sales - a super admin running a Facebook Live stream assigns a card
+// straight to the winning buyer's account instead of checking it out under
+// their own (which is what prompted this: a real sale ended up attributed
+// to the admin, not the buyer). There's no way to write into a buyer's
+// cart - it's client-side localStorage, not server state - so this creates
+// the PENDING claim directly instead, which lands in their My Dibs exactly
+// like a normal checkout would, just skipping the buyer clicking anything.
+// Restricted to a super admin's own store: each store owner runs their own
+// lives, this was never meant to let one super admin assign cards out of a
+// different seller's inventory.
+// ---------------------------------------------------------------------------
+
+/** Handle search for the assign-a-buyer autocomplete - super admin only, same gate as the rest of this section. */
+export async function findBuyerByHandle(query: string): Promise<{ id: string; handle: string; fullName: string }[]> {
+  await requireSuperAdmin();
+  const q = query.trim().replace(/^@/, "");
+  if (q.length < 2) return [];
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, handle, full_name")
+    .ilike("handle", `%${q}%`)
+    .limit(8);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => ({ id: r.id as string, handle: r.handle as string, fullName: r.full_name as string }));
+}
+
+export interface AssignLiveSaleInput {
+  cardId: string;
+  buyerId: string;
+  fulfillmentMethod: "SHIP" | "STASH";
+  paymentMethod: "PREPAID" | "COD";
+}
+
+export async function assignLiveSale(input: AssignLiveSaleInput) {
+  const admin = await requireSuperAdmin();
+  const supabase = createAdminClient();
+
+  const { data: card, error: cardError } = await supabase
+    .from("cards")
+    .select("admin_id, title, price, quantity_available")
+    .eq("id", input.cardId)
+    .single();
+  if (cardError || !card) throw new Error(cardError?.message ?? "Card not found");
+  if (card.admin_id !== admin.id) throw new Error("You can only assign live sales for your own store.");
+  if (card.quantity_available <= 0) throw new Error("This card has no stock left to assign.");
+
+  const { data: buyer, error: buyerError } = await supabase
+    .from("profiles")
+    .select("id, handle")
+    .eq("id", input.buyerId)
+    .single();
+  if (buyerError || !buyer) throw new Error("Buyer not found.");
+
+  const { error: claimError } = await supabase.from("card_claims").insert({
+    card_id: input.cardId,
+    buyer_id: buyer.id,
+    buyer_handle: buyer.handle,
+    quantity: 1,
+    unit_price: card.price,
+    status: "PENDING",
+    fulfillment_method: input.fulfillmentMethod,
+    payment_method: input.paymentMethod,
+    is_live_sale: true,
+  });
+  if (claimError) throw new Error(claimError.message);
+
+  const newAvailable = card.quantity_available - 1;
+  const { error: cardUpdateError } = await supabase
+    .from("cards")
+    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
+    .eq("id", input.cardId);
+  if (cardUpdateError) throw new Error(cardUpdateError.message);
+
+  revalidateAdmin();
+
+  await notifyUser(supabase, {
+    recipientId: buyer.id,
+    type: "live_sale_assigned",
+    title: "You claimed a card during a live stream!",
+    body: `"${card.title}" is waiting for you in My Dibs at ${formatCurrency(card.price)} - complete payment to secure it.`,
+    link: "/account/dibs",
+  });
+}
+
+/** Deletes a live-assigned sale and restocks the card - the "I checked it out under the wrong account" undo button. Only ever touches is_live_sale rows; a regular sale still has no undo (see the Sales Log's lack of one). */
+export async function removeLiveSale(claimId: string) {
+  const admin = await requireSuperAdmin();
+  const supabase = createAdminClient();
+
+  const claim = await getClaimWithCard(supabase, claimId);
+  const card = claim.cards;
+  if (!card) throw new Error("Card not found");
+  if (card.admin_id !== admin.id) throw new Error("You can only remove sales from your own store.");
+  if (!claim.is_live_sale) throw new Error("Only live-assigned sales can be removed here.");
+  if (claim.status !== "SOLD") throw new Error("Only a confirmed sale can be removed - cancel a pending one instead.");
+
+  const { count } = await supabase
+    .from("disputes")
+    .select("id", { count: "exact", head: true })
+    .eq("claim_id", claimId)
+    .not("status", "in", "(RESOLVED_REFUND,RESOLVED_DISMISSED)");
+  if (count && count > 0) {
+    throw new Error("This claim has an open dispute - resolve it before removing.");
+  }
+
+  const newAvailable = card.quantity_available + claim.quantity;
+  const { error: cardError } = await supabase
+    .from("cards")
+    .update({ quantity_available: newAvailable, status: "AVAILABLE" })
+    .eq("id", claim.card_id);
+  if (cardError) throw new Error(cardError.message);
+
+  const { error: deleteError } = await supabase.from("card_claims").delete().eq("id", claimId);
+  if (deleteError) throw new Error(deleteError.message);
+
+  revalidateAdmin();
 }
 
 export async function deleteCard(cardId: string) {

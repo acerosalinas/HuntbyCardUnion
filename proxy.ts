@@ -71,7 +71,10 @@ export async function proxy(request: NextRequest) {
       loginUrl.searchParams.set("from", pathname);
       return NextResponse.redirect(loginUrl);
     }
-    if (pathname.startsWith("/admin/manage") && role !== "SUPER_ADMIN") {
+    if (
+      (pathname.startsWith("/admin/manage") || pathname.startsWith("/admin/live-sales")) &&
+      role !== "SUPER_ADMIN"
+    ) {
       return NextResponse.redirect(new URL("/admin", request.url));
     }
 
