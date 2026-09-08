@@ -1,15 +1,24 @@
 "use client";
 
-const MAX_DIMENSION = 2000; // longest side, px - plenty for a card/product photo, keeps output small
-const JPEG_QUALITY_START = 0.85;
+// Tightened from 2000px/3MB/1.5MB after the project's Supabase Cached
+// Egress quota (5GB/month) got blown out to 17GB+ - every view of every
+// listing photo counts against it, so the actual fix is smaller files, not
+// fewer of them. 1400px is still plenty to judge a card's condition/
+// centering at typical zoom; a trading card doesn't need 2000px of detail
+// to look authentic.
+const MAX_DIMENSION = 1400; // longest side, px
+const JPEG_QUALITY_START = 0.82;
 const JPEG_QUALITY_MIN = 0.4;
 // Headroom under ACCEPTED cap (lib/imageAccept.ts's MAX_IMAGE_BYTES) so the
 // iterative quality-reduction loop below reliably lands under that check
 // instead of right on the edge of it.
-const OUTPUT_TARGET_BYTES = 3 * 1024 * 1024;
-// Already-small accepted-format files skip re-encoding entirely - no reason
-// to degrade a photo that was never going to be the problem.
-const PASSTHROUGH_MAX_BYTES = 1.5 * 1024 * 1024;
+const OUTPUT_TARGET_BYTES = 1.5 * 1024 * 1024;
+// Already-small accepted-format files skip re-encoding entirely - no
+// reason to degrade a photo that was never going to be the problem. Lower
+// than OUTPUT_TARGET_BYTES so a file just under the old passthrough limit
+// doesn't skip the pipeline entirely and land bigger than a fresh upload
+// would.
+const PASSTHROUGH_MAX_BYTES = 600 * 1024;
 // heic2any (WASM, sometimes worker-based) and createImageBitmap can both
 // hang indefinitely - never reject, just never resolve - on a handful of
 // real-world HEIC files (Live Photos, burst-mode containers). Without this,
