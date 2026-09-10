@@ -7,6 +7,7 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { assertOwnsOrSuper, requireAdmin, roleFromMetadata, AdminRole } from "@/lib/adminAuth";
 import { sendOrderConfirmedEmail } from "@/lib/email";
 import { validateImageFile } from "@/lib/imageValidation";
+import { uploadToR2 } from "@/lib/r2";
 import { canTransitionDispute } from "@/lib/disputeStatus";
 import { canTransitionCardStatus } from "@/lib/cardStatus";
 import { notifyUser } from "@/lib/notify";
@@ -182,26 +183,25 @@ export async function confirmPaid(claimId: string) {
 
   const claim = await getClaimWithCard(supabase, claimId);
   assertOwnsOrSuper(admin, claim.cards?.admin_id ?? null);
-  if (claim.status !== "PENDING") {
-    throw new Error("This claim is no longer awaiting payment - it may have already been confirmed or cancelled.");
-  }
 
-  const { error } = await supabase
-    .from("card_claims")
-    .update({ status: "SOLD", confirmed_at: new Date().toISOString() })
-    .eq("id", claimId);
+  // confirm_paid_claim (supabase/schema.sql) locks the claim row and
+  // re-checks status = PENDING inside one transaction, so a concurrent
+  // cancelRelist on the same claim can't race past this check - see the
+  // "atomic admin claim/stock mutations" migration for why that matters.
+  const { data: updated, error } = await supabase.rpc("confirm_paid_claim", { p_claim_id: claimId });
   if (error) throw new Error(error.message);
 
   revalidateAdmin();
 
-  if (claim.buyer_id) {
+  const buyerId = updated?.buyer_id as string | null;
+  if (buyerId) {
     const title = claim.cards?.title ?? "Card";
-    await notifyBuyerPaymentConfirmed(supabase, claim.buyer_id, claim.order_id, {
+    await notifyBuyerPaymentConfirmed(supabase, buyerId, updated.order_id as string | null, {
       title,
-      price: claim.unit_price * claim.quantity,
+      price: (updated.unit_price as number) * (updated.quantity as number),
     });
     await notifyUser(supabase, {
-      recipientId: claim.buyer_id,
+      recipientId: buyerId,
       type: "payment_confirmed",
       title: "Payment confirmed",
       body: `Your payment for "${title}" has been confirmed.`,
@@ -218,43 +218,19 @@ export async function cancelRelist(claimId: string) {
   const card = claim.cards;
   if (!card) throw new Error("Card not found");
   assertOwnsOrSuper(admin, card.admin_id);
-  if (claim.status !== "PENDING") {
-    throw new Error("This claim is no longer awaiting payment - it may have already been cancelled or confirmed.");
-  }
 
-  const { count } = await supabase
-    .from("disputes")
-    .select("id", { count: "exact", head: true })
-    .eq("claim_id", claimId)
-    .not("status", "in", "(RESOLVED_REFUND,RESOLVED_DISMISSED)");
-  if (count && count > 0) {
-    throw new Error("This claim has an open dispute - resolve it before relisting.");
-  }
+  // cancel_relist_claim locks the claim then the card row and re-checks
+  // status/open-disputes inside that lock, closing the same race window
+  // confirmPaid above does.
+  const { data: rpcData, error } = await supabase.rpc("cancel_relist_claim", { p_claim_id: claimId }).single();
+  if (error) throw new Error(error.message);
+  const data = rpcData as { out_card_id: string; out_buyer_id: string | null };
 
-  const { error: claimError } = await supabase
-    .from("card_claims")
-    .update({ status: "CANCELLED" })
-    .eq("id", claimId);
-  if (claimError) throw new Error(claimError.message);
-
-  // Restore the real listed price too, in case this claim came from an
-  // accepted offer and the card's `price` still carried that discount.
-  const newAvailable = card.quantity_available + claim.quantity;
-  const { error: cardError } = await supabase
-    .from("cards")
-    .update({
-      quantity_available: newAvailable,
-      status: newAvailable > 0 ? "AVAILABLE" : "SOLD",
-      price: card.list_price,
-    })
-    .eq("id", claim.card_id);
-  if (cardError) throw new Error(cardError.message);
-
-  await cancelQueue(supabase, claim.card_id);
+  await cancelQueue(supabase, data.out_card_id);
   revalidateAdmin();
 
   await notifyUser(supabase, {
-    recipientId: claim.buyer_id,
+    recipientId: data.out_buyer_id,
     type: "listing_cancelled",
     title: "Listing cancelled",
     body: `"${card.title}" was cancelled and re-listed by the seller.`,
@@ -275,72 +251,33 @@ export async function promoteNextInQueue(cardId: string) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
 
-  const { data: card, error: cardFetchError } = await supabase
-    .from("cards")
-    .select("admin_id, list_price, quantity_available")
-    .eq("id", cardId)
-    .single();
+  const { data: card, error: cardFetchError } = await supabase.from("cards").select("admin_id").eq("id", cardId).single();
   if (cardFetchError || !card) throw new Error(cardFetchError?.message ?? "Card not found");
   assertOwnsOrSuper(admin, card.admin_id);
 
-  const { data: next, error: fetchError } = await supabase
-    .from("dibs_queue")
-    .select("*")
-    .eq("card_id", cardId)
-    .eq("status", "WAITING")
-    .lte("requested_quantity", card.quantity_available)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (fetchError) throw new Error(fetchError.message);
+  // promote_next_in_queue locks the card row (and the picked queue entry)
+  // for the whole find-eligible-entry -> insert-claim -> decrement-stock
+  // sequence, so this can't double-promote the same stock unit against a
+  // concurrent call (e.g. two admins hitting "Promote" on the same card).
+  const { data: rpcData, error } = await supabase.rpc("promote_next_in_queue", { p_card_id: cardId }).single();
+  if (error) throw new Error(error.message);
+  const data = rpcData as { out_promoted: boolean; out_buyer_id: string; out_buyer_handle: string; out_unit_price: number };
 
-  if (!next) {
+  if (!data.out_promoted) {
     return { promoted: false as const };
   }
-
-  // Charges whatever price was actually in effect when this buyer joined
-  // the queue (dibs_queue.locked_price), not whatever cards.list_price has
-  // since become - otherwise a price change while someone's waiting would
-  // silently charge them more (or less) than what they queued for, with no
-  // warning. Falls back to list_price only for queue entries that predate
-  // this column.
-  const unitPrice = next.locked_price ?? card.list_price;
-  const { error: claimError } = await supabase.from("card_claims").insert({
-    card_id: cardId,
-    buyer_id: next.buyer_id,
-    buyer_handle: next.buyer_handle,
-    quantity: next.requested_quantity,
-    unit_price: unitPrice,
-    status: "PENDING",
-    fulfillment_method: next.fulfillment_method,
-    payment_method: next.payment_method,
-  });
-  if (claimError) throw new Error(claimError.message);
-
-  const newAvailable = card.quantity_available - next.requested_quantity;
-  const { error: cardError } = await supabase
-    .from("cards")
-    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
-    .eq("id", cardId);
-  if (cardError) throw new Error(cardError.message);
-
-  const { error: queueError } = await supabase
-    .from("dibs_queue")
-    .update({ status: "PROMOTED" })
-    .eq("id", next.id);
-  if (queueError) throw new Error(queueError.message);
 
   revalidateAdmin();
 
   await notifyUser(supabase, {
-    recipientId: next.buyer_id,
+    recipientId: data.out_buyer_id,
     type: "queue_promoted",
     title: "You're up next",
-    body: `A card you were waiting on is now yours to pay for at ${formatCurrency(unitPrice)} - the seller will message you.`,
+    body: `A card you were waiting on is now yours to pay for at ${formatCurrency(data.out_unit_price)} - the seller will message you.`,
     link: "/account/dibs",
   });
 
-  return { promoted: true as const, buyerHandle: next.buyer_handle as string };
+  return { promoted: true as const, buyerHandle: data.out_buyer_handle };
 }
 
 export async function setShipped(claimId: string, shipped: boolean) {
@@ -406,14 +343,9 @@ export async function assignLiveSale(input: AssignLiveSaleInput) {
   const admin = await requireSuperAdmin();
   const supabase = createAdminClient();
 
-  const { data: card, error: cardError } = await supabase
-    .from("cards")
-    .select("admin_id, title, price, quantity_available")
-    .eq("id", input.cardId)
-    .single();
+  const { data: card, error: cardError } = await supabase.from("cards").select("admin_id").eq("id", input.cardId).single();
   if (cardError || !card) throw new Error(cardError?.message ?? "Card not found");
   if (card.admin_id !== admin.id) throw new Error("You can only assign live sales for your own store.");
-  if (card.quantity_available <= 0) throw new Error("This card has no stock left to assign.");
 
   const { data: buyer, error: buyerError } = await supabase
     .from("profiles")
@@ -422,33 +354,29 @@ export async function assignLiveSale(input: AssignLiveSaleInput) {
     .single();
   if (buyerError || !buyer) throw new Error("Buyer not found.");
 
-  const { error: claimError } = await supabase.from("card_claims").insert({
-    card_id: input.cardId,
-    buyer_id: buyer.id,
-    buyer_handle: buyer.handle,
-    quantity: 1,
-    unit_price: card.price,
-    status: "PENDING",
-    fulfillment_method: input.fulfillmentMethod,
-    payment_method: input.paymentMethod,
-    is_live_sale: true,
-  });
-  if (claimError) throw new Error(claimError.message);
-
-  const newAvailable = card.quantity_available - 1;
-  const { error: cardUpdateError } = await supabase
-    .from("cards")
-    .update({ quantity_available: newAvailable, status: newAvailable > 0 ? "AVAILABLE" : "SOLD" })
-    .eq("id", input.cardId);
-  if (cardUpdateError) throw new Error(cardUpdateError.message);
+  // assign_live_sale locks the card row for the stock-check -> insert-claim
+  // -> decrement sequence, so two fast clicks against the last unit can't
+  // both succeed.
+  const { data: rpcData, error: rpcError } = await supabase
+    .rpc("assign_live_sale", {
+      p_card_id: input.cardId,
+      p_buyer_id: buyer.id,
+      p_buyer_handle: buyer.handle,
+      p_fulfillment_method: input.fulfillmentMethod,
+      p_payment_method: input.paymentMethod,
+    })
+    .single();
+  if (rpcError) throw new Error(rpcError.message);
+  const data = rpcData as { out_unit_price: number; out_card_title: string };
 
   revalidateAdmin();
 
+  const unitPrice = data.out_unit_price;
   await notifyUser(supabase, {
     recipientId: buyer.id,
     type: "live_sale_assigned",
     title: "You claimed a card during a live stream!",
-    body: `"${card.title}" is waiting for you in My Dibs at ${formatCurrency(card.price)} - complete payment to secure it.`,
+    body: `"${data.out_card_title}" is waiting for you in My Dibs at ${formatCurrency(unitPrice)} - complete payment to secure it.`,
     link: "/account/dibs",
   });
 }
@@ -462,27 +390,11 @@ export async function removeLiveSale(claimId: string) {
   const card = claim.cards;
   if (!card) throw new Error("Card not found");
   if (card.admin_id !== admin.id) throw new Error("You can only remove sales from your own store.");
-  if (!claim.is_live_sale) throw new Error("Only live-assigned sales can be removed here.");
-  if (claim.status !== "SOLD") throw new Error("Only a confirmed sale can be removed - cancel a pending one instead.");
 
-  const { count } = await supabase
-    .from("disputes")
-    .select("id", { count: "exact", head: true })
-    .eq("claim_id", claimId)
-    .not("status", "in", "(RESOLVED_REFUND,RESOLVED_DISMISSED)");
-  if (count && count > 0) {
-    throw new Error("This claim has an open dispute - resolve it before removing.");
-  }
-
-  const newAvailable = card.quantity_available + claim.quantity;
-  const { error: cardError } = await supabase
-    .from("cards")
-    .update({ quantity_available: newAvailable, status: "AVAILABLE" })
-    .eq("id", claim.card_id);
-  if (cardError) throw new Error(cardError.message);
-
-  const { error: deleteError } = await supabase.from("card_claims").delete().eq("id", claimId);
-  if (deleteError) throw new Error(deleteError.message);
+  // remove_live_sale_claim locks the claim then the card row and re-checks
+  // is_live_sale/status/open-disputes inside that lock.
+  const { error } = await supabase.rpc("remove_live_sale_claim", { p_claim_id: claimId });
+  if (error) throw new Error(error.message);
 
   revalidateAdmin();
 }
@@ -766,38 +678,16 @@ export async function resolveDisputeRestock(disputeId: string, relist: boolean) 
   const dispute = await getDisputeOwner(supabase, disputeId);
   assertOwnsOrSuper(admin, dispute.seller_admin_id);
 
-  if (dispute.status !== "RESOLVED_REFUND") {
-    throw new Error("This dispute hasn't been resolved as a refund.");
-  }
-  if (!dispute.claim_id) {
-    throw new Error("This dispute has no linked claim to restock.");
-  }
-
-  const claim = await getClaimWithCard(supabase, dispute.claim_id);
-  if (claim.status !== "SOLD") {
-    throw new Error("This claim has already been dealt with.");
-  }
-  const card = claim.cards;
-  if (!card) throw new Error("Card not found");
-
-  const { error: claimError } = await supabase
-    .from("card_claims")
-    .update({ status: "CANCELLED" })
-    .eq("id", dispute.claim_id);
-  if (claimError) throw new Error(claimError.message);
+  // resolve_dispute_restock locks the dispute, then its claim, then the
+  // card, re-checking status at each step inside that lock before writing.
+  const { data: cardId, error } = await supabase.rpc("resolve_dispute_restock", {
+    p_dispute_id: disputeId,
+    p_relist: relist,
+  });
+  if (error) throw new Error(error.message);
 
   if (relist) {
-    const newAvailable = card.quantity_available + claim.quantity;
-    const { error: cardError } = await supabase
-      .from("cards")
-      .update({
-        quantity_available: newAvailable,
-        status: newAvailable > 0 ? "AVAILABLE" : "SOLD",
-        price: card.list_price,
-      })
-      .eq("id", claim.card_id);
-    if (cardError) throw new Error(cardError.message);
-    await cancelQueue(supabase, claim.card_id);
+    await cancelQueue(supabase, cardId as string);
   }
 
   revalidateAdmin();
@@ -816,7 +706,6 @@ export async function uploadCardImages(formData: FormData): Promise<string[]> {
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
   if (files.length === 0) return [];
 
-  const supabase = createAdminClient();
   const urls: string[] = [];
 
   for (const file of files) {
@@ -825,27 +714,14 @@ export async function uploadCardImages(formData: FormData): Promise<string[]> {
     const ext = file.name.split(".").pop() || "jpg";
     const path = `${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
-      contentType,
-      upsert: false,
-      // 1 year - every path here is a fresh random UUID, never overwritten
-      // (upsert: false), so the file at this URL never changes. Supabase's
-      // default is 1 hour, which meant every repeat view re-fetched the
-      // same unchanged bytes from origin storage instead of serving from
-      // cache - the direct cause of blowing well past the project's Cached
-      // Egress quota.
-      cacheControl: "31536000",
-    });
-    if (error) throw new Error(`${file.name}: ${error.message}`);
-
-    const { data } = supabase.storage.from("card-images").getPublicUrl(path);
-    urls.push(data.publicUrl);
+    const url = await uploadToR2(path, bytes, contentType);
+    urls.push(url);
   }
 
   return urls;
 }
 
-/** Uploads a seller's avatar image, reusing the public card-images bucket (same upload path/policy). */
+/** Uploads a seller's avatar image, reusing the same public R2 bucket as card photos. */
 export async function uploadAvatarImage(formData: FormData): Promise<string> {
   await requireAdmin();
   const file = formData.get("file");
@@ -856,19 +732,10 @@ export async function uploadAvatarImage(formData: FormData): Promise<string> {
   const ext = file.name.split(".").pop() || "jpg";
   const path = `avatars/${crypto.randomUUID()}.${ext}`;
 
-  const supabase = createAdminClient();
-  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
-    contentType,
-    upsert: false,
-    cacheControl: "31536000", // 1 year - see uploadCardImages for why
-  });
-  if (error) throw new Error(error.message);
-
-  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
-  return data.publicUrl;
+  return uploadToR2(path, bytes, contentType);
 }
 
-/** Uploads a seller's GCash/bank payment QR code, reusing the public card-images bucket (same upload path/policy as avatars). */
+/** Uploads a seller's GCash/bank payment QR code, reusing the same public R2 bucket as avatars. */
 export async function uploadPaymentQrImage(formData: FormData): Promise<string> {
   await requireAdmin();
   const file = formData.get("file");
@@ -879,16 +746,7 @@ export async function uploadPaymentQrImage(formData: FormData): Promise<string> 
   const ext = file.name.split(".").pop() || "jpg";
   const path = `payment-qr/${crypto.randomUUID()}.${ext}`;
 
-  const supabase = createAdminClient();
-  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
-    contentType,
-    upsert: false,
-    cacheControl: "31536000", // 1 year - see uploadCardImages for why
-  });
-  if (error) throw new Error(error.message);
-
-  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
-  return data.publicUrl;
+  return uploadToR2(path, bytes, contentType);
 }
 
 export interface CreateCardInput {

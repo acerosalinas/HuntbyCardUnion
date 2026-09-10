@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
 import { validateImageFile } from "@/lib/imageValidation";
+import { uploadToR2 } from "@/lib/r2";
 import { notifyUser } from "@/lib/notify";
 
 export async function logout() {
@@ -118,21 +119,7 @@ export async function uploadWantedCardPhoto(formData: FormData): Promise<string>
   const ext = file.name.split(".").pop() || "jpg";
   const path = `wanted/${crypto.randomUUID()}.${ext}`;
 
-  const supabase = createAdminClient();
-  const { error } = await supabase.storage.from("card-images").upload(path, bytes, {
-    contentType,
-    upsert: false,
-    // 1 year - this path is a fresh random UUID, never overwritten, so the
-    // file here never changes. Supabase's 1-hour default meant every
-    // repeat view re-fetched the same unchanged bytes from origin storage
-    // instead of serving from cache - the direct driver of the project's
-    // Cached Egress quota being blown past.
-    cacheControl: "31536000",
-  });
-  if (error) throw new Error(error.message);
-
-  const { data } = supabase.storage.from("card-images").getPublicUrl(path);
-  return data.publicUrl;
+  return uploadToR2(path, bytes, contentType);
 }
 
 /**
