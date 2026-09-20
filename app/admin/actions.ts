@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { assertOwnsOrSuper, requireAdmin, roleFromMetadata, AdminRole } from "@/lib/adminAuth";
@@ -193,18 +194,120 @@ export async function confirmPaid(claimId: string) {
 
   revalidateAdmin();
 
+  // The buyer's email + in-app notification run after the response, so the
+  // admin's button doesn't wait on Resend and several more database round-trips.
   const buyerId = updated?.buyer_id as string | null;
   if (buyerId) {
-    const title = claim.cards?.title ?? "Card";
-    await notifyBuyerPaymentConfirmed(supabase, buyerId, updated.order_id as string | null, {
-      title,
+    const confirmed: ConfirmedPayment = {
+      buyerId,
+      orderId: updated.order_id as string | null,
+      title: claim.cards?.title ?? "Card",
       price: (updated.unit_price as number) * (updated.quantity as number),
+    };
+    after(() => notifyPaymentsConfirmed(supabase, [confirmed]));
+  }
+}
+
+/**
+ * "Confirm all" for a buyer's pending claims - confirms each through the same
+ * locked confirm_paid_claim RPC as confirmPaid (so a claim that's already
+ * been confirmed/cancelled elsewhere is skipped and reported, never
+ * double-processed), then sends ONE email per order and one in-app
+ * notification per buyer instead of one per card.
+ */
+export async function confirmPaidMany(claimIds: string[]): Promise<{ confirmed: number; failed: number; firstError: string | null }> {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+
+  const ids = [...new Set(claimIds)];
+  if (ids.length === 0) return { confirmed: 0, failed: 0, firstError: null };
+  if (ids.length > 100) throw new Error("Too many claims at once - confirm in smaller batches.");
+
+  const { data: claims, error: fetchError } = await supabase
+    .from("card_claims")
+    .select("id, cards(admin_id, title)")
+    .in("id", ids);
+  if (fetchError) throw new Error(fetchError.message);
+  const found = (claims ?? []) as unknown as { id: string; cards: { admin_id: string | null; title: string } | null }[];
+  if (found.length !== ids.length) throw new Error("Some of these claims no longer exist - refresh and try again.");
+  // Ownership is checked for every claim before any of them is touched, so
+  // one claim that isn't yours can't leave the rest half-confirmed.
+  for (const claim of found) assertOwnsOrSuper(admin, claim.cards?.admin_id ?? null);
+  const titleById = new Map(found.map((c) => [c.id, c.cards?.title ?? "Card"]));
+
+  const results = await Promise.all(
+    ids.map(async (id) => ({ id, ...(await supabase.rpc("confirm_paid_claim", { p_claim_id: id })) })),
+  );
+
+  const confirmedPayments: ConfirmedPayment[] = [];
+  let failed = 0;
+  let firstError: string | null = null;
+  for (const result of results) {
+    if (result.error || !result.data) {
+      failed++;
+      firstError ??= result.error?.message ?? "Could not confirm this claim.";
+      continue;
+    }
+    const row = result.data as { buyer_id: string | null; order_id: string | null; unit_price: number; quantity: number };
+    if (row.buyer_id) {
+      confirmedPayments.push({
+        buyerId: row.buyer_id,
+        orderId: row.order_id,
+        title: titleById.get(result.id) ?? "Card",
+        price: row.unit_price * row.quantity,
+      });
+    }
+  }
+
+  revalidateAdmin();
+  if (confirmedPayments.length > 0) {
+    after(() => notifyPaymentsConfirmed(supabase, confirmedPayments));
+  }
+
+  return { confirmed: ids.length - failed, failed, firstError };
+}
+
+interface ConfirmedPayment {
+  buyerId: string;
+  orderId: string | null;
+  title: string;
+  price: number;
+}
+
+/**
+ * The buyer-facing side of confirming payment(s): one confirmation email per
+ * order (notifyBuyerPaymentConfirmed already de-dupes per order, and lists
+ * every paid item on it), and one in-app notification per buyer - a single
+ * line for one card, a combined line when several were confirmed together.
+ */
+async function notifyPaymentsConfirmed(supabase: ReturnType<typeof createAdminClient>, payments: ConfirmedPayment[]) {
+  const emailed = new Set<string>();
+  for (const payment of payments) {
+    if (payment.orderId) {
+      if (emailed.has(payment.orderId)) continue;
+      emailed.add(payment.orderId);
+    }
+    await notifyBuyerPaymentConfirmed(supabase, payment.buyerId, payment.orderId, {
+      title: payment.title,
+      price: payment.price,
     });
+  }
+
+  const byBuyer = new Map<string, ConfirmedPayment[]>();
+  for (const payment of payments) {
+    const bucket = byBuyer.get(payment.buyerId);
+    if (bucket) bucket.push(payment);
+    else byBuyer.set(payment.buyerId, [payment]);
+  }
+  for (const [buyerId, items] of byBuyer) {
     await notifyUser(supabase, {
       recipientId: buyerId,
       type: "payment_confirmed",
       title: "Payment confirmed",
-      body: `Your payment for "${title}" has been confirmed.`,
+      body:
+        items.length === 1
+          ? `Your payment for "${items[0].title}" has been confirmed.`
+          : `Your payment for ${items.length} cards has been confirmed: ${items.map((i) => `"${i.title}"`).join(", ")}.`,
       link: "/account/dibs",
     });
   }
@@ -1164,13 +1267,27 @@ export async function updateWantedCardStatus(id: string, status: WantedCardStatu
   if (error) throw new Error(error.message);
   revalidatePath("/admin/wanted");
 
-  if (status === "FULFILLED" && wanted?.buyer_id) {
-    await notifyUser(supabase, {
-      recipientId: wanted.buyer_id,
-      type: "wanted_card_fulfilled",
-      title: "Someone's got what you were looking for",
-      body: `"${wanted.card_name}" is now listed - check the marketplace.`,
-      link: "/marketplace",
-    });
+  if (!wanted?.buyer_id) return;
+
+  if (status === "FULFILLED") {
+    after(() =>
+      notifyUser(supabase, {
+        recipientId: wanted.buyer_id,
+        type: "wanted_card_fulfilled",
+        title: "Someone's got what you were looking for",
+        body: `"${wanted.card_name}" is now listed - check the marketplace.`,
+        link: "/marketplace",
+      }),
+    );
+  } else if (status === "CLOSED") {
+    after(() =>
+      notifyUser(supabase, {
+        recipientId: wanted.buyer_id,
+        type: "wanted_card_closed",
+        title: "Update on your card request",
+        body: `We couldn't find "${wanted.card_name}" for you this time. You're welcome to request it again anytime.`,
+        link: "/marketplace",
+      }),
+    );
   }
 }

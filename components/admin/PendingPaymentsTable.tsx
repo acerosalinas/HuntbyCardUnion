@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, ImageOff, LayoutGrid, List, Users } from "lucide-react";
+import { AlertTriangle, CheckCheck, ImageOff, LayoutGrid, List, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
-import { confirmPaid, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
+import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
 /** One PENDING card_claims row joined to its card - a card can now have several of these at once, one per buyer. */
@@ -43,6 +43,7 @@ export function PendingPaymentsTable({
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // Defaults to tiles - a card's photo is the fastest way to tell claims on
   // similarly-named cards apart, which a text-only row couldn't do.
   const [view, setView] = useState<View>("tiles");
@@ -67,6 +68,7 @@ export function PendingPaymentsTable({
 
   const run = (id: string, action: () => Promise<void>) => {
     setError(null);
+    setNotice(null);
     setBusyId(id);
     startTransition(async () => {
       try {
@@ -75,6 +77,21 @@ export function PendingPaymentsTable({
         setError(extractErrorMessage(err) ?? "Action failed");
       } finally {
         setBusyId(null);
+      }
+    });
+  };
+
+  const confirmAll = (group: BuyerGroup) => {
+    const count = group.claims.length;
+    if (!window.confirm(`Confirm payment for all ${count} pending card${count === 1 ? "" : "s"} from ${group.buyerHandle} (${formatCurrency(group.totalAmount)})?`)) {
+      return;
+    }
+    run(`group:${group.buyerHandle}`, async () => {
+      const result = await confirmPaidMany(group.claims.map((c) => c.id));
+      if (result.failed > 0) {
+        setError(`${result.confirmed} confirmed, ${result.failed} could not be confirmed: ${result.firstError ?? "unknown error"}`);
+      } else {
+        setNotice(`Confirmed ${result.confirmed} payment${result.confirmed === 1 ? "" : "s"} from ${group.buyerHandle}.`);
       }
     });
   };
@@ -108,6 +125,7 @@ export function PendingPaymentsTable({
       </div>
 
       {error && <p className="text-sm text-sold">{error}</p>}
+      {notice && <p className="text-sm text-available">{notice}</p>}
 
       <div className="space-y-5">
         {groups.map((group) => (
@@ -119,7 +137,18 @@ export function PendingPaymentsTable({
                   {group.claims.length} card{group.claims.length === 1 ? "" : "s"}
                 </span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {group.claims.length > 1 && (
+                  <Button
+                    variant="primary"
+                    disabled={pending && busyId === `group:${group.buyerHandle}`}
+                    onClick={() => confirmAll(group)}
+                    className="px-3 py-1.5 text-xs"
+                  >
+                    <CheckCheck size={14} />
+                    {pending && busyId === `group:${group.buyerHandle}` ? "Confirming..." : `Confirm all (${group.claims.length})`}
+                  </Button>
+                )}
                 <span className="text-sm font-bold text-foreground">{formatCurrency(group.totalAmount)}</span>
                 <span
                   className={cn(

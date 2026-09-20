@@ -102,7 +102,7 @@ export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[
                         className="flex-1 px-2 py-1 text-xs"
                       >
                         <XCircle size={12} />
-                        Dismiss
+                        Not fulfilled
                       </Button>
                     </div>
                   ) : (

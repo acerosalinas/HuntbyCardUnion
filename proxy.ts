@@ -53,41 +53,50 @@ export async function proxy(request: NextRequest) {
     },
   });
 
+  // Admin routes keep the strict getUser() check - it asks Supabase Auth
+  // directly, so a removed/demoted admin is locked out immediately. Buyer
+  // routes only need "is there a valid session?", which getClaims() answers
+  // by verifying the token's signature locally against the project's cached
+  // signing key - no network round-trip to Supabase Auth on every page load.
+  // The tradeoff: a buyer removed mid-session keeps browsing until their
+  // token expires (about an hour), but every action that touches their data
+  // (getCurrentBuyer, RPCs, RLS) still verifies them against Supabase itself.
+  // Everything that isn't /admin (marketplace browsing, card detail, cart,
+  // my-dibs, account, disputes) requires a signed-in session - buyer or
+  // admin. The whole site is invite-only: nothing is visible until you've
+  // logged in.
+  if (!isAdminRoute) {
+    const { data } = await supabase.auth.getClaims();
+    if (!data?.claims) {
+      const loginUrl = new URL("/account/login", request.url);
+      loginUrl.searchParams.set("from", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    return response;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (isAdminRoute) {
-    if (!user) {
-      const loginUrl = new URL("/account/login", request.url);
-      loginUrl.searchParams.set("from", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    const metaRole = user.app_metadata?.role;
-    const role = metaRole === "SUPER_ADMIN" || metaRole === "ADMIN" ? metaRole : null;
-    if (!role) {
-      const loginUrl = new URL("/account/login", request.url);
-      loginUrl.searchParams.set("from", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    if (
-      (pathname.startsWith("/admin/manage") || pathname.startsWith("/admin/live-sales")) &&
-      role !== "SUPER_ADMIN"
-    ) {
-      return NextResponse.redirect(new URL("/admin", request.url));
-    }
-
-    return response;
-  }
-
-  // Everything else (marketplace browsing, card detail, cart, my-dibs,
-  // account, disputes) requires a signed-in session - buyer or admin. The
-  // whole site is invite-only: nothing is visible until you've logged in.
   if (!user) {
     const loginUrl = new URL("/account/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  const metaRole = user.app_metadata?.role;
+  const role = metaRole === "SUPER_ADMIN" || metaRole === "ADMIN" ? metaRole : null;
+  if (!role) {
+    const loginUrl = new URL("/account/login", request.url);
+    loginUrl.searchParams.set("from", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  if (
+    (pathname.startsWith("/admin/manage") || pathname.startsWith("/admin/live-sales")) &&
+    role !== "SUPER_ADMIN"
+  ) {
+    return NextResponse.redirect(new URL("/admin", request.url));
   }
 
   return response;

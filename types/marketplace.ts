@@ -25,6 +25,7 @@ export type NotificationType =
   | "queue_promoted"
   | "claim_shipped"
   | "wanted_card_fulfilled"
+  | "wanted_card_closed"
   | "ship_requested"
   | "payment_confirmed"
   | "listing_cancelled"

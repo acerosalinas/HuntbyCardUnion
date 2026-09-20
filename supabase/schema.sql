@@ -3559,7 +3559,7 @@ end $$;
 
 alter table notifications add constraint notifications_type_check check (type in (
   'offer_received', 'offer_countered', 'offer_accepted', 'offer_declined', 'offer_expired',
-  'card_claimed', 'queue_promoted', 'claim_shipped', 'wanted_card_fulfilled', 'ship_requested',
+  'card_claimed', 'queue_promoted', 'claim_shipped', 'wanted_card_fulfilled', 'wanted_card_closed', 'ship_requested',
   'payment_confirmed', 'listing_cancelled', 'dispute_opened',
   'dispute_withdrawn', 'dispute_response', 'dispute_under_review', 'dispute_resolved',
   'claim_cancelled_by_buyer', 'review_received', 'live_sale_assigned'
