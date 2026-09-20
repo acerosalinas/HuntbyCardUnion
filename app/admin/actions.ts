@@ -512,6 +512,108 @@ export async function deleteCard(cardId: string) {
   revalidateAdmin();
 }
 
+const MAX_BULK_CARDS = 200;
+
+/** Fetches the given cards and checks the calling admin owns every one (super admins own all) - nothing is changed unless all of them pass, so a mixed selection can't be half-applied. */
+async function getOwnedCards<T extends { id: string; admin_id: string | null }>(
+  supabase: ReturnType<typeof createAdminClient>,
+  admin: Awaited<ReturnType<typeof requireAdmin>>,
+  cardIds: string[],
+  columns: string,
+): Promise<T[]> {
+  const ids = [...new Set(cardIds)];
+  if (ids.length === 0) throw new Error("No listings selected.");
+  if (ids.length > MAX_BULK_CARDS) throw new Error(`Select at most ${MAX_BULK_CARDS} listings at a time.`);
+
+  const { data, error } = await supabase.from("cards").select(`id, admin_id, ${columns}`).in("id", ids);
+  if (error) throw new Error(error.message);
+  const cards = (data ?? []) as unknown as T[];
+  if (cards.length !== ids.length) throw new Error("Some of these listings no longer exist - refresh and try again.");
+  for (const card of cards) assertOwnsOrSuper(admin, card.admin_id);
+  return cards;
+}
+
+/**
+ * Removes many listings in one go. Refuses if any selected card still has a
+ * buyer who hasn't paid yet - deleting a card also deletes its claims, which
+ * would silently wipe that buyer's pending order out from under them.
+ */
+export async function deleteCards(cardIds: string[]) {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  const cards = await getOwnedCards<{ id: string; admin_id: string | null }>(supabase, admin, cardIds, "title");
+
+  const ids = cards.map((c) => c.id);
+  const { data: pendingClaims, error: pendingError } = await supabase
+    .from("card_claims")
+    .select("card_id")
+    .in("card_id", ids)
+    .eq("status", "PENDING");
+  if (pendingError) throw new Error(pendingError.message);
+  const blocked = new Set((pendingClaims ?? []).map((c) => c.card_id as string));
+  if (blocked.size > 0) {
+    throw new Error(
+      `${blocked.size} of the selected listing${blocked.size === 1 ? " has" : "s have"} a buyer with a pending payment - confirm or cancel those first, or unselect them.`,
+    );
+  }
+
+  const { error } = await supabase.from("cards").delete().in("id", ids);
+  if (error) throw new Error(error.message);
+  revalidateAdmin();
+  return { removed: ids.length };
+}
+
+export interface BulkCardChanges {
+  /** How to change the price - omit to leave prices alone. "set" replaces it, "percent" raises (positive) or lowers (negative) it. */
+  price?: { mode: "set"; value: number } | { mode: "percent"; value: number };
+  isFlashSale?: boolean;
+  isNegotiable?: boolean;
+}
+
+/** Applies the same change to many listings - price (set / +-%), flash sale, negotiable. Anything left out of `changes` is untouched. */
+export async function updateCardsBulk(cardIds: string[], changes: BulkCardChanges) {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+  if (changes.price === undefined && changes.isFlashSale === undefined && changes.isNegotiable === undefined) {
+    throw new Error("Choose at least one thing to change.");
+  }
+  const cards = await getOwnedCards<{ id: string; admin_id: string | null; price: number }>(supabase, admin, cardIds, "price");
+
+  // Work out every new price first so one bad result (zero or negative)
+  // fails the whole batch before anything is written.
+  const newPrices = new Map<string, number>();
+  if (changes.price) {
+    for (const card of cards) {
+      const next =
+        changes.price.mode === "set"
+          ? changes.price.value
+          : Math.round(card.price * (1 + changes.price.value / 100) * 100) / 100;
+      if (!Number.isFinite(next) || next <= 0) throw new Error("That would make a price zero or negative.");
+      newPrices.set(card.id, next);
+    }
+  }
+
+  const results = await Promise.all(
+    cards.map((card) => {
+      const update: Record<string, unknown> = {};
+      const nextPrice = newPrices.get(card.id);
+      // list_price moves with price, same as editing one listing (see updateCard).
+      if (nextPrice !== undefined) {
+        update.price = nextPrice;
+        update.list_price = nextPrice;
+      }
+      if (changes.isFlashSale !== undefined) update.is_flash_sale = changes.isFlashSale;
+      if (changes.isNegotiable !== undefined) update.is_negotiable = changes.isNegotiable;
+      return supabase.from("cards").update(update).eq("id", card.id);
+    }),
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(failed.error.message);
+
+  revalidateAdmin();
+  return { updated: cards.length };
+}
+
 export async function acceptOffer(offerId: string) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();

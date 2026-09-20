@@ -9,13 +9,21 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
-import { extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardItem } from "@/types/marketplace";
 import { deleteCard } from "@/app/admin/actions";
 
-export function InventoryList({ cards }: { cards: CardItem[] }) {
+export function InventoryList({
+  cards,
+  selectedIds,
+  onToggle,
+}: {
+  cards: CardItem[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
   const negotiatingCardIds = useNegotiatingCardIds();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -55,6 +63,9 @@ export function InventoryList({ cards }: { cards: CardItem[] }) {
         <table className="w-full min-w-180 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
+              <th className="w-10 px-4 py-3">
+                <span className="sr-only">Select</span>
+              </th>
               <th className="px-4 py-3">Title</th>
               <th className="px-4 py-3">Franchise</th>
               <th className="px-4 py-3">Set</th>
@@ -68,7 +79,16 @@ export function InventoryList({ cards }: { cards: CardItem[] }) {
           </thead>
           <tbody>
             {cards.map((card) => (
-              <tr key={card.id} className="border-t border-card-border">
+              <tr key={card.id} className={cn("border-t border-card-border", selectedIds.has(card.id) && "bg-gold/10")}>
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(card.id)}
+                    onChange={() => onToggle(card.id)}
+                    aria-label={`Select ${card.title}`}
+                    className="h-4 w-4 rounded border-card-border accent-gold"
+                  />
+                </td>
                 <td className="px-4 py-3 font-medium">{card.title}</td>
                 <td className="px-4 py-3 text-foreground-muted">
                   {card.franchise ? (getFranchiseBySlug(card.franchise)?.label ?? card.franchise) : "—"}

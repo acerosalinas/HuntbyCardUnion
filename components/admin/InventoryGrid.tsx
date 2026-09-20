@@ -16,7 +16,15 @@ import { CardItem } from "@/types/marketplace";
 import { deleteCard } from "@/app/admin/actions";
 
 /** Tile view of InventoryList - same data and actions (edit/remove), laid out as image-first cards instead of a text table. */
-export function InventoryGrid({ cards }: { cards: CardItem[] }) {
+export function InventoryGrid({
+  cards,
+  selectedIds,
+  onToggle,
+}: {
+  cards: CardItem[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
   const negotiatingCardIds = useNegotiatingCardIds();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -55,12 +63,14 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {cards.map((card) => {
           const busy = pending && busyId === card.id;
+          const selected = selectedIds.has(card.id);
           return (
             <div
               key={card.id}
               className={cn(
                 "flex flex-col overflow-hidden rounded-2xl border bg-card",
-                busy ? "opacity-60" : "border-card-border",
+                busy && "opacity-60",
+                selected ? "border-gold ring-2 ring-gold/40" : "border-card-border",
               )}
             >
               <div className="relative aspect-[3/4] w-full bg-navy-950/5">
@@ -79,6 +89,15 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
                     <ConditionBadges conditionGrade={card.conditionGrade} />
                   )}
                 </div>
+                <label className="absolute bottom-2 left-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-background-elevated/90 shadow-sm">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={() => onToggle(card.id)}
+                    aria-label={`Select ${card.title}`}
+                    className="h-4 w-4 rounded border-card-border accent-gold"
+                  />
+                </label>
                 <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
                   <StatusBadge status={card.status} />
                   {negotiatingCardIds.has(card.id) && card.status !== "SOLD" && (
