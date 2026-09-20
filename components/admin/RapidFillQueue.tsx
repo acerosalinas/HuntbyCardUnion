@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
@@ -78,6 +79,7 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
   const [form, setForm] = useState<FormState>(() => formStateFromCard(initialDrafts[0]));
   const [zoom, setZoom] = useState(1);
   const [saving, setSaving] = useState(false);
+  const confirm = useConfirm();
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -173,9 +175,15 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       .finally(() => setSaving(false));
   };
 
-  const handleDiscard = () => {
+  const handleDiscard = async () => {
     if (!current) return;
-    if (!window.confirm(`Discard this photo? This can't be undone.`)) return;
+    const confirmed = await confirm({
+      title: "Discard photo",
+      message: "Discard this photo? This can't be undone.",
+      confirmLabel: "Discard",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     deleteCard(current.id)
       .then(() => {
         setQueue((prev) => prev.filter((c) => c.id !== current.id));

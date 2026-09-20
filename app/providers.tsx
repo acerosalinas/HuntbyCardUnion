@@ -5,6 +5,7 @@ import { BuyerIdentityProvider, Buyer } from "@/components/BuyerIdentityProvider
 import { MarketplaceFilterProvider } from "@/components/MarketplaceFilterProvider";
 import { CartProvider } from "@/components/CartProvider";
 import { NavPendingProvider } from "@/components/NavPendingProvider";
+import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 
 export function Providers({
   children,
@@ -18,7 +19,9 @@ export function Providers({
       <BuyerIdentityProvider initialBuyer={initialBuyer}>
         <CartProvider>
           <MarketplaceFilterProvider>
-            <NavPendingProvider>{children}</NavPendingProvider>
+            <NavPendingProvider>
+              <ConfirmProvider>{children}</ConfirmProvider>
+            </NavPendingProvider>
           </MarketplaceFilterProvider>
         </CartProvider>
       </BuyerIdentityProvider>

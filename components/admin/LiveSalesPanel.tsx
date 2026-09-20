@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { ImageOff, Radio, Trash2, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -70,6 +71,7 @@ export function LiveSalesPanel({ cards, liveSales }: { cards: AssignableCard[]; 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
+  const confirm = useConfirm();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { results, searching } = useBuyerSearch(selectedBuyer ? "" : buyerQuery);
@@ -97,8 +99,14 @@ export function LiveSalesPanel({ cards, liveSales }: { cards: AssignableCard[]; 
     });
   };
 
-  const handleRemove = (claim: LiveSaleClaimView) => {
-    if (!window.confirm(`Remove this sale of "${claim.cardTitle}" to ${claim.buyerHandle}? The card goes back in stock.`)) return;
+  const handleRemove = async (claim: LiveSaleClaimView) => {
+    const confirmed = await confirm({
+      title: "Remove sale",
+      message: `Remove this sale of "${claim.cardTitle}" to ${claim.buyerHandle}? The card goes back in stock.`,
+      confirmLabel: "Remove sale",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setError(null);
     setBusyClaimId(claim.id);
     startTransition(async () => {

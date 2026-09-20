@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCheck, ImageOff, LayoutGrid, List, Users } from "lu
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
@@ -44,6 +45,7 @@ export function PendingPaymentsTable({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const confirm = useConfirm();
   // Defaults to tiles - a card's photo is the fastest way to tell claims on
   // similarly-named cards apart, which a text-only row couldn't do.
   const [view, setView] = useState<View>("tiles");
@@ -81,11 +83,14 @@ export function PendingPaymentsTable({
     });
   };
 
-  const confirmAll = (group: BuyerGroup) => {
+  const confirmAll = async (group: BuyerGroup) => {
     const count = group.claims.length;
-    if (!window.confirm(`Confirm payment for all ${count} pending card${count === 1 ? "" : "s"} from ${group.buyerHandle} (${formatCurrency(group.totalAmount)})?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: "Confirm all payments",
+      message: `Confirm payment for all ${count} pending card${count === 1 ? "" : "s"} from ${group.buyerHandle} (${formatCurrency(group.totalAmount)})? They'll be emailed once.`,
+      confirmLabel: `Confirm ${count} payments`,
+    });
+    if (!confirmed) return;
     run(`group:${group.buyerHandle}`, async () => {
       const result = await confirmPaidMany(group.claims.map((c) => c.id));
       if (result.failed > 0) {

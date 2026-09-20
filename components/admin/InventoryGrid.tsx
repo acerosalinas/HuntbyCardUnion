@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardItem } from "@/types/marketplace";
 import { deleteCard } from "@/app/admin/actions";
@@ -21,9 +22,16 @@ export function InventoryGrid({ cards }: { cards: CardItem[] }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingCard, setEditingCard] = useState<CardItem | null>(null);
+  const confirm = useConfirm();
 
-  const handleRemove = (card: CardItem) => {
-    if (!window.confirm(`Remove "${card.title}" from listings? This can't be undone.`)) return;
+  const handleRemove = async (card: CardItem) => {
+    const confirmed = await confirm({
+      title: "Remove listing",
+      message: `Remove "${card.title}" from listings? This can't be undone.`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setError(null);
     setBusyId(card.id);
     startTransition(async () => {

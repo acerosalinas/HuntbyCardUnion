@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { extractErrorMessage } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export function AdminsList({ admins }: { admins: AdminAccount[] }) {
   const [pending, startTransition] = useTransition();
@@ -15,14 +16,21 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
   const [resettingId, setResettingId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetNotice, setResetNotice] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   if (admins.length === 0) {
     return <p className="py-10 text-center text-sm text-foreground-muted">No admin accounts yet.</p>;
   }
 
-  const handleToggleActive = (admin: AdminAccount) => {
+  const handleToggleActive = async (admin: AdminAccount) => {
     const verb = admin.active ? "deactivate" : "reactivate";
-    if (!window.confirm(`Are you sure you want to ${verb} ${admin.email}?`)) return;
+    const confirmed = await confirm({
+      title: admin.active ? "Deactivate account" : "Reactivate account",
+      message: `Are you sure you want to ${verb} ${admin.email}?`,
+      confirmLabel: admin.active ? "Deactivate" : "Reactivate",
+      tone: admin.active ? "danger" : "primary",
+    });
+    if (!confirmed) return;
     setError(null);
     setBusyId(admin.id);
     startTransition(async () => {

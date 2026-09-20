@@ -12,6 +12,7 @@ import { requestShipping } from "@/app/account/actions";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   CardItem,
   CardOffer,
@@ -87,6 +88,7 @@ export function MyDibsContents() {
   const [loading, setLoading] = useState(false);
   const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const confirm = useConfirm();
   const [loadError, setLoadError] = useState<string | null>(null);
   // All negotiation actions (accept/decline a counter, add an accepted
   // offer to cart) happen right here on the My Offers tiles now, instead of
@@ -275,7 +277,14 @@ export function MyDibsContents() {
 
   const handleCancel = async (claim: ClaimedCardView) => {
     if (!buyer) return;
-    if (!window.confirm(`Cancel your dibs on "${claim.card.title}"? This can't be undone.`)) return;
+    const confirmed = await confirm({
+      title: "Cancel dibs",
+      message: `Cancel your dibs on "${claim.card.title}"? This can't be undone.`,
+      confirmLabel: "Cancel dibs",
+      cancelLabel: "Keep it",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setActionError(null);
     setBusyClaimId(claim.claimId);
     try {
