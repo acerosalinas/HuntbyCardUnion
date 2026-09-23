@@ -56,7 +56,7 @@ export function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-card-border bg-background/85 backdrop-blur-md">
+      <header className="header-edge sticky top-0 z-40 bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
         {/* Mobile (<768px): single integrated row - logo, search, quick-access icons, hamburger. Primary nav lives in the drawer instead of a second row. */}
         <div className="flex flex-1 items-center gap-2 md:hidden">
