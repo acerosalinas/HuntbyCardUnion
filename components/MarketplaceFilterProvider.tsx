@@ -2,7 +2,11 @@
 
 import { createContext, useContext, useState } from "react";
 
-export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "FLASH_SALE" | "SOLD";
+// "SOLD" was removed as a category - sold-out cards no longer appear in any
+// grid this filter applies to (see Marketplace.tsx / SellerListingsView.tsx),
+// so filtering by it would always return zero results. Sold-out listings now
+// live on their own page (app/sellers/[handle]/sold-out).
+export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "FLASH_SALE";
 
 interface MarketplaceFilterContextValue {
   query: string;

@@ -19,7 +19,6 @@ export function matchesCardFilter(
   if (category === "GRADED" && (card.productType === "SEALED" || !isGraded(card.conditionGrade))) return false;
   if (category === "SEALED" && card.productType !== "SEALED") return false;
   if (category === "FLASH_SALE" && !card.isFlashSale) return false;
-  if (category === "SOLD" && card.status !== "SOLD") return false;
   if (rarity !== "ALL" && card.rarity !== rarity) return false;
   if (pokemonType !== "ALL" && card.pokemonType !== pokemonType) return false;
 

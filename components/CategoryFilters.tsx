@@ -9,7 +9,6 @@ const options: { value: CategoryFilter; label: string }[] = [
   { value: "GRADED", label: "Graded" },
   { value: "SEALED", label: "Sealed" },
   { value: "FLASH_SALE", label: "Flash Sale" },
-  { value: "SOLD", label: "Sold Out" },
 ];
 
 export function CategoryFilters({ className }: { className?: string }) {
