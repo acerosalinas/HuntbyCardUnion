@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -30,6 +31,22 @@ export function CardDetail({
   initialCard: CardItem;
   initialSellerProfile?: SellerProfile | null;
 }) {
+  const router = useRouter();
+  // Whether there's an actual previous page in this tab to go back to. Starts
+  // false (matching the server-rendered state, so hydration can't mismatch)
+  // and flips true right after mount if so - in practice that happens well
+  // before anyone can click. Without this, "Back" always went to a fixed
+  // marketplace/franchise page regardless of where the buyer actually came
+  // from (Wishlist, a seller's storefront, the Sold Out archive, a search
+  // result) - confusing when that's not where they expected to land, and
+  // wrong on the Sold Out page in particular, since that page's cards are
+  // deliberately excluded from the marketplace this fell back to.
+  const [canGoBack, setCanGoBack] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading a real browser API (history length) that doesn't exist during SSR, not synchronizing render state
+    setCanGoBack(window.history.length > 1);
+  }, []);
+
   const card = useRealtimeCard(initialCard);
   const queue = useCardQueue(card.id);
   const myClaims = useMyClaims(card.id);
@@ -121,10 +138,20 @@ export function CardDetail({
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
       <Link
         href={card.franchise ? `/${card.franchise}` : "/"}
+        onClick={(e) => {
+          // Prefer actually going back to wherever the buyer came from; the
+          // href above only ever serves as the fallback destination - both
+          // for a direct/shared link with no history to return to, and for
+          // the very first render before canGoBack's real value is known.
+          if (canGoBack) {
+            e.preventDefault();
+            router.back();
+          }
+        }}
         className="mb-5 inline-flex items-center gap-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground"
       >
         <ArrowLeft size={16} />
-        Back to Marketplace
+        Back
       </Link>
 
       <div className="grid gap-8 md:grid-cols-2">
