@@ -31,11 +31,11 @@ export function Logo({ src, alt = "Hunt by Card Union", className, size = "sm", 
         <span className="flex min-w-0 flex-col leading-none">
           <span
             className={cn(
-              "font-bold tracking-tight",
+              "font-display font-semibold tracking-tight",
               isLarge ? "text-xl sm:text-4xl" : "text-xs whitespace-nowrap sm:text-lg",
             )}
           >
-            Hunt <span className="font-normal">by Card Union</span>
+            Hunt <span className="font-normal italic">by Card Union</span>
           </span>
           <span
             className={cn(

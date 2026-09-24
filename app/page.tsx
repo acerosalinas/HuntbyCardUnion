@@ -46,12 +46,17 @@ export default async function HomePage() {
           Live Marketplace
         </span>
 
-        <span className="mb-1.5 text-xs font-semibold uppercase tracking-[0.3em] text-gold">
+        <span className="mb-1.5 font-display text-sm italic tracking-wide text-gold sm:text-base">
           Card Union
         </span>
-        <h1 className="mb-2 text-center text-3xl font-bold text-foreground sm:text-4xl">
+        <h1 className="mb-3 text-center font-display text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
           Meet Our Sellers
         </h1>
+        <div className="mb-4 flex items-center gap-3" aria-hidden="true">
+          <span className="h-px w-10 bg-linear-to-r from-transparent to-gold/60" />
+          <span className="h-1.5 w-1.5 rotate-45 bg-gold" />
+          <span className="h-px w-10 bg-linear-to-l from-transparent to-gold/60" />
+        </div>
         <p className="mb-5 max-w-md text-center text-sm text-foreground-muted sm:text-base">
           Get to know who you&apos;re buying from, then browse their live listings, claim dibs, and make offers.
         </p>
@@ -84,7 +89,7 @@ export default async function HomePage() {
         <div className="mt-10 flex flex-col items-center gap-2 text-center">
           <Link
             href="/marketplace"
-            className="rounded-full border border-gold/40 bg-navy-950 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-gold transition-colors hover:bg-gold/10"
+            className="foil-shine overflow-hidden rounded-full border border-gold/40 bg-navy-950 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-gold transition-colors hover:bg-gold/10"
           >
             Browse All Cards
           </Link>
@@ -94,7 +99,7 @@ export default async function HomePage() {
           >
             New here? See how buying works
           </Link>
-          <span className="mt-2 text-xs font-semibold uppercase tracking-[0.25em] text-gold">
+          <span className="mt-2 font-display text-sm italic tracking-wide text-gold">
             Card Union
           </span>
           <p className="text-xs text-foreground-muted">
