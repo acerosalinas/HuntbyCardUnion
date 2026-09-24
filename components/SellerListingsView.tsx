@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { LayoutGrid, Radio } from "lucide-react";
+import Link from "next/link";
+import { LayoutGrid, PackageX, Radio } from "lucide-react";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
-import { matchesCardFilter, sortSoldLast } from "@/lib/cardFilter";
+import { matchesCardFilter } from "@/lib/cardFilter";
 import { FRANCHISES } from "@/lib/franchises";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
@@ -16,11 +17,13 @@ export function SellerListingsView({
   cards,
   liveModeSeconds,
   sellerTags,
+  handle,
 }: {
   cards: CardItem[];
   liveModeSeconds: number;
   /** seller_profiles.tags - the seller's own "what do I sell" declaration (set via the Franchise-slug dropdown in SellerProfileForm), used ahead of each card's own `franchise` column since older listings can predate that field being set. */
   sellerTags: string[];
+  handle: string;
 }) {
   const [view, setView] = useState<View>("grid");
   const { query, category, rarity, pokemonType, setFranchiseScope } = useMarketplaceFilter();
@@ -40,8 +43,15 @@ export function SellerListingsView({
     setFranchiseScope(cardFranchises.size === 1 ? [...cardFranchises][0] : null);
   }, [cards, sellerTags, setFranchiseScope]);
 
+  // Sold-out listings live on their own archive page (see
+  // app/sellers/[handle]/sold-out) instead of cluttering the storefront -
+  // same reasoning as the main marketplace.
+  const soldOutCount = useMemo(() => cards.filter((c) => c.status === "SOLD").length, [cards]);
   const filtered = useMemo(
-    () => sortSoldLast(cards.filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType }))),
+    () =>
+      cards
+        .filter((c) => c.status !== "SOLD")
+        .filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
     [cards, query, category, rarity, pokemonType],
   );
   const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
@@ -51,6 +61,15 @@ export function SellerListingsView({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-foreground">Listings</h2>
         <div className="flex gap-2">
+          {soldOutCount > 0 && (
+            <Link
+              href={`/sellers/${handle}/sold-out`}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-card-border px-3 py-1.5 text-sm font-medium text-foreground-muted transition-colors hover:border-gold/50 hover:text-foreground"
+            >
+              <PackageX size={14} />
+              Sold Out ({soldOutCount})
+            </Link>
+          )}
           {([
             { key: "grid" as const, label: "Grid", icon: LayoutGrid },
             { key: "live" as const, label: "Live Mode", icon: Radio },

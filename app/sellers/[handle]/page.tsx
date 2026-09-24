@@ -109,7 +109,7 @@ export default async function SellerProfilePage({ params }: PageProps<"/sellers/
         </div>
       </div>
 
-      <SellerListingsView cards={cards} liveModeSeconds={profile.liveModeSeconds} sellerTags={profile.tags} />
+      <SellerListingsView cards={cards} liveModeSeconds={profile.liveModeSeconds} sellerTags={profile.tags} handle={profile.handle} />
       <SellerReviews reviews={reviews} />
     </div>
   );
