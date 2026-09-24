@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, LayoutGrid, Menu, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { SearchBar } from "@/components/SearchBar";
 import { CategoryFilters } from "@/components/CategoryFilters";
 import { RarityFilter } from "@/components/RarityFilter";
@@ -54,9 +55,35 @@ export function Navbar() {
     setDrawerOpen(false);
   }, [pathname]);
 
+  // This whole top bar (the connection-lost banner, when shown, plus the
+  // header) is `fixed`, not `sticky`, so it's out of normal document flow
+  // and every page needs top padding equal to its actual rendered height or
+  // content renders underneath it. That height isn't constant - it's
+  // taller on pages with the browse-controls row, taller still while
+  // ConnectionBanner is showing, and differs between the mobile/desktop
+  // layouts - so it's measured here and published as a CSS variable (see
+  // app/globals.css) that <main> reads, instead of a single guessed padding
+  // value that would clip content or leave a gap depending on the page.
+  // ResizeObserver picks up all of those size changes on its own, so this
+  // only needs to run once on mount, not re-run per dependency.
+  const topBarRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const topBar = topBarRef.current;
+    if (!topBar) return;
+    const setHeightVar = () => {
+      document.documentElement.style.setProperty("--header-height", `${topBar.offsetHeight}px`);
+    };
+    setHeightVar();
+    const observer = new ResizeObserver(setHeightVar);
+    observer.observe(topBar);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <>
-      <header className="header-edge sticky top-0 z-40 bg-background/85 backdrop-blur-md">
+      <div ref={topBarRef} className="fixed inset-x-0 top-0 z-40">
+        <ConnectionBanner />
+        <header className="header-edge bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
         {/* Mobile (<768px): single integrated row - logo, search, quick-access icons, hamburger. Primary nav lives in the drawer instead of a second row. */}
         <div className="flex flex-1 items-center gap-2 md:hidden">
@@ -196,7 +223,8 @@ export function Navbar() {
           </div>
         )}
         </div>
-      </header>
+        </header>
+      </div>
 
       {/*
         Rendered outside <header>, not inside it: the header's backdrop-blur-md

@@ -3,6 +3,15 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* Navbar is `position: fixed` (see components/Navbar.tsx) so every page
+     needs to reserve this much space at the top or content renders
+     underneath it. This starting value is a reasonable single-row-header
+     guess for the instant before JS measures the real height; Navbar's
+     ResizeObserver corrects it (via useLayoutEffect, before first paint on
+     the client) for the actual page - shorter on an auth page, taller on a
+     page with the browse-controls row underneath. */
+  --header-height: 64px;
+
   --background: #f8f9fa;
   --background-elevated: #ffffff;
   --foreground: #0b132b;
@@ -84,6 +93,10 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   overflow-x: hidden;
+}
+
+main {
+  padding-top: var(--header-height);
 }
 
 * {
@@ -177,7 +190,7 @@ body {
   }
 }
 
-/* Sticky header's bottom edge - a hairline with a whisper of gold instead of
+/* Fixed header's bottom edge - a hairline with a whisper of gold instead of
    the flat neutral border used elsewhere, so the header reads as the top
    edge of the vault rather than a generic app toolbar. */
 .header-edge {
