@@ -8,9 +8,15 @@ import { createContext, useContext, useState } from "react";
 // live on their own page (app/sellers/[handle]/sold-out).
 export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "FLASH_SALE";
 
+/** How a card grid is ordered - newest listed first by default. */
+export type SortOption = "NEWEST" | "OLDEST" | "PRICE_LOW" | "PRICE_HIGH";
+
 interface MarketplaceFilterContextValue {
   query: string;
   setQuery: (q: string) => void;
+  /** Shared by every card grid (marketplace, franchise pages, a seller's storefront, Sold Out) so the choice sticks as a buyer moves between them. */
+  sort: SortOption;
+  setSort: (s: SortOption) => void;
   category: CategoryFilter;
   setCategory: (c: CategoryFilter) => void;
   /** A Rarity value (see lib/rarity.ts) or "ALL" - a separate field from `category` since rarity has too many values for the pill-style filter. */
@@ -37,6 +43,7 @@ const MarketplaceFilterContext = createContext<MarketplaceFilterContextValue | n
 
 export function MarketplaceFilterProvider({ children }: { children: React.ReactNode }) {
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortOption>("NEWEST");
   const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [rarity, setRarity] = useState("ALL");
   const [pokemonType, setPokemonType] = useState("ALL");
@@ -47,6 +54,8 @@ export function MarketplaceFilterProvider({ children }: { children: React.ReactN
       value={{
         query,
         setQuery,
+        sort,
+        setSort,
         category,
         setCategory,
         rarity,

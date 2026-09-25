@@ -429,7 +429,7 @@ export function CartContents() {
 
           <div className="mt-2 space-y-3 rounded-2xl border border-card-border bg-card p-5">
             <h2 className="text-sm font-semibold text-foreground">Shipping Details</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input placeholder="Full Name" value={shipName} onChange={(e) => setShipName(e.target.value)} required />
               <Input
                 type="tel"
@@ -440,7 +440,7 @@ export function CartContents() {
               />
             </div>
             {shipCards.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-[1fr_10rem]">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_10rem]">
                 <Textarea
                   rows={2}
                   placeholder="Shipping Address"

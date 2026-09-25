@@ -10,7 +10,8 @@ import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
 import { CardGrid } from "@/components/CardGrid";
 import { Button } from "@/components/ui/Button";
 import { LiveDropBanner } from "@/components/LiveDropBanner";
-import { matchesCardFilter } from "@/lib/cardFilter";
+import { SortMenu } from "@/components/SortMenu";
+import { matchesCardFilter, sortCards } from "@/lib/cardFilter";
 import { CardItem } from "@/types/marketplace";
 
 export function Marketplace({
@@ -26,7 +27,7 @@ export function Marketplace({
 }) {
   const cards = useRealtimeCards(initialCards);
   const negotiatingCardIds = useNegotiatingCardIds();
-  const { query, category, rarity, pokemonType, setFranchiseScope } = useMarketplaceFilter();
+  const { query, category, rarity, pokemonType, sort, setFranchiseScope } = useMarketplaceFilter();
 
   // Tells RarityFilter (rendered in the global Navbar) which franchise's
   // rarity tiers apply here - undefined on /marketplace (mixes every
@@ -40,12 +41,14 @@ export function Marketplace({
   // and app/sellers/[handle]/sold-out) instead of every dead listing
   // cluttering (and adding photo weight to) the buyer-facing marketplace.
   const filtered = useMemo(() => {
-    return cards.filter((card) => {
+    const matches = cards.filter((card) => {
       if (card.status === "SOLD") return false;
       if (franchiseSlug && card.franchise !== franchiseSlug) return false;
       return matchesCardFilter(card, { query, category, rarity, pokemonType });
     });
-  }, [cards, query, category, rarity, pokemonType, franchiseSlug]);
+    // Newest listed first unless the buyer picked another order.
+    return sortCards(matches, sort);
+  }, [cards, query, category, rarity, pokemonType, franchiseSlug, sort]);
 
   // Renders a bounded batch at a time (growing via "Load more") and
   // restores scroll position + how much was loaded when returning here via
@@ -53,7 +56,7 @@ export function Marketplace({
   // changed filter resets both, but a mere data refresh doesn't.
   const { visible, hasMore, remaining, loadMore } = useRestorableGrid(
     filtered,
-    `${query}|${category}|${rarity}|${pokemonType}|${franchiseSlug ?? ""}`,
+    `${query}|${category}|${rarity}|${pokemonType}|${sort}|${franchiseSlug ?? ""}`,
   );
 
   return (
@@ -69,6 +72,12 @@ export function Marketplace({
         <h1 className="text-lg font-bold text-foreground">{franchiseLabel ?? "All Cards"}</h1>
       </div>
       <LiveDropBanner nextDropAt={nextDropAt} />
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-sm text-foreground-muted">
+          {filtered.length} listing{filtered.length === 1 ? "" : "s"}
+        </p>
+        <SortMenu />
+      </div>
       <CardGrid cards={visible} negotiatingCardIds={negotiatingCardIds} />
       {hasMore && (
         <div className="mt-6 flex justify-center">

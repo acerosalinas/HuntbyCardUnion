@@ -135,7 +135,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
       <div>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
           Handle * <span className="normal-case text-foreground-muted/70">(used in your profile URL)</span>

@@ -1,5 +1,26 @@
 import { CardItem } from "@/types/marketplace";
-import { CategoryFilter } from "@/components/MarketplaceFilterProvider";
+import { CategoryFilter, SortOption } from "@/components/MarketplaceFilterProvider";
+
+/**
+ * Orders a grid's cards. Newest-listed-first is the default and is explicit
+ * here (by createdAt) rather than relying on the server query's order, since
+ * a card arriving over Realtime is just prepended and an oldest/price sort
+ * has to hold no matter how the list got assembled. Ties on price fall back
+ * to newest first so equal-priced cards don't shuffle between renders.
+ */
+export function sortCards(cards: CardItem[], sort: SortOption): CardItem[] {
+  const list = [...cards];
+  switch (sort) {
+    case "OLDEST":
+      return list.sort((a, b) => a.createdAt - b.createdAt);
+    case "PRICE_LOW":
+      return list.sort((a, b) => a.price - b.price || b.createdAt - a.createdAt);
+    case "PRICE_HIGH":
+      return list.sort((a, b) => b.price - a.price || b.createdAt - a.createdAt);
+    default:
+      return list.sort((a, b) => b.createdAt - a.createdAt);
+  }
+}
 
 function isGraded(conditionGrade: string): boolean {
   return !/^raw/i.test(conditionGrade.trim());

@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, ImageOff, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -19,7 +19,6 @@ type CardType = "RAW" | "GRADED";
 const GRADERS = ["PSA", "TAG", "BECKETT", "CGC"];
 const GRADE_NUMBERS = Array.from({ length: 19 }, (_, i) => (1 + i * 0.5).toString());
 const ZOOM_STEPS = [1, 1.5, 2, 2.5, 3];
-const IMAGE_BASE_WIDTH = 480;
 
 interface FormState {
   title: string;
@@ -82,8 +81,36 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
   const confirm = useConfirm();
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // Which draft's photo has finished loading - compared against the current
+  // draft's id instead of a boolean, so switching cards needs no "reset to
+  // not-loaded" step (the new card simply isn't the loaded one yet).
+  const [loadedImageId, setLoadedImageId] = useState<string | null>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const isFirstRender = useRef(true);
 
   const current = queue[currentIndex] as CardItem | undefined;
+  const imageLoaded = current ? loadedImageId === current.id : false;
+
+  // Brings the photo + progress back into view after moving to another card.
+  // On a phone the photo sits above the form, so after tapping Save at the
+  // bottom of the form the new photo was off-screen - the form fields changed
+  // but nothing visibly did, which read as "the image didn't switch".
+  const revealTop = () => {
+    topRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    // Only steal focus on devices with a real pointer/keyboard - focusing a
+    // field on a phone opens the keyboard and scrolls the photo away again.
+    if (window.matchMedia("(pointer: fine)").matches) titleRef.current?.focus({ preventScroll: true });
+  };
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    revealTop();
+  }, [current?.id]);
 
   useEffect(() => {
     if (current) {
@@ -167,8 +194,18 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
               : c,
           ),
         );
-        if (currentIndex < queue.length - 1) {
+        const hasNext = currentIndex < queue.length - 1;
+        const savedTitle = form.title.trim();
+        setNotice(
+          hasNext
+            ? `Saved "${savedTitle}" - here's the next card.`
+            : `Saved "${savedTitle}" - that was the last card. Tap Publish All Completed to put them live.`,
+        );
+        setTimeout(() => setNotice(null), 5000);
+        if (hasNext) {
           setCurrentIndex((i) => i + 1);
+        } else {
+          revealTop();
         }
       })
       .catch((err) => setError(extractErrorMessage(err) ?? "Failed to save"))
@@ -201,6 +238,9 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       .catch((err) => setError(extractErrorMessage(err) ?? "Failed to discard"));
   };
 
+  const goPrev = () => setCurrentIndex((i) => Math.max(0, i - 1));
+  const goNext = () => setCurrentIndex((i) => Math.min(queue.length - 1, i + 1));
+
   const handlePublish = () => {
     if (completed.size === 0) return;
     setPublishing(true);
@@ -224,27 +264,61 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium text-foreground-muted">
-          Card {currentIndex + 1} of {queue.length} &middot; {completed.size} saved
-        </p>
-        <Button variant="gold" disabled={completed.size === 0 || publishing} onClick={handlePublish}>
-          <CheckCircle2 size={15} />
-          {publishing ? "Publishing..." : `Publish All Completed (${completed.size})`}
-        </Button>
+      <div ref={topRef} className="scroll-mt-[calc(var(--header-height)+0.5rem)] space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={goPrev} disabled={currentIndex === 0 || saving} className="px-2 py-1.5" aria-label="Previous card">
+              <ChevronLeft size={16} />
+            </Button>
+            <p className="text-sm font-medium text-foreground-muted">
+              Card {currentIndex + 1} of {queue.length} &middot; {completed.size} saved
+            </p>
+            <Button type="button" variant="outline" onClick={goNext} disabled={currentIndex >= queue.length - 1 || saving} className="px-2 py-1.5" aria-label="Skip to next card">
+              <ChevronRight size={16} />
+            </Button>
+          </div>
+          <Button variant="gold" disabled={completed.size === 0 || publishing} onClick={handlePublish}>
+            <CheckCircle2 size={15} />
+            {publishing ? "Publishing..." : `Publish All Completed (${completed.size})`}
+          </Button>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/10">
+          <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${(completed.size / queue.length) * 100}%` }} />
+        </div>
+        {notice && (
+          <p role="status" className="rounded-lg bg-available-bg px-3 py-2 text-sm font-medium text-available">
+            {notice}
+          </p>
+        )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="space-y-2">
-          <div className="relative mx-auto h-[420px] w-full max-w-md overflow-auto rounded-2xl border border-card-border bg-navy-950/5">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="min-w-0 space-y-2">
+          <div className="relative mx-auto h-[min(60vh,28rem)] w-full max-w-md overflow-auto rounded-2xl border border-card-border bg-navy-950/5">
             {current?.images[0] ? (
-              // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URL, zoomable so plain img (not next/image) keeps this simple
-              <img
-                src={current.images[0]}
-                alt={current.title}
-                style={{ width: `${IMAGE_BASE_WIDTH * zoom}px`, maxWidth: "none" }}
-                className="h-auto"
-              />
+              <>
+                {!imageLoaded && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-card/80 text-sm text-foreground-muted">
+                    <span className="animate-pulse">Loading photo...</span>
+                  </div>
+                )}
+                {/* key remounts the <img> per card, so the previous card's photo is never left showing while the next downloads. */}
+                {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URL, zoomable so plain img (not next/image) keeps this simple */}
+                <img
+                  key={current.id}
+                  src={current.images[0]}
+                  alt={current.title}
+                  onLoad={() => setLoadedImageId(current.id)}
+                  ref={(el) => {
+                    if (el?.complete && el.naturalWidth > 0) setLoadedImageId(current.id);
+                  }}
+                  // Percent of the panel (not a fixed pixel width) so a phone's
+                  // narrower panel never gets a wider-than-screen photo; zoom
+                  // scales it up inside the scrollable box.
+                  style={{ width: `${zoom * 100}%` }}
+                  className="h-auto max-w-none"
+                />
+              </>
             ) : (
               <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                 <ImageOff size={32} />
@@ -265,12 +339,13 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
           </div>
         </div>
 
-        <form onSubmit={handleSave} className="grid gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
+        <form onSubmit={handleSave} className="grid min-w-0 grid-cols-1 gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
               Card Name *
             </label>
             <Input
+              ref={titleRef}
               autoFocus
               value={form.title}
               onChange={(e) => set("title", e.target.value)}

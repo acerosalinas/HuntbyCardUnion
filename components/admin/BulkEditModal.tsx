@@ -107,7 +107,7 @@ export function BulkEditModal({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Flash sale</label>
             <Select value={flash} onChange={(e) => setFlash(e.target.value as Toggle)}>

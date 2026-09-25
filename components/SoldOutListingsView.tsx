@@ -1,13 +1,19 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRestorableGrid } from "@/hooks/useRestorableGrid";
+import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
+import { SortMenu } from "@/components/SortMenu";
+import { sortCards } from "@/lib/cardFilter";
 import { CardGrid } from "@/components/CardGrid";
 import { Button } from "@/components/ui/Button";
 import { CardItem } from "@/types/marketplace";
 
 /** A seller's sold-out archive - same batch-reveal + scroll-restore behavior as the main marketplace grid (see useRestorableGrid), just with no filters of its own since this is already a fixed, single-seller list. */
 export function SoldOutListingsView({ cards, handle }: { cards: CardItem[]; handle: string }) {
-  const { visible, hasMore, remaining, loadMore } = useRestorableGrid(cards, `sold-out:${handle}`);
+  const { sort } = useMarketplaceFilter();
+  const sorted = useMemo(() => sortCards(cards, sort), [cards, sort]);
+  const { visible, hasMore, remaining, loadMore } = useRestorableGrid(sorted, `sold-out:${handle}:${sort}`);
 
   if (cards.length === 0) {
     return (
@@ -19,6 +25,9 @@ export function SoldOutListingsView({ cards, handle }: { cards: CardItem[]; hand
 
   return (
     <div>
+      <div className="mb-4 flex justify-end">
+        <SortMenu />
+      </div>
       <CardGrid cards={visible} />
       {hasMore && (
         <div className="mt-6 flex justify-center">

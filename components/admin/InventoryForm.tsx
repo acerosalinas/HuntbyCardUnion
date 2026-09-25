@@ -285,7 +285,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
       <Field label="Title *">
         <Input value={form.title} onChange={(e) => set("title", e.target.value)} required />
       </Field>

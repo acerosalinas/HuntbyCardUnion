@@ -131,7 +131,7 @@ export function LiveSalesPanel({ cards, liveSales }: { cards: AssignableCard[]; 
         {cards.length === 0 ? (
           <p className="text-sm text-foreground-muted">No cards with stock available to assign right now.</p>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">Card</label>
               <Select value={cardId} onChange={(e) => setCardId(e.target.value)}>

@@ -6,7 +6,8 @@ import { LayoutGrid, PackageX, Radio } from "lucide-react";
 import { CardGrid } from "@/components/CardGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
-import { matchesCardFilter } from "@/lib/cardFilter";
+import { SortMenu } from "@/components/SortMenu";
+import { matchesCardFilter, sortCards } from "@/lib/cardFilter";
 import { FRANCHISES } from "@/lib/franchises";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
@@ -26,7 +27,7 @@ export function SellerListingsView({
   handle: string;
 }) {
   const [view, setView] = useState<View>("grid");
-  const { query, category, rarity, pokemonType, setFranchiseScope } = useMarketplaceFilter();
+  const { query, category, rarity, pokemonType, sort, setFranchiseScope } = useMarketplaceFilter();
 
   // A seller's own page has no /[franchise] URL segment to read, so the
   // rarity dropdown's scope has to come from elsewhere. Prefer the seller's
@@ -49,10 +50,13 @@ export function SellerListingsView({
   const soldOutCount = useMemo(() => cards.filter((c) => c.status === "SOLD").length, [cards]);
   const filtered = useMemo(
     () =>
-      cards
-        .filter((c) => c.status !== "SOLD")
-        .filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
-    [cards, query, category, rarity, pokemonType],
+      sortCards(
+        cards
+          .filter((c) => c.status !== "SOLD")
+          .filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
+        sort,
+      ),
+    [cards, query, category, rarity, pokemonType, sort],
   );
   const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
 
@@ -91,6 +95,12 @@ export function SellerListingsView({
           ))}
         </div>
       </div>
+
+      {view === "grid" && (
+        <div className="mb-4 flex justify-end">
+          <SortMenu />
+        </div>
+      )}
 
       {view === "grid" ? (
         <CardGrid cards={filtered} />

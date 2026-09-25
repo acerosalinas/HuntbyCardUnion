@@ -154,7 +154,7 @@ export function CardDetail({
         Back
       </Link>
 
-      <div className="grid gap-8 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
         <div>
           <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-card-border bg-navy-950/5">
             {images[activeImage] ? (
