@@ -624,22 +624,20 @@ export async function acceptOffer(offerId: string) {
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
-  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
-  // No claim is created here anymore, and no stock is touched - accepting
-  // just unlocks the negotiated price. The buyer still goes through a
-  // normal Add to Cart -> Place Order like any other purchase (choosing
-  // Ship/Stash, Pay Now/COD) - see place_order's offer_id handling in
-  // supabase/schema.sql (MIGRATION 14). This replaces the old behavior of
-  // inserting a Pending Payment card_claims row the instant Accept was
-  // clicked, before the buyer had done anything.
-  const { error: offerError } = await supabase
-    .from("offers")
-    .update({ status: "ACCEPTED", agreed_amount: offer.offered_amount })
-    .eq("id", offerId);
-  if (offerError) throw new Error(offerError.message);
+  // No claim is created here, and no stock is touched - accepting just
+  // unlocks the negotiated price and keeps the card on hold (see
+  // migration_offer_hold.sql). The buyer still goes through a normal Add
+  // to Cart -> Place Order like any other purchase (choosing Ship/Stash,
+  // Pay Now/COD) - see place_order's offer_id handling in
+  // supabase/schema.sql. accept_offer_admin locks the offer row and
+  // re-checks status = PENDING inside one transaction (same pattern as
+  // confirm_paid_claim etc.), so it can't race with a second admin action
+  // or an in-flight buyer response on the same offer.
+  const { error: rpcError } = await supabase.rpc("accept_offer_admin", { p_offer_id: offerId });
+  if (rpcError) throw new Error(rpcError.message);
 
   revalidateAdmin();
 
@@ -662,15 +660,14 @@ export async function counterOffer(offerId: string, counterAmount: number) {
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
-  if (offer.status !== "PENDING") throw new Error("This offer has already been responded to.");
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
-  const { error } = await supabase
-    .from("offers")
-    .update({ status: "COUNTERED", counter_amount: counterAmount })
-    .eq("id", offerId);
-  if (error) throw new Error(error.message);
+  const { error: rpcError } = await supabase.rpc("counter_offer_admin", {
+    p_offer_id: offerId,
+    p_counter_amount: counterAmount,
+  });
+  if (rpcError) throw new Error(rpcError.message);
   revalidateAdmin();
 
   await notifyUser(supabase, {
@@ -692,18 +689,16 @@ export async function declineOffer(offerId: string) {
     .eq("id", offerId)
     .single();
   if (fetchError || !offer) throw new Error(fetchError?.message ?? "Offer not found");
-  // Also usable on an already-ACCEPTED offer - the seller retracting a
-  // price they agreed to but the buyer hasn't spent yet (no card_claims
-  // row exists until place_order's own offer_id handling creates one, so
-  // there's nothing to unwind on the claim side either way).
-  if (!["PENDING", "ACCEPTED"].includes(offer.status)) {
-    throw new Error("This offer can no longer be declined.");
-  }
 
   assertOwnsOrSuper(admin, await getCardOwner(supabase, offer.card_id));
 
-  const { error } = await supabase.from("offers").update({ status: "DECLINED" }).eq("id", offerId);
-  if (error) throw new Error(error.message);
+  // Also usable on an already-ACCEPTED offer - the seller retracting a
+  // price they agreed to but the buyer hasn't spent yet (no card_claims
+  // row exists until place_order's own offer_id handling creates one, so
+  // there's nothing to unwind on the claim side either way). Frees the
+  // card's hold either way.
+  const { error: rpcError } = await supabase.rpc("decline_offer_admin", { p_offer_id: offerId });
+  if (rpcError) throw new Error(rpcError.message);
   revalidateAdmin();
 
   await notifyUser(supabase, {

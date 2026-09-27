@@ -83,7 +83,8 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <StatusBadge status={card.status} />
-            {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
+            {/* card.holdingOfferId (see migration_offer_hold.sql) covers the full hold - PENDING, COUNTERED, and ACCEPTED - a broader signal than the isNegotiating prop's PENDING-only one, so either firing is enough. */}
+            {(isNegotiating || card.holdingOfferId !== null) && !isSold && <Badge tone="gold">On Hold</Badge>}
           </div>
         </div>
 

@@ -137,6 +137,10 @@ export function CartContents() {
       const queuedItems = result.items.filter((i) => i.result === "queued");
       const missingItems = result.items.filter((i) => i.result === "not_found");
       const offerUnavailableItems = result.items.filter((i) => i.result === "offer_stock_unavailable");
+      // A card another buyer's offer put on hold (see migration_offer_hold.sql)
+      // between adding it to the cart and checking out - place_order refuses
+      // it rather than letting it queue, since it isn't actually available.
+      const heldItems = result.items.filter((i) => i.result === "card_on_hold");
 
       let copiedToClipboard = false;
       if (claimedItems.length > 0) {
@@ -260,6 +264,11 @@ export function CartContents() {
       if (offerUnavailableItems.length > 0) {
         summary.push(
           `${offerUnavailableItems.length} item${offerUnavailableItems.length === 1 ? "" : "s"} didn't have enough stock left for your offer price - your offer is still accepted, so you can try again once more comes in.`,
+        );
+      }
+      if (heldItems.length > 0) {
+        summary.push(
+          `${heldItems.length} item${heldItems.length === 1 ? "" : "s"} ${heldItems.length === 1 ? "is" : "are"} on hold from another buyer's offer and couldn't be bought right now - try again later.`,
         );
       }
       setResultSummary(summary);

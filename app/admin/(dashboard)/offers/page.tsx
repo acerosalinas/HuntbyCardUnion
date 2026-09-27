@@ -11,7 +11,7 @@ interface OfferJoinRow {
   note: string | null;
   status: "PENDING" | "ACCEPTED";
   created_at: string;
-  cards: { title: string; price: number; admin_id: string | null; images: string[] } | null;
+  cards: { title: string; price: number; admin_id: string | null; images: string[]; held_until: string | null } | null;
 }
 
 export default async function AdminOffersPage() {
@@ -24,7 +24,7 @@ export default async function AdminOffersPage() {
   let query = supabase
     .from("offers")
     .select(
-      "id, card_id, buyer_handle, offered_amount, agreed_amount, note, status, created_at, cards!inner(title, price, admin_id, images)",
+      "id, card_id, buyer_handle, offered_amount, agreed_amount, note, status, created_at, cards!inner(title, price, admin_id, images, held_until)",
     )
     .in("status", ["PENDING", "ACCEPTED"])
     .order("created_at", { ascending: false });
@@ -47,6 +47,7 @@ export default async function AdminOffersPage() {
     note: row.note,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
+    heldUntil: row.cards?.held_until ? new Date(row.cards.held_until).getTime() : null,
   }));
 
   return <OffersTable offers={offers} />;

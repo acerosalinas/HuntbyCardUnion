@@ -66,6 +66,10 @@ export interface CardItem {
   adminId: string | null;
   franchise: string | null; // slug, e.g. 'pokemon', 'one-piece' - see lib/franchises.ts
   createdAt: number;
+  /** The offer currently holding this card exclusively for one buyer, or null - see migration_offer_hold.sql. */
+  holdingOfferId: string | null;
+  /** When the hold auto-expires back to available - null while PENDING but not yet held, and also null (indefinite, no auto-expiry) once the seller has countered or accepted, since only the initial 1-hour response window has a clock. */
+  heldUntil: number | null;
 }
 
 export type ClaimStatus = "PENDING" | "SOLD" | "CANCELLED";
@@ -165,7 +169,7 @@ export function orderFromRow(row: OrderRow): Order {
   };
 }
 
-export type PlaceOrderItemResult = "claimed" | "queued" | "not_found" | "offer_stock_unavailable";
+export type PlaceOrderItemResult = "claimed" | "queued" | "not_found" | "offer_stock_unavailable" | "card_on_hold";
 
 export interface PlaceOrderItem {
   cardId: string;
@@ -440,6 +444,8 @@ export interface CardRow {
   admin_id: string | null;
   franchise: string | null;
   created_at: string;
+  holding_offer_id: string | null;
+  held_until: string | null;
 }
 
 export interface OfferRow {
@@ -491,6 +497,8 @@ export function cardFromRow(row: CardRow): CardItem {
     adminId: row.admin_id,
     franchise: normalizeFranchise(row.franchise),
     createdAt: new Date(row.created_at).getTime(),
+    holdingOfferId: row.holding_offer_id,
+    heldUntil: row.held_until ? new Date(row.held_until).getTime() : null,
   };
 }
 

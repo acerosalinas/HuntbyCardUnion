@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { ImageOff, LayoutGrid, List } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { HoldCountdown } from "@/components/HoldCountdown";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { acceptOffer, counterOffer, declineOffer } from "@/app/admin/actions";
 
@@ -22,14 +23,8 @@ export interface OfferRowView {
   note: string | null;
   status: "PENDING" | "ACCEPTED";
   createdAt: number;
-}
-
-/** Rough "time left before expire_stale_offers auto-expires this" readout - only meaningful for PENDING (that job never touches ACCEPTED). See the pg_cron job in supabase/schema.sql. */
-function timeLeftLabel(createdAt: number): string {
-  const hoursLeft = 24 - (Date.now() - createdAt) / (1000 * 60 * 60);
-  if (hoursLeft <= 0) return "Expiring soon";
-  if (hoursLeft < 1) return `Expires in ${Math.round(hoursLeft * 60)}m`;
-  return `Expires in ${Math.round(hoursLeft)}h`;
+  /** When the 1-hour hold auto-expires this offer - null once it's been accepted (no expiry once accepted). See migration_offer_hold.sql. */
+  heldUntil: number | null;
 }
 
 export function OffersTable({ offers }: { offers: OfferRowView[] }) {
@@ -118,7 +113,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
                           Listed {formatCurrency(offer.listedPrice)}
                         </p>
                         <p className="font-semibold text-gold">Offered {formatCurrency(offer.offeredAmount)}</p>
-                        <p className="text-pending">{timeLeftLabel(offer.createdAt)}</p>
+                        <HoldCountdown heldUntil={offer.heldUntil} />
                         {offer.note && <p className="italic text-foreground-muted">&ldquo;{offer.note}&rdquo;</p>}
                       </div>
                       <div className="flex flex-col gap-1.5 p-3 pt-0">
@@ -226,7 +221,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
                     <p className="text-sm text-foreground-muted">
                       Listed {formatCurrency(offer.listedPrice)} • Offered{" "}
                       <span className="font-semibold text-gold">{formatCurrency(offer.offeredAmount)}</span> •{" "}
-                      {offer.buyerHandle} • <span className="text-pending">{timeLeftLabel(offer.createdAt)}</span>
+                      {offer.buyerHandle} • <HoldCountdown heldUntil={offer.heldUntil} />
                     </p>
                     {offer.note && <p className="mt-1 text-sm italic text-foreground-muted">&ldquo;{offer.note}&rdquo;</p>}
                   </div>

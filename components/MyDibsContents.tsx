@@ -6,6 +6,7 @@ import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, QrCode, Tru
 import { Button } from "@/components/ui/Button";
 import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
+import { HoldCountdown } from "@/components/HoldCountdown";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useCart } from "@/components/CartProvider";
 import { requestShipping } from "@/app/account/actions";
@@ -504,8 +505,9 @@ export function MyDibsContents() {
           )}
           <div className="absolute right-2 top-2">
             {offer.status === "PENDING" && (
-              <span className="rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
+              <span className="flex items-center gap-1.5 rounded-full bg-pending-bg px-2 py-0.5 text-xs font-semibold text-pending">
                 Offer pending
+                <HoldCountdown heldUntil={card.heldUntil} className="flex items-center gap-1" />
               </span>
             )}
             {offer.status === "COUNTERED" && (

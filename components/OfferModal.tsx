@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { MIN_OFFER_FRACTION, MAX_OFFER_FRACTION, minOfferFor, maxOfferFor } from "@/lib/offerLimits";
 import { CardItem } from "@/types/marketplace";
 
 interface OfferModalProps {
@@ -26,13 +27,14 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const minOffer = Math.ceil(card.price * 0.8);
+  const minOffer = minOfferFor(card.price);
+  const maxOffer = maxOfferFor(card.price);
 
   const offerSchema = z
     .number({ error: "Enter a numeric offer" })
     .positive("Offer must be greater than 0")
-    .max(card.price, `Offer can't exceed the listed price of ${formatCurrency(card.price)}`)
-    .min(minOffer, `Offer must be at least ${formatCurrency(minOffer)} (80% of listed price)`);
+    .max(maxOffer, `Offer can't exceed ${formatCurrency(maxOffer)} (${Math.round(MAX_OFFER_FRACTION * 100)}% of listed price)`)
+    .min(minOffer, `Offer must be at least ${formatCurrency(minOffer)} (${Math.round(MIN_OFFER_FRACTION * 100)}% of listed price)`);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -77,7 +79,11 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
       <form onSubmit={handleSubmit} className="space-y-4">
         <p className="text-sm text-foreground-muted">
           Listed at {formatCurrency(card.price)}. Offers must be between{" "}
-          {formatCurrency(minOffer)} and {formatCurrency(card.price)}.
+          {formatCurrency(minOffer)} and {formatCurrency(maxOffer)}.
+        </p>
+        <p className="rounded-lg bg-pending-bg px-3 py-2 text-xs text-pending">
+          Submitting an offer puts this card on hold for 1 hour, exclusively for you - nobody else can offer on or
+          buy it until the seller responds or the hold expires.
         </p>
         <div>
           <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
@@ -87,7 +93,7 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
             type="number"
             inputMode="decimal"
             min={minOffer}
-            max={card.price}
+            max={maxOffer}
             step="0.01"
             placeholder={String(minOffer)}
             value={amount}

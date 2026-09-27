@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Heart, Hourglass, ImageOff, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowRight, Banknote, CheckCircle2, Heart, Hourglass, ImageOff, Lock, Minus, PackageCheck, Plus, ShoppingCart, Store, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -20,7 +20,8 @@ import { useMyClaims } from "@/hooks/useMyClaims";
 import { useMyOffer } from "@/hooks/useMyOffer";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
-import { cn, formatCurrency } from "@/lib/utils";
+import { useCountdown } from "@/hooks/useCountdown";
+import { cn, formatCountdown, formatCurrency } from "@/lib/utils";
 import { weekdayLabel } from "@/lib/codSchedule";
 import { CardItem, FulfillmentMethod, PaymentMethod, SellerProfile } from "@/types/marketplace";
 
@@ -81,6 +82,17 @@ export function CardDetail({
   const offerCountered = myOffer?.status === "COUNTERED";
   const offerAccepted = myOffer?.status === "ACCEPTED";
 
+  // A card with an open offer is held exclusively for that offer's buyer
+  // (see migration_offer_hold.sql) - nobody else can offer on or buy it
+  // until the seller responds or the 1-hour window lapses. heldUntil is
+  // only set while the hold is on that ticking clock (status PENDING); once
+  // countered or accepted the hold has no expiry of its own, so there's no
+  // countdown to show, just the fact that it's held.
+  const isMyHold = myOffer !== null && card.holdingOfferId === myOffer.id;
+  const heldByOther = card.holdingOfferId !== null && !isMyHold;
+  const holdRemainingMs = useCountdown(card.heldUntil);
+  const holdCountdownLabel = card.heldUntil && holdRemainingMs > 0 ? formatCountdown(holdRemainingMs) : null;
+
   const inStock = card.quantityAvailable > 0;
   const isSold = card.status === "SOLD";
   const images = card.images;
@@ -103,7 +115,12 @@ export function CardDetail({
 
   let cartLabel = inStock ? "Add to Cart" : "Join Waitlist";
   let cartDisabled = false;
-  if (alreadyHoldsClaim) {
+  if (heldByOther) {
+    // Checked first - none of the reasons below are even relevant while
+    // someone else's offer holds the whole card.
+    cartLabel = "On Hold - Unavailable";
+    cartDisabled = true;
+  } else if (alreadyHoldsClaim) {
     cartLabel = "Already Claimed";
     cartDisabled = true;
   } else if (isQueued) {
@@ -275,8 +292,12 @@ export function CardDetail({
                 )}
               >
                 {offerAccepted ? <CheckCircle2 size={14} /> : <Hourglass size={14} />}
-                {offerPending &&
-                  `Waiting for the seller to respond to your offer of ${formatCurrency(myOffer.offeredAmount)}.`}
+                {offerPending && (
+                  <>
+                    Waiting for the seller to respond to your offer of {formatCurrency(myOffer.offeredAmount)}.
+                    {holdCountdownLabel && ` Time left: ${holdCountdownLabel}.`}
+                  </>
+                )}
                 {offerCountered && `Seller countered at ${formatCurrency(myOffer.counterAmount ?? myOffer.offeredAmount)}.`}
                 {offerAccepted &&
                   `Your offer of ${formatCurrency(myOffer.agreedAmount ?? myOffer.offeredAmount)} was accepted.`}
@@ -288,6 +309,18 @@ export function CardDetail({
               >
                 {offerPending ? "View in My Dibs" : "Manage in My Dibs"}
               </Link>
+            </div>
+          )}
+
+          {heldByOther && (
+            <div className="flex items-center gap-1.5 rounded-xl bg-pending-bg px-4 py-3 text-sm font-medium text-pending">
+              <Lock size={14} className="shrink-0" />
+              <span>
+                This card is on hold — another buyer is negotiating on it.
+                {holdCountdownLabel
+                  ? ` It'll be available again in ${holdCountdownLabel} if the seller doesn't accept.`
+                  : " Check back later to see if it's available."}
+              </span>
             </div>
           )}
 
@@ -444,8 +477,8 @@ export function CardDetail({
             </Button>
             {card.isNegotiable && (
               <Button
-                variant={inStock && !alreadyHoldsClaim && !hasOpenOffer ? "gold" : "disabled"}
-                disabled={!inStock || alreadyHoldsClaim || hasOpenOffer}
+                variant={inStock && !alreadyHoldsClaim && !hasOpenOffer && !heldByOther ? "gold" : "disabled"}
+                disabled={!inStock || alreadyHoldsClaim || hasOpenOffer || heldByOther}
                 onClick={() => setOfferOpen(true)}
               >
                 Make Offer
