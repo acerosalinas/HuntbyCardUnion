@@ -29,7 +29,12 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
   let claimsQuery = supabase.from("card_claims").select("status, quantity, unit_price, cards!inner(admin_id)");
   if (!isSuper) claimsQuery = claimsQuery.eq("cards.admin_id", admin.id);
 
-  let offersQuery = supabase.from("offers").select("status, cards!inner(admin_id)");
+  // cards!offers_card_id_fkey, not plain cards!inner - cards.holding_offer_id
+  // (added by migration_offer_hold.sql) is a second FK between these two
+  // tables, so PostgREST can no longer infer which relationship to embed
+  // without this hint (it errors "more than one relationship was found",
+  // which silently zeroed out this count since the error wasn't checked).
+  let offersQuery = supabase.from("offers").select("status, cards!offers_card_id_fkey!inner(admin_id)");
   if (!isSuper) offersQuery = offersQuery.eq("cards.admin_id", admin.id);
 
   const [{ data: cards }, { data: claims }, { data: offers }, { data: sellerProfile }] = await Promise.all([

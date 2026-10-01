@@ -23,8 +23,16 @@ export default async function AdminOffersPage() {
   // place_order yet (see declineOffer's guard in app/admin/actions.ts).
   let query = supabase
     .from("offers")
+    // cards!offers_card_id_fkey, not plain cards!inner - cards.holding_offer_id
+    // (added by migration_offer_hold.sql) is a second FK between these two
+    // tables, so PostgREST can no longer infer which relationship to embed
+    // without this hint. Without it, every query on this page errored
+    // "more than one relationship was found" and silently came back empty
+    // (the error wasn't checked), which is why incoming offers stopped
+    // showing up here the moment that migration went live, even though
+    // submit_offer itself kept working and notifying the admin correctly.
     .select(
-      "id, card_id, buyer_handle, offered_amount, agreed_amount, note, status, created_at, cards!inner(title, price, admin_id, images, held_until)",
+      "id, card_id, buyer_handle, offered_amount, agreed_amount, note, status, created_at, cards!offers_card_id_fkey!inner(title, price, admin_id, images, held_until)",
     )
     .in("status", ["PENDING", "ACCEPTED"])
     .order("created_at", { ascending: false });
