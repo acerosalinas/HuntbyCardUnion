@@ -30,6 +30,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl ?? "");
   const [sells, setSells] = useState(profile?.tags[0] ?? FRANCHISES[0].slug);
   const [liveModeSeconds, setLiveModeSeconds] = useState(profile?.liveModeSeconds ?? 4);
+  const [offerHoldHours, setOfferHoldHours] = useState(profile?.offerHoldHours ?? 24);
   const [facebookUrl, setFacebookUrl] = useState(profile?.facebookUrl ?? "");
   const [instagramUrl, setInstagramUrl] = useState(profile?.instagramUrl ?? "");
   const [messengerUsername, setMessengerUsername] = useState(profile?.messengerUsername ?? "");
@@ -116,6 +117,7 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
       avatarUrl,
       tags: [sells],
       liveModeSeconds,
+      offerHoldHours,
       facebookUrl,
       instagramUrl,
       messengerUsername,
@@ -207,6 +209,22 @@ export function SellerProfileForm({ profile }: { profile: SellerProfile | null }
           value={liveModeSeconds}
           onChange={(e) => setLiveModeSeconds(Number(e.target.value))}
         />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+          Incoming Offer Hold <span className="normal-case text-foreground-muted/70">(hours)</span>
+        </label>
+        <Input
+          type="number"
+          min={1}
+          max={168}
+          step={1}
+          value={offerHoldHours}
+          onChange={(e) => setOfferHoldHours(Number(e.target.value))}
+        />
+        <p className="mt-1 text-xs text-foreground-muted">
+          How long a card stays on hold for one buyer after they make an offer, before it auto-expires if you don&apos;t respond. 1-168 hours (1 week).
+        </p>
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">

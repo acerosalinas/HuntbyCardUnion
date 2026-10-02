@@ -23,7 +23,7 @@ export interface OfferRowView {
   note: string | null;
   status: "PENDING" | "ACCEPTED";
   createdAt: number;
-  /** When the 1-hour hold auto-expires this offer - null once it's been accepted (no expiry once accepted). See migration_offer_hold.sql. */
+  /** When the hold (seller-configurable, see seller_profiles.offer_hold_hours) auto-expires this offer - null once it's been accepted (no expiry once accepted). See migration_offer_hold.sql / migration_offer_hold_per_seller.sql. */
   heldUntil: number | null;
 }
 

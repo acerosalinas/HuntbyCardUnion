@@ -84,7 +84,9 @@ export function CardDetail({
 
   // A card with an open offer is held exclusively for that offer's buyer
   // (see migration_offer_hold.sql) - nobody else can offer on or buy it
-  // until the seller responds or the 1-hour window lapses. heldUntil is
+  // until the seller responds or their configured hold window lapses
+  // (seller_profiles.offer_hold_hours, default 24 - see
+  // migration_offer_hold_per_seller.sql). heldUntil is
   // only set while the hold is on that ticking clock (status PENDING); once
   // countered or accepted the hold has no expiry of its own, so there's no
   // countdown to show, just the fact that it's held.
@@ -529,7 +531,12 @@ export function CardDetail({
         </div>
       </div>
 
-      <OfferModal card={card} open={offerOpen} onClose={() => setOfferOpen(false)} />
+      <OfferModal
+        card={card}
+        open={offerOpen}
+        onClose={() => setOfferOpen(false)}
+        offerHoldHours={initialSellerProfile?.offerHoldHours}
+      />
     </div>
   );
 }

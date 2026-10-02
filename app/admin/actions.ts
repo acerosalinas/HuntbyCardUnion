@@ -970,10 +970,16 @@ export interface CreateCardInput {
   quantity: number;
 }
 
+/** 0 is a valid, meaningful quantity now (an explicitly sold-out listing - see updateCard) - only truly invalid input (blank/NaN) falls back to 1, same default as before. */
+function normalizeQuantity(raw: number): number {
+  if (!Number.isFinite(raw)) return 1;
+  return Math.max(0, Math.round(raw));
+}
+
 export async function createCard(input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
-  const quantity = Math.max(1, Math.round(input.quantity) || 1);
+  const quantity = normalizeQuantity(input.quantity);
   const { error } = await supabase.from("cards").insert({
     title: input.title,
     set_name: input.setName,
@@ -1010,11 +1016,15 @@ export async function updateCard(cardId: string, input: CreateCardInput) {
     .single();
   if (existingError || !existing) throw new Error(existingError?.message ?? "Card not found");
 
-  const quantity = Math.max(1, Math.round(input.quantity) || 1);
+  const quantity = normalizeQuantity(input.quantity);
   const claimed = existing.quantity - existing.quantity_available;
   if (quantity < claimed) {
     throw new Error(`Quantity can't be less than ${claimed} - that many units are already claimed.`);
   }
+  // 0 is allowed here (claimed is always 0 too in that case, since the
+  // check above already rejects going below however many units are
+  // claimed) - quantityAvailable then also lands on 0, which the line below
+  // already turns into SOLD, same as running out through a real purchase.
   const quantityAvailable = quantity - claimed;
   const status = existing.status === "DRAFT" ? "DRAFT" : quantityAvailable > 0 ? "AVAILABLE" : "SOLD";
 
@@ -1274,6 +1284,7 @@ export interface SellerProfileInput {
   codEnabled: boolean;
   codWeekday: number | null;
   liveModeSeconds: number;
+  offerHoldHours: number;
 }
 
 const HANDLE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -1301,6 +1312,7 @@ export async function updateSellerProfile(input: SellerProfileInput) {
     throw new Error("Display name is required.");
   }
   const liveModeSeconds = Math.min(30, Math.max(1, Math.round(input.liveModeSeconds) || 4));
+  const offerHoldHours = Math.min(168, Math.max(1, Math.round(input.offerHoldHours) || 24));
   if (input.codEnabled && (input.codWeekday === null || input.codWeekday < 0 || input.codWeekday > 6)) {
     throw new Error("Pick a weekday for Cash on Delivery shipping.");
   }
@@ -1321,6 +1333,7 @@ export async function updateSellerProfile(input: SellerProfileInput) {
       cod_enabled: input.codEnabled,
       cod_weekday: input.codEnabled ? input.codWeekday : null,
       live_mode_seconds: liveModeSeconds,
+      offer_hold_hours: offerHoldHours,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "admin_id" },

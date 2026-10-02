@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Camera, ImagePlus, Package, Sparkles, X } from "lucide-react";
+import { Camera, ImagePlus, Minus, Package, Plus, Sparkles, X } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -169,6 +169,14 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
     }));
   };
 
+  // Buttons only, no free-typing - also how 0 (an explicit "mark this sold
+  // out" - see updateCard in app/admin/actions.ts) is reached deliberately
+  // rather than by accident while typing. Can't go below however many units
+  // are already claimed, same floor the server itself enforces.
+  const minQuantity = card ? card.quantity - card.quantityAvailable : 0;
+  const adjustQuantity = (delta: number) =>
+    setForm((f) => ({ ...f, quantity: String(Math.max(minQuantity, (Number(f.quantity) || 0) + delta)) }));
+
   const handleProductTypeChange = (productType: ProductType) => {
     setForm((f) => ({
       ...f,
@@ -260,7 +268,10 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       isFlashSale: form.isFlashSale,
       isNegotiable: form.isNegotiable,
       franchise: form.franchise,
-      quantity: Math.max(1, Math.round(Number(form.quantity)) || 1),
+      // 0 is valid and intentional here - the stepper is the only way to
+      // change this value, so there's no stray/invalid typed input to guard
+      // against the way a free-text field would need.
+      quantity: Math.max(minQuantity, Math.round(Number(form.quantity)) || 0),
     };
 
     startTransition(async () => {
@@ -296,18 +307,37 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         <Input type="number" min={0} step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} required />
       </Field>
       <Field label="Quantity *">
-        <Input
-          type="number"
-          min={card ? card.quantity - card.quantityAvailable || 1 : 1}
-          step="1"
-          value={form.quantity}
-          onChange={(e) => set("quantity", e.target.value)}
-          required
-        />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => adjustQuantity(-1)}
+            disabled={Number(form.quantity) <= minQuantity}
+            className="h-10 w-10 shrink-0 p-0"
+            aria-label="Decrease quantity"
+          >
+            <Minus size={16} />
+          </Button>
+          <div className="flex h-10 flex-1 items-center justify-center rounded-lg border border-card-border bg-background-elevated text-base font-semibold text-foreground">
+            {form.quantity}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => adjustQuantity(1)}
+            className="h-10 w-10 shrink-0 p-0"
+            aria-label="Increase quantity"
+          >
+            <Plus size={16} />
+          </Button>
+        </div>
         {card && card.quantity - card.quantityAvailable > 0 && (
           <p className="mt-1 text-xs text-foreground-muted">
             {card.quantity - card.quantityAvailable} already claimed - can&apos;t go below that.
           </p>
+        )}
+        {Number(form.quantity) === 0 && (
+          <p className="mt-1 text-xs text-pending">Setting this to 0 marks the listing Sold Out.</p>
         )}
       </Field>
       <Field label="Product Type *" className="sm:col-span-2">

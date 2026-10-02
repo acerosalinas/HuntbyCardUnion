@@ -17,9 +17,11 @@ interface OfferModalProps {
   open: boolean;
   onClose: () => void;
   onSubmitted?: () => void;
+  /** This seller's configured hold window (seller_profiles.offer_hold_hours) - defaults to 24 (the column's own default) if the seller profile wasn't loaded for some reason. */
+  offerHoldHours?: number;
 }
 
-export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps) {
+export function OfferModal({ card, open, onClose, onSubmitted, offerHoldHours = 24 }: OfferModalProps) {
   const { buyer, loading: identityLoading } = useBuyerIdentity();
   const router = useRouter();
   const [amount, setAmount] = useState("");
@@ -82,8 +84,8 @@ export function OfferModal({ card, open, onClose, onSubmitted }: OfferModalProps
           {formatCurrency(minOffer)} and {formatCurrency(maxOffer)}.
         </p>
         <p className="rounded-lg bg-pending-bg px-3 py-2 text-xs text-pending">
-          Submitting an offer puts this card on hold for 1 hour, exclusively for you - nobody else can offer on or
-          buy it until the seller responds or the hold expires.
+          Submitting an offer puts this card on hold for {offerHoldHours} hour{offerHoldHours === 1 ? "" : "s"},
+          exclusively for you - nobody else can offer on or buy it until the seller responds or the hold expires.
         </p>
         <div>
           <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">

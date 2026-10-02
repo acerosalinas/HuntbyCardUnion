@@ -380,6 +380,8 @@ export interface SellerProfile {
   priceReviewedAt: number;
   /** Seconds each card shows for in Live Mode on this seller's storefront - seller-controlled, 1-30. */
   liveModeSeconds: number;
+  /** How long a new offer holds the card exclusively before auto-expiring if unanswered - seller-controlled, 1-168 hours (default 24). See migration_offer_hold_per_seller.sql. */
+  offerHoldHours: number;
   createdAt: number;
 }
 
@@ -398,6 +400,7 @@ export interface SellerProfileRow {
   cod_weekday: number | null;
   price_reviewed_at: string;
   live_mode_seconds: number;
+  offer_hold_hours: number;
   created_at: string;
 }
 
@@ -417,6 +420,7 @@ export function sellerProfileFromRow(row: SellerProfileRow): SellerProfile {
     codWeekday: row.cod_weekday,
     priceReviewedAt: new Date(row.price_reviewed_at).getTime(),
     liveModeSeconds: row.live_mode_seconds,
+    offerHoldHours: row.offer_hold_hours,
     createdAt: new Date(row.created_at).getTime(),
   };
 }
