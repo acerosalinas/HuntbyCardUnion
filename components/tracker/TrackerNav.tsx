@@ -11,10 +11,10 @@ const links = [
   { href: "/tracker/settings", label: "Settings", exact: false },
 ];
 
-export function TrackerNav() {
+export function TrackerNav({ className }: { className?: string }) {
   const pathname = usePathname();
   return (
-    <div className="mb-4 flex flex-wrap gap-2">
+    <div className={cn("flex flex-wrap gap-2", className)}>
       {links.map((l) => {
         const active = l.exact ? pathname === l.href : pathname?.startsWith(l.href);
         return (

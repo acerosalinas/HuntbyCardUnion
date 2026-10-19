@@ -83,6 +83,21 @@ export async function createLive(title: string, liveDate: string): Promise<strin
   return data.id as string;
 }
 
+export async function updateLive(liveId: string, title: string, liveDate: string) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(
+    z.object({ id: z.string().uuid(), title: text(120).min(1, "Enter a title for the live."), liveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.") }),
+    { id: liveId, title, liveDate },
+  );
+  const { error } = await createAdminClient()
+    .from("tracker_lives")
+    .update({ title: v.title, live_date: v.liveDate })
+    .eq("id", v.id)
+    .eq("owner_id", admin.id);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
 /** Deletes a live together with every card entered in it. Customers and payments are untouched (balances simply drop by the removed cards). Blocked while any of its cards has shipped. */
 export async function deleteLive(liveId: string) {
   const admin = await requireTrackerAdmin();
@@ -148,16 +163,16 @@ export async function addSale(input: {
   return { customerId: customer.id, newCustomer: customer.created };
 }
 
-export async function updateSale(id: string, input: { cardName: string; amount: number; forShipping: boolean }) {
+export async function updateSale(id: string, input: { cardName: string; amount: number; forShipping: boolean; customerName?: string }) {
   const admin = await requireTrackerAdmin();
   const v = parse(
-    z.object({ cardName: text(200).min(1, "Enter the card name."), amount: money, forShipping: z.boolean() }),
+    z.object({ cardName: text(200).min(1, "Enter the card name."), amount: money, forShipping: z.boolean(), customerName: text(120).min(1, "Enter the customer's name.").optional() }),
     input,
   );
   const db = createAdminClient();
   const { data: sale, error: findError } = await db
     .from("tracker_sales")
-    .select("shipment_id, for_shipping")
+    .select("shipment_id, for_shipping, customer_id")
     .eq("id", id)
     .eq("owner_id", admin.id)
     .maybeSingle();
@@ -166,9 +181,18 @@ export async function updateSale(id: string, input: { cardName: string; amount: 
   if (sale.shipment_id && v.forShipping !== sale.for_shipping) {
     throw new Error("This card is already shipped - undo the shipment before changing its shipping flag.");
   }
+  // Moving a card to a different customer (a typo in the name): allowed only before it has shipped, since a parcel belongs to one customer.
+  let customerId = sale.customer_id as string;
+  if (v.customerName) {
+    const target = await findOrCreateCustomer(db, admin.id, v.customerName);
+    if (target.id !== customerId) {
+      if (sale.shipment_id) throw new Error("This card is already shipped - undo the shipment before moving it to another customer.");
+      customerId = target.id;
+    }
+  }
   const { error } = await db
     .from("tracker_sales")
-    .update({ card_name: v.cardName, amount: v.amount, for_shipping: v.forShipping })
+    .update({ card_name: v.cardName, amount: v.amount, for_shipping: v.forShipping, customer_id: customerId })
     .eq("id", id)
     .eq("owner_id", admin.id);
   if (error) throw new Error(error.message);

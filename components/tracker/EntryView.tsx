@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState, useTransition } from "react";
-import { ClipboardCopy, Plus, QrCode, Trash2, Truck, UserPlus } from "lucide-react";
+import { Check, ClipboardCopy, Pencil, Plus, QrCode, Trash2, Truck, UserPlus, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { addSale, createLive, deleteLive, deleteSale, setSalesForShipping, setSalesOwner } from "@/app/tracker/actions";
+import { addSale, createLive, deleteLive, deleteSale, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { buildInvoiceText } from "@/lib/tracker/invoice";
@@ -38,6 +38,11 @@ interface Props {
 export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
+  // Editing a card in place, and editing the live's title/date.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ customerName: "", cardName: "", amount: "" });
+  const [editLiveOpen, setEditLiveOpen] = useState(false);
+  const [liveDraft, setLiveDraft] = useState({ title: "", date: "" });
   // Which customer's parcel is being marked shipped from this screen, and which cards go in it.
   const [shipping, setShipping] = useState<{ customerId: string; saleIds: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -159,6 +164,32 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     });
   };
 
+  const startEdit = (sale: TrackerSale) => {
+    setError(null);
+    setDraft({ customerName: customerById.get(sale.customerId)?.name ?? "", cardName: sale.cardName, amount: String(sale.amount) });
+    setEditingId(sale.id);
+  };
+
+  const saveEdit = (sale: TrackerSale) => {
+    const value = Number(draft.amount);
+    if (!draft.customerName.trim()) return setError("Enter the customer's name.");
+    if (!draft.cardName.trim()) return setError("Enter the card name.");
+    if (draft.amount.trim() === "" || !Number.isFinite(value) || value < 0) return setError("Enter a valid amount.");
+    run(async () => {
+      await updateSale(sale.id, { cardName: draft.cardName, amount: value, forShipping: sale.forShipping, customerName: draft.customerName });
+      setEditingId(null);
+    });
+  };
+
+  const submitLiveEdit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!live) return;
+    run(async () => {
+      await updateLive(live.id, liveDraft.title, liveDraft.date);
+      setEditLiveOpen(false);
+    });
+  };
+
   const submitLive = (e: FormEvent) => {
     e.preventDefault();
     run(async () => {
@@ -249,6 +280,18 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             <Button
               variant="outline"
               type="button"
+              onClick={() => {
+                setLiveDraft({ title: live.title, date: live.liveDate });
+                setEditLiveOpen((v) => !v);
+              }}
+            >
+              <Pencil size={14} /> Edit live
+            </Button>
+          )}
+          {live && (
+            <Button
+              variant="outline"
+              type="button"
               disabled={pending}
               onClick={async () => {
                 const ok = await confirm({
@@ -268,6 +311,24 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             </Button>
           )}
         </div>
+        {editLiveOpen && live && (
+          <form onSubmit={submitLiveEdit} className="mt-3 flex flex-wrap items-end gap-3 border-t border-card-border pt-3">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1 block text-xs text-foreground-muted">Title</label>
+              <Input value={liveDraft.title} onChange={(e) => setLiveDraft({ ...liveDraft, title: e.target.value })} maxLength={120} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-foreground-muted">Date</label>
+              <Input type="date" value={liveDraft.date} onChange={(e) => setLiveDraft({ ...liveDraft, date: e.target.value })} />
+            </div>
+            <Button type="submit" variant="gold" disabled={pending}>
+              Save
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setEditLiveOpen(false)}>
+              Cancel
+            </Button>
+          </form>
+        )}
         {showNewLive && (
           <form onSubmit={submitLive} className="mt-3 flex flex-wrap items-end gap-3 border-t border-card-border pt-3">
             <div className="min-w-[12rem] flex-1">
@@ -521,6 +582,45 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                 <ul className="divide-y divide-card-border">
                   {g.items.map((s) => {
                     const color = ownerColor(s.ownerTag, ownerLabels);
+                    if (editingId === s.id) {
+                      return (
+                        <li key={s.id} className="space-y-2 bg-gold/5 px-4 py-3 text-sm">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1.4fr_0.6fr]">
+                            <div>
+                              <label className="mb-1 block text-xs text-foreground-muted">Customer</label>
+                              <Input list="tracker-edit-customers" value={draft.customerName} onChange={(e) => setDraft({ ...draft, customerName: e.target.value })} maxLength={120} />
+                              <datalist id="tracker-edit-customers">
+                                {customers.map((c) => (
+                                  <option key={c.id} value={c.name} />
+                                ))}
+                              </datalist>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-foreground-muted">Card</label>
+                              <Input value={draft.cardName} onChange={(e) => setDraft({ ...draft, cardName: e.target.value })} maxLength={200} />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-foreground-muted">Amount</label>
+                              <Input
+                                inputMode="decimal"
+                                value={draft.amount}
+                                onChange={(e) => setDraft({ ...draft, amount: e.target.value.replace(/[^0-9.]/g, "") })}
+                                onKeyDown={(e) => e.key === "Enter" && saveEdit(s)}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="gold" className="px-3 py-1.5" disabled={pending} onClick={() => saveEdit(s)}>
+                              <Check size={14} /> Save
+                            </Button>
+                            <Button type="button" variant="outline" className="px-3 py-1.5" onClick={() => setEditingId(null)}>
+                              <X size={14} /> Cancel
+                            </Button>
+                            {s.shipmentId && <span className="text-xs text-foreground-muted">Shipped cards can&apos;t be moved to another customer.</span>}
+                          </div>
+                        </li>
+                      );
+                    }
                     return (
                     <li key={s.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 text-sm", color?.row)}>
                       <span className="min-w-0 flex-1">
@@ -561,6 +661,15 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                           <Truck size={12} className="mr-1" /> Shipped
                         </Badge>
                       )}
+                      <button
+                        type="button"
+                        aria-label={`Edit ${s.cardName}`}
+                        disabled={pending}
+                        onClick={() => startEdit(s)}
+                        className="rounded p-1 text-foreground-muted hover:text-gold disabled:opacity-30"
+                      >
+                        <Pencil size={14} />
+                      </button>
                       <button
                         type="button"
                         aria-label={`Delete ${s.cardName}`}

@@ -4,6 +4,7 @@ import { SetupNotice } from "@/components/SetupNotice";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TrackerNav } from "@/components/tracker/TrackerNav";
+import { StickyBar } from "@/components/tracker/StickyBar";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { logout } from "@/app/admin/actions";
@@ -23,7 +24,8 @@ export default async function TrackerLayout({ children }: { children: React.Reac
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-card-border bg-background-elevated/60">
+      <StickyBar>
+      <header>
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <Link href="/tracker" className="flex items-center gap-2.5">
             <Logo src="/crdunion.png" iconOnly />
@@ -54,10 +56,11 @@ export default async function TrackerLayout({ children }: { children: React.Reac
           </div>
         </div>
       </header>
-      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
         <TrackerNav />
-        {children}
       </div>
+      </StickyBar>
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">{children}</div>
     </div>
   );
 }
