@@ -16,11 +16,12 @@ const baseTabs = [
   { href: "/admin/profile", label: "My Profile" },
 ];
 
-export function AdminTabs({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+export function AdminTabs({ isSuperAdmin, showTracker = false }: { isSuperAdmin: boolean; showTracker?: boolean }) {
   const pathname = usePathname();
+  const withTracker = showTracker ? [...baseTabs, { href: "/tracker", label: "Live Tracker" }] : baseTabs;
   const tabs = isSuperAdmin
-    ? [...baseTabs, { href: "/admin/live-sales", label: "Live Sales" }, { href: "/admin/manage", label: "Manage Admins" }]
-    : baseTabs;
+    ? [...withTracker, { href: "/admin/live-sales", label: "Live Sales" }, { href: "/admin/manage", label: "Manage Admins" }]
+    : withTracker;
 
   return (
     <div className="mb-6 flex items-center justify-between gap-2 border-b border-card-border">

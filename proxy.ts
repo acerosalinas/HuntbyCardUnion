@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { canUseTracker } from "@/lib/tracker/accessList";
 import { ADMIN_AUTH_COOKIE_NAME, BUYER_AUTH_COOKIE_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 // Routes reachable without a session - everything needed to create one.
@@ -19,7 +20,8 @@ const PUBLIC_PATHS = [
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isAdminRoute = pathname.startsWith("/admin");
+  // /tracker is the standalone live-selling workspace - admin-only, same session + role check as /admin.
+  const isAdminRoute = pathname.startsWith("/admin") || pathname === "/tracker" || pathname.startsWith("/tracker/");
   const isAuthCallback = pathname.startsWith("/auth/callback");
   const isPublicBuyerPath = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
@@ -91,6 +93,10 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL("/account/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+  // The tracker is private to specific accounts (see lib/tracker/accessList.ts), not every admin.
+  if ((pathname === "/tracker" || pathname.startsWith("/tracker/")) && !canUseTracker({ email: user.email, role })) {
+    return NextResponse.redirect(new URL("/admin", request.url));
   }
   if (
     (pathname.startsWith("/admin/manage") || pathname.startsWith("/admin/live-sales")) &&

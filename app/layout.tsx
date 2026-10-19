@@ -5,6 +5,7 @@ import "./globals.css";
 import { Providers } from "@/app/providers";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
+import { ChromeGate } from "@/components/ChromeGate";
 import { THEME_STORAGE_KEY } from "@/lib/theme";
 
 const geistSans = Geist({
@@ -62,7 +63,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Providers initialBuyer={null}>
           <Navbar />
           <main className="flex-1">{children}</main>
-          <Footer />
+          <ChromeGate>
+            <Footer />
+          </ChromeGate>
         </Providers>
       </body>
     </html>

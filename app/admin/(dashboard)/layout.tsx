@@ -6,6 +6,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentAdmin } from "@/lib/adminAuth";
 import { isPriceReviewStale } from "@/lib/priceReview";
+import { canUseTracker } from "@/lib/tracker/accessList";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
       <MetricCards metrics={metrics} />
       {showPriceReviewBanner && <PriceReviewBanner hasProfile={!!sellerProfile} />}
       <div className="mt-6">
-        <AdminTabs isSuperAdmin={isSuper} />
+        <AdminTabs isSuperAdmin={isSuper} showTracker={canUseTracker(admin)} />
         {children}
       </div>
     </div>

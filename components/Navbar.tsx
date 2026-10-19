@@ -34,6 +34,7 @@ export function Navbar() {
   const { items } = useCart();
   const adminSession = useAdminSession();
   const isAdmin = pathname?.startsWith("/admin");
+  const isTracker = pathname === "/tracker" || Boolean(pathname?.startsWith("/tracker/"));
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
@@ -68,6 +69,12 @@ export function Navbar() {
   // only needs to run once on mount, not re-run per dependency.
   const topBarRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    // The standalone /tracker workspace has its own header, so this bar is
+    // hidden there and must not reserve any space above <main>.
+    if (isTracker) {
+      document.documentElement.style.setProperty("--header-height", "0px");
+      return;
+    }
     const topBar = topBarRef.current;
     if (!topBar) return;
     const setHeightVar = () => {
@@ -77,7 +84,9 @@ export function Navbar() {
     const observer = new ResizeObserver(setHeightVar);
     observer.observe(topBar);
     return () => observer.disconnect();
-  }, []);
+  }, [isTracker]);
+
+  if (isTracker) return null;
 
   return (
     <>

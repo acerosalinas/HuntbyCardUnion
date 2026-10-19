@@ -1,0 +1,211 @@
+import "server-only";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { computeCustomerTotals, CustomerTotals } from "./money";
+import { IslandGroup, islandGroupForRegion } from "./regions";
+import { DEFAULT_OWNER_LABELS, OwnerLabel, normalizeOwnerTag } from "./split";
+
+export interface TrackerSettings {
+  luzonFee: number;
+  visayasMindanaoFee: number;
+  paymentInstructions: string;
+  showAddressOnInvoice: boolean;
+  /** Owner tags for cards, e.g. A = AC, S = Shane. */
+  ownerLabels: OwnerLabel[];
+  /** Public URLs of the uploaded payment QR images, or null. */
+  gcashQrUrl: string | null;
+  maribankQrUrl: string | null;
+}
+
+export const DEFAULT_SETTINGS: TrackerSettings = {
+  luzonFee: 64,
+  visayasMindanaoFee: 94,
+  paymentInstructions: "",
+  showAddressOnInvoice: true,
+  ownerLabels: DEFAULT_OWNER_LABELS,
+  gcashQrUrl: null,
+  maribankQrUrl: null,
+};
+
+export interface TrackerCustomer {
+  id: string;
+  name: string;
+  region: string | null;
+  provinceCity: string | null;
+  barangay: string | null;
+  zip: string | null;
+  street: string | null;
+  /** Derived from the region on every read, so it can't go stale. */
+  islandGroup: IslandGroup | null;
+  address: string | null;
+}
+export interface TrackerLive {
+  id: string;
+  title: string;
+  liveDate: string;
+}
+export interface TrackerSale {
+  id: string;
+  customerId: string;
+  liveId: string;
+  cardName: string;
+  amount: number;
+  forShipping: boolean;
+  /** Owner code ("A", "S", ...) or null when untagged. */
+  ownerTag: string | null;
+  shipmentId: string | null;
+  createdAt: string;
+}
+export interface TrackerPayment {
+  id: string;
+  customerId: string;
+  amount: number;
+  method: "GCASH" | "MARIBANK";
+  purpose: "CARDS" | "SHIPPING";
+  paidOn: string;
+  note: string | null;
+}
+export interface TrackerShipment {
+  id: string;
+  customerId: string;
+  shippedOn: string;
+  fee: number;
+  prepaidApplied: number;
+  islandGroup: IslandGroup | null;
+  note: string | null;
+}
+
+export interface TrackerData {
+  settings: TrackerSettings;
+  customers: TrackerCustomer[];
+  lives: TrackerLive[];
+  sales: TrackerSale[];
+  payments: TrackerPayment[];
+  shipments: TrackerShipment[];
+  totalsByCustomer: Record<string, CustomerTotals>;
+}
+
+/** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
+function parseOwnerLabels(raw: unknown): OwnerLabel[] {
+  if (!Array.isArray(raw)) return DEFAULT_OWNER_LABELS;
+  const labels = raw
+    .map((x) => ({ code: normalizeOwnerTag((x as { code?: string })?.code) ?? "", name: String((x as { name?: string })?.name ?? "").trim() }))
+    .filter((l) => l.code !== "" && l.name !== "");
+  return labels.length > 0 ? labels : DEFAULT_OWNER_LABELS;
+}
+
+const PAGE = 1000;
+
+/** PostgREST caps a single response at 1000 rows - page through so a long-running ledger never silently truncates (and under-reports a balance). */
+async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    out.push(...(data ?? []));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+
+function addressLine(c: { street: string | null; barangay: string | null; province_city: string | null; zip: string | null }): string | null {
+  const parts = [c.street, c.barangay ? `Brgy. ${c.barangay.replace(/^brgy\.?\s*/i, "")}` : null, c.province_city, c.zip]
+    .map((p) => p?.trim())
+    .filter((p): p is string => Boolean(p));
+  return parts.length ? parts.join(", ") : null;
+}
+
+/** Loads one admin's whole ledger. Always scoped by owner_id - the service-role client bypasses RLS, so this filter IS the access control. */
+export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
+  const supabase = createAdminClient();
+
+  const [settingsRes, customerRows, liveRows, saleRows, paymentRows, shipmentRows] = await Promise.all([
+    supabase.from("tracker_settings").select("*").eq("owner_id", ownerId).maybeSingle(),
+    fetchAll<Record<string, string | null>>((f, t) =>
+      supabase.from("tracker_customers").select("*").eq("owner_id", ownerId).order("name").range(f, t),
+    ),
+    fetchAll<Record<string, string>>((f, t) =>
+      supabase
+        .from("tracker_lives")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .order("live_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .range(f, t),
+    ),
+    fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_sales").select("*").eq("owner_id", ownerId).order("created_at").range(f, t),
+    ),
+    fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_payments").select("*").eq("owner_id", ownerId).order("paid_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t),
+    ),
+    fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_shipments").select("*").eq("owner_id", ownerId).order("shipped_on", { ascending: false }).range(f, t),
+    ),
+  ]);
+  if (settingsRes.error) throw new Error(settingsRes.error.message);
+
+  const s = settingsRes.data;
+  const settings: TrackerSettings = s
+    ? {
+        luzonFee: Number(s.luzon_fee),
+        visayasMindanaoFee: Number(s.visayas_mindanao_fee),
+        paymentInstructions: s.payment_instructions ?? "",
+        showAddressOnInvoice: s.show_address_on_invoice,
+        ownerLabels: parseOwnerLabels(s.owner_labels),
+        gcashQrUrl: s.gcash_qr_url ?? null,
+        maribankQrUrl: s.maribank_qr_url ?? null,
+      }
+    : DEFAULT_SETTINGS;
+
+  const customers: TrackerCustomer[] = customerRows.map((c) => ({
+    id: c.id as string,
+    name: c.name as string,
+    region: c.region,
+    provinceCity: c.province_city,
+    barangay: c.barangay,
+    zip: c.zip,
+    street: c.street,
+    islandGroup: islandGroupForRegion(c.region),
+    address: addressLine(c as { street: string | null; barangay: string | null; province_city: string | null; zip: string | null }),
+  }));
+  const lives: TrackerLive[] = liveRows.map((l) => ({ id: l.id, title: l.title, liveDate: l.live_date }));
+  const sales: TrackerSale[] = saleRows.map((r) => ({
+    id: r.id as string,
+    customerId: r.customer_id as string,
+    liveId: r.live_id as string,
+    cardName: r.card_name as string,
+    amount: Number(r.amount),
+    forShipping: r.for_shipping as boolean,
+    ownerTag: normalizeOwnerTag(r.owner_tag as string | null | undefined),
+    shipmentId: (r.shipment_id as string | null) ?? null,
+    createdAt: r.created_at as string,
+  }));
+  const payments: TrackerPayment[] = paymentRows.map((r) => ({
+    id: r.id as string,
+    customerId: r.customer_id as string,
+    amount: Number(r.amount),
+    method: r.method as TrackerPayment["method"],
+    purpose: r.purpose as TrackerPayment["purpose"],
+    paidOn: r.paid_on as string,
+    note: (r.note as string | null) ?? null,
+  }));
+  const shipments: TrackerShipment[] = shipmentRows.map((r) => ({
+    id: r.id as string,
+    customerId: r.customer_id as string,
+    shippedOn: r.shipped_on as string,
+    fee: Number(r.fee),
+    prepaidApplied: Number(r.prepaid_applied),
+    islandGroup: (r.island_group as IslandGroup | null) ?? null,
+    note: (r.note as string | null) ?? null,
+  }));
+
+  const totalsByCustomer: Record<string, CustomerTotals> = {};
+  for (const c of customers) {
+    totalsByCustomer[c.id] = computeCustomerTotals(
+      sales.filter((x) => x.customerId === c.id).map((x) => ({ amount: x.amount, liveId: x.liveId, forShipping: x.forShipping, shipped: x.shipmentId !== null })),
+      payments.filter((x) => x.customerId === c.id),
+      shipments.filter((x) => x.customerId === c.id),
+    );
+  }
+
+  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer };
+}
