@@ -324,6 +324,40 @@ export async function recordPayment(input: {
   refresh();
 }
 
+/** One payment, optionally "paid with SF": the cards part and the shipping-fee part are inserted in a single statement, so both save or neither does. */
+export async function recordPayments(input: {
+  customerId: string;
+  cardsAmount: number;
+  shippingAmount: number;
+  method: "GCASH" | "MARIBANK";
+  paidOn: string;
+  note: string;
+}) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(
+    z.object({
+      customerId: z.string().uuid(),
+      cardsAmount: money,
+      shippingAmount: money,
+      method: z.enum(["GCASH", "MARIBANK"]),
+      paidOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the payment date."),
+      note: text(300),
+    }),
+    input,
+  );
+  if (v.cardsAmount + v.shippingAmount <= 0) throw new Error("Payment must be more than zero.");
+  const db = createAdminClient();
+  await assertOwned(db, "tracker_customers", v.customerId, admin.id, "Customer");
+  const base = { owner_id: admin.id, customer_id: v.customerId, method: v.method, paid_on: v.paidOn, note: v.note || null };
+  const rows = [
+    ...(v.cardsAmount > 0 ? [{ ...base, amount: v.cardsAmount, purpose: "CARDS" }] : []),
+    ...(v.shippingAmount > 0 ? [{ ...base, amount: v.shippingAmount, purpose: "SHIPPING" }] : []),
+  ];
+  const { error } = await db.from("tracker_payments").insert(rows);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
 export async function deletePayment(id: string) {
   const admin = await requireTrackerAdmin();
   const { error } = await createAdminClient().from("tracker_payments").delete().eq("id", id).eq("owner_id", admin.id);

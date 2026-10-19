@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState, useTransition } from "react";
-import { Check, ClipboardCopy, Pencil, Plus, QrCode, Trash2, Truck, UserPlus, X } from "lucide-react";
+import { Check, ClipboardCopy, Pencil, Plus, QrCode, Trash2, Truck, UserPlus, Wallet, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { addSale, createLive, deleteLive, deleteSale, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
+import { PayDialog } from "@/components/tracker/PayDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { buildInvoiceText } from "@/lib/tracker/invoice";
 import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
@@ -44,6 +45,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   const [editLiveOpen, setEditLiveOpen] = useState(false);
   const [liveDraft, setLiveDraft] = useState({ title: "", date: "" });
   // Which customer's parcel is being marked shipped from this screen, and which cards go in it.
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [shipping, setShipping] = useState<{ customerId: string; saleIds: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -558,6 +560,11 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                  {totals && totals.cardsTotal > 0 && totals.balance <= 0 && <Badge tone="available">Paid</Badge>}
+                  {totals && totals.prepaidShippingCredit > 0 && <Badge tone="gold">SF paid {formatCurrency(totals.prepaidShippingCredit)}</Badge>}
+                  <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setPayingId(g.customerId)}>
+                    <Wallet size={13} /> Record payment
+                  </Button>
                   {readyToShip.length > 0 ? (
                     <Button
                       variant="gold"
@@ -699,6 +706,19 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
           }}
           saleIds={shipping.saleIds}
           prepaidCredit={totalsByCustomer[shipping.customerId]?.prepaidShippingCredit ?? 0}
+          rates={settings}
+        />
+      )}
+      {payingId && customerById.get(payingId) && (
+        <PayDialog
+          open
+          onClose={() => setPayingId(null)}
+          customer={{
+            id: payingId,
+            name: customerById.get(payingId)!.name,
+            islandGroup: customerById.get(payingId)!.islandGroup,
+          }}
+          balance={totalsByCustomer[payingId]?.balance ?? 0}
           rates={settings}
         />
       )}
