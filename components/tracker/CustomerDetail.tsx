@@ -7,14 +7,13 @@ import { ArrowLeft, ClipboardCopy, Trash2, Truck, Undo2 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { Input, Textarea } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
+import { Input } from "@/components/ui/Input";
+import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { Select } from "@/components/ui/Select";
 import {
   deleteCustomer,
   deletePayment,
   deleteSale,
-  markShipped,
   recordPayment,
   saveCustomer,
   setSalesForShipping,
@@ -112,28 +111,12 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const unshipped = sales.filter((s) => s.shipmentId === null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(unshipped.filter((s) => s.forShipping).map((s) => s.id)));
   const [shipOpen, setShipOpen] = useState(false);
-  const [shipFee, setShipFee] = useState("");
-  const [shipNote, setShipNote] = useState("");
-  const defaultFee = shippingFeeFor(customer.islandGroup, settings);
   const selectedIds = unshipped.filter((s) => selected.has(s.id)).map((s) => s.id);
-  const feeNumber = Number(shipFee);
-  const feeValid = shipFee.trim() !== "" && Number.isFinite(feeNumber) && feeNumber >= 0;
-  const prepaidCovers = feeValid ? Math.min(totals.prepaidShippingCredit, feeNumber) : 0;
 
   const openShip = () => {
     if (selectedIds.length === 0) return setError("Tick the cards that are going in this parcel first.");
-    setShipFee(defaultFee === null ? "" : String(defaultFee));
-    setShipNote("");
     setError(null);
     setShipOpen(true);
-  };
-  const submitShip = () => {
-    if (!feeValid) return setError("Enter the shipping fee (use 0 to waive it).");
-    run(async () => {
-      await markShipped({ customerId: customer.id, saleIds: selectedIds, fee: feeNumber, note: shipNote });
-      setShipOpen(false);
-      setSelected(new Set());
-    });
   };
 
   const toggle = (id: string) =>
@@ -427,43 +410,15 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         </div>
       </section>
 
-      <Modal open={shipOpen} onClose={() => setShipOpen(false)} title="Mark parcel as shipped">
-        <div className="space-y-4">
-          <p className="text-sm text-foreground-muted">
-            {selectedIds.length} card{selectedIds.length === 1 ? "" : "s"} going out in one parcel to {customer.name}. One shipping fee is charged for the whole parcel.
-          </p>
-          {customer.islandGroup === null && (
-            <p className="rounded-lg border border-pending/30 bg-pending-bg px-3 py-2 text-sm text-pending">
-              No region saved for this customer, so the fee can&apos;t be worked out automatically. Enter it below, and set their region afterwards.
-            </p>
-          )}
-          <div>
-            <label className={label}>
-              Shipping fee{customer.islandGroup ? ` (${ISLAND_GROUP_LABELS[customer.islandGroup]})` : ""}
-            </label>
-            <Input type="number" inputMode="decimal" min={0} step="0.01" value={shipFee} onChange={(e) => setShipFee(e.target.value)} />
-            <p className="mt-1 text-xs text-foreground-muted">Use 0 to waive the fee.</p>
-          </div>
-          {totals.prepaidShippingCredit > 0 && feeValid && (
-            <p className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
-              Prepaid shipping on file: {formatCurrency(totals.prepaidShippingCredit)}. It covers {formatCurrency(prepaidCovers)} of this fee
-              {feeNumber - prepaidCovers > 0 ? ` - ${formatCurrency(feeNumber - prepaidCovers)} is added to what they owe.` : " - nothing extra is added to their balance."}
-            </p>
-          )}
-          <div>
-            <label className={label}>Note (courier, tracking...)</label>
-            <Textarea rows={2} value={shipNote} onChange={(e) => setShipNote(e.target.value)} maxLength={300} />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" type="button" onClick={() => setShipOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="gold" type="button" disabled={pending || !feeValid} onClick={submitShip}>
-              Confirm shipped
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <ShipDialog
+        open={shipOpen}
+        onClose={() => setShipOpen(false)}
+        onShipped={() => setSelected(new Set())}
+        customer={{ id: customer.id, name: customer.name, islandGroup: customer.islandGroup }}
+        saleIds={selectedIds}
+        prepaidCredit={totals.prepaidShippingCredit}
+        rates={settings}
+      />
     </div>
   );
 }

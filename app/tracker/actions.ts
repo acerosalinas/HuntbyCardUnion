@@ -83,6 +83,33 @@ export async function createLive(title: string, liveDate: string): Promise<strin
   return data.id as string;
 }
 
+/** Deletes a live together with every card entered in it. Customers and payments are untouched (balances simply drop by the removed cards). Blocked while any of its cards has shipped. */
+export async function deleteLive(liveId: string) {
+  const admin = await requireTrackerAdmin();
+  const id = parse(z.string().uuid(), liveId);
+  const db = createAdminClient();
+  await assertOwned(db, "tracker_lives", id, admin.id, "Live");
+
+  const { count: shipped, error: shippedError } = await db
+    .from("tracker_sales")
+    .select("id", { count: "exact", head: true })
+    .eq("live_id", id)
+    .eq("owner_id", admin.id)
+    .not("shipment_id", "is", null);
+  if (shippedError) throw new Error(shippedError.message);
+  if (shipped) {
+    throw new Error(
+      shipped + " card" + (shipped === 1 ? " in this live is" : "s in this live are") + " already marked shipped. Undo those shipments first (open the customer and press Undo under Parcels shipped).",
+    );
+  }
+
+  const { error: salesError } = await db.from("tracker_sales").delete().eq("live_id", id).eq("owner_id", admin.id);
+  if (salesError) throw new Error(salesError.message);
+  const { error } = await db.from("tracker_lives").delete().eq("id", id).eq("owner_id", admin.id);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
 export async function addSale(input: {
   liveId: string;
   customerName: string;

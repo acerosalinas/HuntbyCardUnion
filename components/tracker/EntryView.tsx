@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { addSale, createLive, deleteSale, setSalesForShipping, setSalesOwner } from "@/app/tracker/actions";
+import { addSale, createLive, deleteLive, deleteSale, setSalesForShipping, setSalesOwner } from "@/app/tracker/actions";
+import { ShipDialog } from "@/components/tracker/ShipDialog";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { buildInvoiceText } from "@/lib/tracker/invoice";
 import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
 import { shippingFeeFor } from "@/lib/tracker/regions";
@@ -35,6 +37,9 @@ interface Props {
 
 export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings }: Props) {
   const router = useRouter();
+  const confirm = useConfirm();
+  // Which customer's parcel is being marked shipped from this screen, and which cards go in it.
+  const [shipping, setShipping] = useState<{ customerId: string; saleIds: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -240,6 +245,28 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
           <Button variant="outline" type="button" onClick={() => setShowNewLive((v) => !v)}>
             <Plus size={14} /> New live
           </Button>
+          {live && (
+            <Button
+              variant="outline"
+              type="button"
+              disabled={pending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Delete this live?",
+                  message: `"${live.title}" and its ${sales.length} card${sales.length === 1 ? "" : "s"} (${formatCurrency(liveTotal)}) will be removed. Customers and payments stay, but those customers' balances go down by the removed cards. This can't be undone.`,
+                  confirmLabel: "Delete live",
+                  tone: "danger",
+                });
+                if (!ok) return;
+                run(async () => {
+                  await deleteLive(live.id);
+                  router.replace("/tracker");
+                });
+              }}
+            >
+              <Trash2 size={14} /> Delete live
+            </Button>
+          )}
         </div>
         {showNewLive && (
           <form onSubmit={submitLive} className="mt-3 flex flex-wrap items-end gap-3 border-t border-card-border pt-3">
@@ -454,6 +481,9 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
           {groups.map((g) => {
             const customer = customerById.get(g.customerId);
             const totals = totalsByCustomer[g.customerId];
+            // This live's for-shipping cards of this customer that haven't gone out yet (all of them, ignoring the owner filter).
+            const readyToShip = sales.filter((x) => x.customerId === g.customerId && x.forShipping && x.shipmentId === null);
+            const shippedCount = sales.filter((x) => x.customerId === g.customerId && x.shipmentId !== null).length;
             return (
               <div key={g.customerId} className="rounded-2xl border border-card-border bg-card">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-card-border px-4 py-3">
@@ -466,9 +496,27 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                       {totals && totals.balance > 0 && <> · owes {formatCurrency(totals.balance)} overall</>}
                     </span>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                  {readyToShip.length > 0 ? (
+                    <Button
+                      variant="gold"
+                      type="button"
+                      className="px-3 py-1.5"
+                      onClick={() => setShipping({ customerId: g.customerId, saleIds: readyToShip.map((x) => x.id) })}
+                    >
+                      <Truck size={13} /> Mark {readyToShip.length} shipped
+                    </Button>
+                  ) : (
+                    shippedCount > 0 && (
+                      <Badge tone="available">
+                        <Truck size={12} className="mr-1" /> {shippedCount} shipped
+                      </Badge>
+                    )
+                  )}
                   <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => copy(g.customerId, invoiceFor(g.customerId, sales.filter((x) => x.customerId === g.customerId)))}>
                     <ClipboardCopy size={13} /> {copiedKey === g.customerId ? "Copied!" : "Copy invoice"}
                   </Button>
+                  </div>
                 </div>
                 <ul className="divide-y divide-card-border">
                   {g.items.map((s) => {
@@ -530,6 +578,20 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             );
           })}
         </div>
+      )}
+      {shipping && customerById.get(shipping.customerId) && (
+        <ShipDialog
+          open
+          onClose={() => setShipping(null)}
+          customer={{
+            id: shipping.customerId,
+            name: customerById.get(shipping.customerId)!.name,
+            islandGroup: customerById.get(shipping.customerId)!.islandGroup,
+          }}
+          saleIds={shipping.saleIds}
+          prepaidCredit={totalsByCustomer[shipping.customerId]?.prepaidShippingCredit ?? 0}
+          rates={settings}
+        />
       )}
     </div>
   );
