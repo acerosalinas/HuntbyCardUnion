@@ -382,6 +382,17 @@ export async function recordPayments(input: {
   refresh();
 }
 
+/** Re-points a payment at a specific live (or null = general, settles the oldest cards first). The amount, method and date never change, so the payment history stays intact. */
+export async function setPaymentLive(paymentId: string, liveId: string | null) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ paymentId: z.string().uuid(), liveId: z.string().uuid().nullable() }), { paymentId, liveId });
+  const db = createAdminClient();
+  if (v.liveId) await assertOwned(db, "tracker_lives", v.liveId, admin.id, "Live");
+  const { error } = await db.from("tracker_payments").update({ live_id: v.liveId }).eq("id", v.paymentId).eq("owner_id", admin.id);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
 export async function deletePayment(id: string) {
   const admin = await requireTrackerAdmin();
   const { error } = await createAdminClient().from("tracker_payments").delete().eq("id", id).eq("owner_id", admin.id);

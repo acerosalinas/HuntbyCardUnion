@@ -15,6 +15,7 @@ import {
   deletePayment,
   deleteSale,
   recordPayment,
+  setPaymentLive,
   saveCustomer,
   setSalesForShipping,
   undoShipment,
@@ -331,7 +332,24 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 <span className="font-medium">{formatCurrency(p.amount)}</span>
                 <Badge tone="neutral">{p.method === "GCASH" ? "GCash" : "Maribank"}</Badge>
                 {p.purpose === "SHIPPING" && <Badge tone="gold">Shipping prepaid</Badge>}
-                {p.liveId && <Badge tone="neutral">{liveById.get(p.liveId)?.title ?? "Live"}</Badge>}
+                {p.purpose === "CARDS" && (
+                  <select
+                    aria-label="This payment applies to"
+                    value={p.liveId ?? ""}
+                    disabled={pending}
+                    onChange={(e) => run(() => setPaymentLive(p.id, e.target.value || null))}
+                    className="max-w-[10rem] truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
+                  >
+                    <option value="">Any (oldest first)</option>
+                    {lives
+                      .filter((l) => sales.some((x) => x.liveId === l.id) || l.id === p.liveId)
+                      .map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.title}
+                        </option>
+                      ))}
+                  </select>
+                )}
                 {p.note && <span className="min-w-0 flex-1 truncate text-foreground-muted">{p.note}</span>}
                 <button
                   type="button"

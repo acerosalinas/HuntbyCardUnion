@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { deletePayment, recordPayments } from "@/app/tracker/actions";
+import { deletePayment, recordPayments, setPaymentLive } from "@/app/tracker/actions";
+import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { TrackerLive, TrackerPayment } from "@/lib/tracker/data";
 import { ISLAND_GROUP_LABELS, IslandGroup, ShippingRates, shippingFeeFor } from "@/lib/tracker/regions";
@@ -37,7 +38,13 @@ interface Props {
   live: { id: string; title: string } | null;
   /** What's still unpaid on that live's order (null when unknown). */
   liveDue: number | null;
+  /** Still unpaid on the customer's other lives' cards. */
+  otherLivesDue: number;
+  /** Shipping fees already charged (parcels shipped) that haven't been paid. */
+  shippingUnpaid: number;
   lives: TrackerLive[];
+  /** Lives the customer actually has cards in - the choices when pointing a payment at a live. */
+  customerLiveIds: string[];
   /** This customer's payments, newest first - each can be undone here. */
   payments: TrackerPayment[];
 }
@@ -51,15 +58,18 @@ export function PayDialog(props: Props) {
   );
 }
 
-function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, lives }: Props) {
+function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, otherLivesDue, shippingUnpaid, lives, customerLiveIds }: Props) {
   const confirm = useConfirm();
+  const router = useRouter();
   const defaultFee = shippingFeeFor(customer.islandGroup, rates);
   // Customers often pay for one live only, so by default the payment is tied to this live's order.
   const [applyTo, setApplyTo] = useState<"LIVE" | "ANY">(live ? "LIVE" : "ANY");
   const initialDue = live && liveDue !== null ? liveDue : balance;
   const [cards, setCards] = useState(initialDue > 0 ? String(initialDue) : "");
-  const [withSf, setWithSf] = useState(false);
-  const [sf, setSf] = useState(defaultFee === null ? "" : String(defaultFee));
+  // A shipping fee that's been charged but not paid is the usual reason a customer still "owes" after their cards are settled,
+  // so it's pre-filled here instead of leaving it to be spotted.
+  const [withSf, setWithSf] = useState(shippingUnpaid > 0);
+  const [sf, setSf] = useState(shippingUnpaid > 0 ? String(shippingUnpaid) : defaultFee === null ? "" : String(defaultFee));
   const [method, setMethod] = useState<"GCASH" | "MARIBANK">("GCASH");
   const [paidOn, setPaidOn] = useState(todayLocal);
   const [note, setNote] = useState("");
@@ -82,8 +92,21 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
     startTransition(async () => {
       try {
         await deletePayment(p.id);
+        router.refresh();
       } catch (err) {
         setError(extractErrorMessage(err) ?? "Couldn't undo the payment.");
+      }
+    });
+  };
+
+  const reassign = (p: TrackerPayment, liveId: string) => {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await setPaymentLive(p.id, liveId || null);
+        router.refresh();
+      } catch (err) {
+        setError(extractErrorMessage(err) ?? "Couldn't change the payment.");
       }
     });
   };
@@ -108,17 +131,28 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
       <div className="space-y-1 text-sm text-foreground-muted">
         {live && liveDue !== null && (
           <p>
-            {live.title}: {liveDue > 0 ? <span className="font-semibold text-pending">{formatCurrency(liveDue)} unpaid</span> : <span className="font-semibold text-available">paid in full</span>}
+            {live.title} cards:{" "}
+            {liveDue > 0 ? <span className="font-semibold text-pending">{formatCurrency(liveDue)} unpaid</span> : <span className="font-semibold text-available">paid in full</span>}
+          </p>
+        )}
+        {otherLivesDue > 0 && (
+          <p>
+            Other lives: <span className="font-semibold text-pending">{formatCurrency(otherLivesDue)} unpaid</span>
+          </p>
+        )}
+        {shippingUnpaid > 0 && (
+          <p>
+            Shipping fees: <span className="font-semibold text-pending">{formatCurrency(shippingUnpaid)} unpaid</span>
           </p>
         )}
         <p>
-          Overall:{" "}
+          Total:{" "}
           {balance > 0 ? (
             <span className="font-semibold text-pending">owes {formatCurrency(balance)}</span>
           ) : balance < 0 ? (
             <span className="font-semibold text-available">credit {formatCurrency(-balance)}</span>
           ) : (
-            "nothing owed"
+            <span className="font-semibold text-available">nothing owed</span>
           )}
         </p>
       </div>
@@ -202,8 +236,25 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
                 <span className="text-xs text-foreground-muted">
                   {p.method === "GCASH" ? "GCash" : "Maribank"}
                   {p.purpose === "SHIPPING" && " · SF"}
-                  {p.liveId && " · " + (lives.find((l) => l.id === p.liveId)?.title ?? "live")}
                 </span>
+                {p.purpose === "CARDS" && (
+                  <select
+                    aria-label="This payment applies to"
+                    value={p.liveId ?? ""}
+                    disabled={pending}
+                    onChange={(e) => reassign(p, e.target.value)}
+                    className="max-w-[9rem] truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
+                  >
+                    <option value="">Any (oldest first)</option>
+                    {lives
+                      .filter((l) => customerLiveIds.includes(l.id) || l.id === p.liveId)
+                      .map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.title}
+                        </option>
+                      ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   disabled={pending}

@@ -800,7 +800,10 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             const b = liveId ? liveBreakdown[payingId]?.[liveId] : undefined;
             return b ? Math.max(0, b.cards - b.paid) : null;
           })()}
+          otherLivesDue={invoiceBalances(payingId, []).otherLivesDue}
+          shippingUnpaid={invoiceBalances(payingId, []).shippingUnpaid}
           lives={lives}
+          customerLiveIds={Object.keys(liveBreakdown[payingId] ?? {})}
           rates={settings}
           payments={payments.filter((p) => p.customerId === payingId)}
         />
