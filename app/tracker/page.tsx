@@ -20,6 +20,8 @@ export default async function TrackerEntryPage({ searchParams }: { searchParams:
       sales={data.sales.filter((s) => s.liveId === liveId)}
       totalsByCustomer={data.totalsByCustomer}
       settings={data.settings}
+      payments={data.payments}
+      liveBreakdown={data.liveBreakdown}
     />
   );
 }

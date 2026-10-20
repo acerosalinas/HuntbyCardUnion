@@ -204,10 +204,25 @@ export async function setSalesForShipping(ids: string[], forShipping: boolean) {
   const v = parse(z.object({ ids: z.array(z.string().uuid()).min(1).max(500), forShipping: z.boolean() }), { ids, forShipping });
   const { error } = await createAdminClient()
     .from("tracker_sales")
-    .update({ for_shipping: v.forShipping })
+    // A card that is going to be shipped can't also be "distributed", so flagging it for shipping clears that.
+    .update(v.forShipping ? { for_shipping: true, distributed_at: null } : { for_shipping: false })
     .in("id", v.ids)
     .eq("owner_id", admin.id)
     .is("shipment_id", null);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
+/** Marks cards handed over (or undoes it). Only for cards NOT flagged for shipping - those are completed by a shipment instead. */
+export async function setSalesDistributed(ids: string[], distributed: boolean) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ ids: z.array(z.string().uuid()).min(1).max(500), distributed: z.boolean() }), { ids, distributed });
+  const { error } = await createAdminClient()
+    .from("tracker_sales")
+    .update({ distributed_at: v.distributed ? new Date().toISOString() : null })
+    .in("id", v.ids)
+    .eq("owner_id", admin.id)
+    .eq("for_shipping", false);
   if (error) throw new Error(error.message);
   refresh();
 }
@@ -296,11 +311,14 @@ export async function recordPayment(input: {
   purpose: "CARDS" | "SHIPPING";
   paidOn: string;
   note: string;
+  /** The live this payment is for, or null/omitted = general. */
+  liveId?: string | null;
 }) {
   const admin = await requireTrackerAdmin();
   const v = parse(
     z.object({
       customerId: z.string().uuid(),
+      liveId: z.string().uuid().nullish(),
       amount: money.refine((n) => n > 0, "Payment must be more than zero."),
       method: z.enum(["GCASH", "MARIBANK"]),
       purpose: z.enum(["CARDS", "SHIPPING"]),
@@ -311,9 +329,11 @@ export async function recordPayment(input: {
   );
   const db = createAdminClient();
   await assertOwned(db, "tracker_customers", v.customerId, admin.id, "Customer");
+  if (v.liveId) await assertOwned(db, "tracker_lives", v.liveId, admin.id, "Live");
   const { error } = await db.from("tracker_payments").insert({
     owner_id: admin.id,
     customer_id: v.customerId,
+    live_id: v.liveId ?? null,
     amount: v.amount,
     method: v.method,
     purpose: v.purpose,
@@ -327,6 +347,8 @@ export async function recordPayment(input: {
 /** One payment, optionally "paid with SF": the cards part and the shipping-fee part are inserted in a single statement, so both save or neither does. */
 export async function recordPayments(input: {
   customerId: string;
+  /** The live this payment is for, or null = general (settles the oldest cards first). */
+  liveId: string | null;
   cardsAmount: number;
   shippingAmount: number;
   method: "GCASH" | "MARIBANK";
@@ -337,6 +359,7 @@ export async function recordPayments(input: {
   const v = parse(
     z.object({
       customerId: z.string().uuid(),
+      liveId: z.string().uuid().nullable(),
       cardsAmount: money,
       shippingAmount: money,
       method: z.enum(["GCASH", "MARIBANK"]),
@@ -348,7 +371,8 @@ export async function recordPayments(input: {
   if (v.cardsAmount + v.shippingAmount <= 0) throw new Error("Payment must be more than zero.");
   const db = createAdminClient();
   await assertOwned(db, "tracker_customers", v.customerId, admin.id, "Customer");
-  const base = { owner_id: admin.id, customer_id: v.customerId, method: v.method, paid_on: v.paidOn, note: v.note || null };
+  if (v.liveId) await assertOwned(db, "tracker_lives", v.liveId, admin.id, "Live");
+  const base = { owner_id: admin.id, customer_id: v.customerId, live_id: v.liveId, method: v.method, paid_on: v.paidOn, note: v.note || null };
   const rows = [
     ...(v.cardsAmount > 0 ? [{ ...base, amount: v.cardsAmount, purpose: "CARDS" }] : []),
     ...(v.shippingAmount > 0 ? [{ ...base, amount: v.shippingAmount, purpose: "SHIPPING" }] : []),

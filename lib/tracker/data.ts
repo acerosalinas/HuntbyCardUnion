@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeCustomerTotals, CustomerTotals } from "./money";
 import { IslandGroup, islandGroupForRegion } from "./regions";
-import { DEFAULT_OWNER_LABELS, OwnerLabel, normalizeOwnerTag } from "./split";
+import { DEFAULT_OWNER_LABELS, OwnerLabel, allocateCardPayments, liveBalances, normalizeOwnerTag } from "./split";
 
 export interface TrackerSettings {
   luzonFee: number;
@@ -53,6 +53,8 @@ export interface TrackerSale {
   /** Owner code ("A", "S", ...) or null when untagged. */
   ownerTag: string | null;
   shipmentId: string | null;
+  /** When a not-for-shipping card was handed over, or null. */
+  distributedAt: string | null;
   createdAt: string;
 }
 export interface TrackerPayment {
@@ -61,6 +63,8 @@ export interface TrackerPayment {
   amount: number;
   method: "GCASH" | "MARIBANK";
   purpose: "CARDS" | "SHIPPING";
+  /** The live this payment was made for, or null = general (settles the oldest cards first). */
+  liveId: string | null;
   paidOn: string;
   note: string | null;
 }
@@ -82,6 +86,8 @@ export interface TrackerData {
   payments: TrackerPayment[];
   shipments: TrackerShipment[];
   totalsByCustomer: Record<string, CustomerTotals>;
+  /** Per customer, per live: what that live's order is worth and how much of it is paid (payments made for a live count there first). */
+  liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
 }
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
@@ -177,6 +183,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     forShipping: r.for_shipping as boolean,
     ownerTag: normalizeOwnerTag(r.owner_tag as string | null | undefined),
     shipmentId: (r.shipment_id as string | null) ?? null,
+    distributedAt: (r.distributed_at as string | null | undefined) ?? null,
     createdAt: r.created_at as string,
   }));
   const payments: TrackerPayment[] = paymentRows.map((r) => ({
@@ -185,6 +192,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     amount: Number(r.amount),
     method: r.method as TrackerPayment["method"],
     purpose: r.purpose as TrackerPayment["purpose"],
+    liveId: (r.live_id as string | null | undefined) ?? null,
     paidOn: r.paid_on as string,
     note: (r.note as string | null) ?? null,
   }));
@@ -201,11 +209,22 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
   const totalsByCustomer: Record<string, CustomerTotals> = {};
   for (const c of customers) {
     totalsByCustomer[c.id] = computeCustomerTotals(
-      sales.filter((x) => x.customerId === c.id).map((x) => ({ amount: x.amount, liveId: x.liveId, forShipping: x.forShipping, shipped: x.shipmentId !== null })),
+      sales.filter((x) => x.customerId === c.id).map((x) => ({ amount: x.amount, liveId: x.liveId, forShipping: x.forShipping, shipped: x.shipmentId !== null, distributed: x.distributedAt !== null })),
       payments.filter((x) => x.customerId === c.id),
       shipments.filter((x) => x.customerId === c.id),
     );
   }
 
-  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer };
+  const liveDateById = new Map(lives.map((l) => [l.id, l.liveDate]));
+  const splitSales = sales.map((x) => ({
+    id: x.id,
+    customerId: x.customerId,
+    liveId: x.liveId,
+    amount: x.amount,
+    ownerTag: x.ownerTag,
+    order: `${liveDateById.get(x.liveId) ?? ""}|${x.createdAt}`,
+  }));
+  const liveBreakdown = liveBalances(splitSales, allocateCardPayments(splitSales, payments));
+
+  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown };
 }

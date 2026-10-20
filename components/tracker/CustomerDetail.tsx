@@ -95,13 +95,13 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
     addr.street !== (customer.street ?? "");
 
   // ---- Payment form ----
-  const [pay, setPay] = useState({ amount: "", method: "GCASH" as "GCASH" | "MARIBANK", purpose: "CARDS" as "CARDS" | "SHIPPING", paidOn: todayLocal(), note: "" });
+  const [pay, setPay] = useState({ liveId: "", amount: "", method: "GCASH" as "GCASH" | "MARIBANK", purpose: "CARDS" as "CARDS" | "SHIPPING", paidOn: todayLocal(), note: "" });
   const submitPayment = (e: FormEvent) => {
     e.preventDefault();
     const amount = Number(pay.amount);
     if (!Number.isFinite(amount) || amount <= 0) return setError("Enter a payment amount above zero.");
     run(async () => {
-      await recordPayment({ customerId: customer.id, amount, method: pay.method, purpose: pay.purpose, paidOn: pay.paidOn, note: pay.note });
+      await recordPayment({ customerId: customer.id, liveId: pay.liveId || null, amount, method: pay.method, purpose: pay.purpose, paidOn: pay.paidOn, note: pay.note });
       setPay((p) => ({ ...p, amount: "", note: "" }));
     });
   };
@@ -277,6 +277,19 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       <section className={panel}>
         <h3 className="mb-3 font-semibold">Payments</h3>
         <form onSubmit={submitPayment} className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+          <div className="col-span-2 sm:col-span-1">
+            <label className={label}>For live</label>
+            <Select value={pay.liveId} onChange={(e) => setPay({ ...pay, liveId: e.target.value })}>
+              <option value="">Any (oldest first)</option>
+              {lives
+                .filter((l) => sales.some((s) => s.liveId === l.id))
+                .map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.title}
+                  </option>
+                ))}
+            </Select>
+          </div>
           <div className="col-span-1">
             <label className={label}>Amount</label>
             <Input type="number" inputMode="decimal" min={0} step="0.01" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} placeholder="0" />
@@ -318,6 +331,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 <span className="font-medium">{formatCurrency(p.amount)}</span>
                 <Badge tone="neutral">{p.method === "GCASH" ? "GCash" : "Maribank"}</Badge>
                 {p.purpose === "SHIPPING" && <Badge tone="gold">Shipping prepaid</Badge>}
+                {p.liveId && <Badge tone="neutral">{liveById.get(p.liveId)?.title ?? "Live"}</Badge>}
                 {p.note && <span className="min-w-0 flex-1 truncate text-foreground-muted">{p.note}</span>}
                 <button
                   type="button"

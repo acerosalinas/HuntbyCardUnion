@@ -8,6 +8,7 @@ const links = [
   { href: "/tracker/dashboard", label: "Dashboard", exact: false },
   { href: "/tracker", label: "Enter Sales", exact: true },
   { href: "/tracker/customers", label: "Customers & Balances", exact: false },
+  { href: "/tracker/distribution", label: "Distribution", exact: false },
   { href: "/tracker/settings", label: "Settings", exact: false },
 ];
 

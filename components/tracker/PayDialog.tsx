@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { recordPayments } from "@/app/tracker/actions";
+import { deletePayment, recordPayments } from "@/app/tracker/actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import type { TrackerLive, TrackerPayment } from "@/lib/tracker/data";
 import { ISLAND_GROUP_LABELS, IslandGroup, ShippingRates, shippingFeeFor } from "@/lib/tracker/regions";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 
@@ -30,6 +33,13 @@ interface Props {
   /** What the customer owes right now (negative = credit). Pre-fills the amount. */
   balance: number;
   rates: ShippingRates;
+  /** The live whose order this is, so the payment can be tied to it - or null when opened without one. */
+  live: { id: string; title: string } | null;
+  /** What's still unpaid on that live's order (null when unknown). */
+  liveDue: number | null;
+  lives: TrackerLive[];
+  /** This customer's payments, newest first - each can be undone here. */
+  payments: TrackerPayment[];
 }
 
 /** Records one payment - optionally together with the shipping fee ("paid with SF"), saved as a cards part and a prepaid-shipping part in a single step. */
@@ -41,9 +51,13 @@ export function PayDialog(props: Props) {
   );
 }
 
-function PayDialogBody({ onClose, customer, balance, rates }: Props) {
+function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, lives }: Props) {
+  const confirm = useConfirm();
   const defaultFee = shippingFeeFor(customer.islandGroup, rates);
-  const [cards, setCards] = useState(balance > 0 ? String(balance) : "");
+  // Customers often pay for one live only, so by default the payment is tied to this live's order.
+  const [applyTo, setApplyTo] = useState<"LIVE" | "ANY">(live ? "LIVE" : "ANY");
+  const initialDue = live && liveDue !== null ? liveDue : balance;
+  const [cards, setCards] = useState(initialDue > 0 ? String(initialDue) : "");
   const [withSf, setWithSf] = useState(false);
   const [sf, setSf] = useState(defaultFee === null ? "" : String(defaultFee));
   const [method, setMethod] = useState<"GCASH" | "MARIBANK">("GCASH");
@@ -56,6 +70,24 @@ function PayDialogBody({ onClose, customer, balance, rates }: Props) {
   const sfAmount = withSf && sf.trim() !== "" ? Number(sf) : 0;
   const total = (Number.isFinite(cardsAmount) ? cardsAmount : 0) + (Number.isFinite(sfAmount) ? sfAmount : 0);
 
+  const undo = async (p: TrackerPayment) => {
+    const ok = await confirm({
+      title: "Undo this payment?",
+      message: `${formatCurrency(p.amount)} ${p.method === "GCASH" ? "GCash" : "Maribank"} on ${p.paidOn}${p.purpose === "SHIPPING" ? " (shipping fee)" : ""} will be removed and ${customer.name}'s balance goes back up.`,
+      confirmLabel: "Undo payment",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await deletePayment(p.id);
+      } catch (err) {
+        setError(extractErrorMessage(err) ?? "Couldn't undo the payment.");
+      }
+    });
+  };
+
   const submit = () => {
     if (!Number.isFinite(cardsAmount) || cardsAmount < 0) return setError("Enter a valid amount for the cards.");
     if (withSf && (!Number.isFinite(sfAmount) || sfAmount <= 0)) return setError("Enter the shipping fee amount, or untick Paid with SF.");
@@ -63,7 +95,7 @@ function PayDialogBody({ onClose, customer, balance, rates }: Props) {
     setError(null);
     startTransition(async () => {
       try {
-        await recordPayments({ customerId: customer.id, cardsAmount, shippingAmount: sfAmount, method, paidOn, note });
+        await recordPayments({ customerId: customer.id, liveId: applyTo === "LIVE" && live ? live.id : null, cardsAmount, shippingAmount: sfAmount, method, paidOn, note });
         onClose();
       } catch (err) {
         setError(extractErrorMessage(err) ?? "Couldn't record the payment.");
@@ -73,28 +105,55 @@ function PayDialogBody({ onClose, customer, balance, rates }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-foreground-muted">
-        {balance > 0 ? (
-          <>
-            Currently owes <span className="font-semibold text-pending">{formatCurrency(balance)}</span>.
-          </>
-        ) : balance < 0 ? (
-          <>
-            Currently has a credit of <span className="font-semibold text-available">{formatCurrency(-balance)}</span>.
-          </>
-        ) : (
-          "Nothing owed right now."
+      <div className="space-y-1 text-sm text-foreground-muted">
+        {live && liveDue !== null && (
+          <p>
+            {live.title}: {liveDue > 0 ? <span className="font-semibold text-pending">{formatCurrency(liveDue)} unpaid</span> : <span className="font-semibold text-available">paid in full</span>}
+          </p>
         )}
-      </p>
+        <p>
+          Overall:{" "}
+          {balance > 0 ? (
+            <span className="font-semibold text-pending">owes {formatCurrency(balance)}</span>
+          ) : balance < 0 ? (
+            <span className="font-semibold text-available">credit {formatCurrency(-balance)}</span>
+          ) : (
+            "nothing owed"
+          )}
+        </p>
+      </div>
+
+      {live && (
+        <div>
+          <label className={label}>This payment is for</label>
+          <Select
+            value={applyTo}
+            onChange={(e) => {
+              const next = e.target.value as "LIVE" | "ANY";
+              setApplyTo(next);
+              const due = next === "LIVE" && liveDue !== null ? liveDue : balance;
+              setCards(due > 0 ? String(due) : "");
+            }}
+          >
+            <option value="LIVE">{live.title} only</option>
+            <option value="ANY">Whole balance (settles the oldest first)</option>
+          </Select>
+        </div>
+      )}
 
       <div>
         <div className="mb-1 flex items-center justify-between">
           <label className={label}>Amount paid for cards</label>
-          {balance > 0 && (
-            <button type="button" onClick={() => setCards(String(balance))} className="text-xs text-gold hover:underline">
-              Paid in full ({formatCurrency(balance)})
-            </button>
-          )}
+          {(() => {
+            const due = applyTo === "LIVE" && liveDue !== null ? liveDue : balance;
+            return (
+              due > 0 && (
+                <button type="button" onClick={() => setCards(String(due))} className="text-xs text-gold hover:underline">
+                  Paid in full ({formatCurrency(due)})
+                </button>
+              )
+            );
+          })()}
         </div>
         <Input inputMode="decimal" value={cards} onChange={(e) => setCards(cleanAmount(e.target.value))} placeholder="0" autoFocus />
       </div>
@@ -131,6 +190,33 @@ function PayDialogBody({ onClose, customer, balance, rates }: Props) {
         <label className={label}>Note (optional)</label>
         <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
       </div>
+
+      {payments.length > 0 && (
+        <div className="border-t border-card-border pt-3">
+          <h4 className="mb-1.5 text-xs font-medium uppercase tracking-wide text-foreground-muted">Payments so far</h4>
+          <ul className="max-h-40 divide-y divide-card-border overflow-y-auto text-sm">
+            {payments.map((p) => (
+              <li key={p.id} className="flex items-center gap-2 py-1.5">
+                <span className="w-20 shrink-0 text-xs text-foreground-muted">{p.paidOn}</span>
+                <span className="font-medium">{formatCurrency(p.amount)}</span>
+                <span className="text-xs text-foreground-muted">
+                  {p.method === "GCASH" ? "GCash" : "Maribank"}
+                  {p.purpose === "SHIPPING" && " · SF"}
+                  {p.liveId && " · " + (lives.find((l) => l.id === p.liveId)?.title ?? "live")}
+                </span>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => undo(p)}
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-card-border px-2 py-0.5 text-xs text-foreground-muted hover:border-sold/50 hover:text-sold disabled:opacity-40"
+                >
+                  <Undo2 size={12} /> Undo
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && <p className="text-sm text-sold">{error}</p>}
       <div className="flex items-center justify-between gap-2">

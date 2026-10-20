@@ -46,7 +46,7 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
         ownerTag: x.ownerTag,
         order: `${liveDateById.get(x.liveId) ?? ""}|${x.createdAt}`,
       })),
-      payments: data.payments.map((p) => ({ customerId: p.customerId, amount: p.amount, method: p.method, purpose: p.purpose, paidOn: p.paidOn })),
+      payments: data.payments.map((p) => ({ customerId: p.customerId, amount: p.amount, method: p.method, purpose: p.purpose, paidOn: p.paidOn, liveId: p.liveId })),
       ownerLabels: data.settings.ownerLabels,
       shipments: data.shipments,
       totalsByCustomer: data.totalsByCustomer,

@@ -94,11 +94,14 @@ function invoice(overrides: Partial<InvoiceInput> = {}): InvoiceInput {
     { cardName: "Charizard ex", amount: 1500 },
     { cardName: "Pikachu VMAX", amount: 800 },
   ];
-  return {
+  const base = {
     customerName: "Maria",
     liveTitle: "Oct 19 live",
     cards,
     totals: computeCustomerTotals([sale(1500), sale(800)], [], []),
+    livePaid: 0,
+    otherLivesDue: 0,
+    shippingUnpaid: 0,
     shippingFee: null,
     islandGroup: null,
     address: null,
@@ -106,6 +109,8 @@ function invoice(overrides: Partial<InvoiceInput> = {}): InvoiceInput {
     paymentInstructions: "GCash 0900",
     ...overrides,
   };
+  // By default this live's shipping need follows the customer's totals, as when there's only one live.
+  return { ...base, awaitingShipThisLive: overrides.awaitingShipThisLive ?? base.totals.awaitingShipCount };
 }
 
 test("invoice: simple live, no shipping", () => {
@@ -116,24 +121,32 @@ test("invoice: simple live, no shipping", () => {
 });
 
 test("invoice: previous balance carries over from earlier lives", () => {
-  const totals = computeCustomerTotals([sale(500, "L0"), sale(1500), sale(800)], [], []);
-  const b = computeInvoice(invoice({ totals }));
+  const b = computeInvoice(invoice({ otherLivesDue: 500 }));
   assert.equal(b.previousBalance, 500);
   assert.equal(b.totalToPay, 2800);
 });
 
-test("invoice: payments settle the oldest balance first", () => {
-  const totals = computeCustomerTotals([sale(500, "L0"), sale(1500), sale(800)], [{ amount: 500, purpose: "CARDS" }], []);
-  const b = computeInvoice(invoice({ totals }));
-  assert.equal(b.previousBalance, 0);
-  assert.equal(b.totalToPay, 2300);
+test("invoice: unpaid shipping fees from parcels already sent are added to the previous balance", () => {
+  const b = computeInvoice(invoice({ otherLivesDue: 500, shippingUnpaid: 64 }));
+  assert.equal(b.previousBalance, 564);
+  assert.equal(b.totalToPay, 2864);
 });
 
-test("invoice: money already paid reduces this live's total", () => {
-  const totals = computeCustomerTotals([sale(1500), sale(800)], [{ amount: 1000, purpose: "CARDS" }], []);
-  const b = computeInvoice(invoice({ totals }));
+test("invoice: money already paid for this live reduces its total", () => {
+  const b = computeInvoice(invoice({ livePaid: 1000 }));
   assert.equal(b.paymentsApplied, 1000);
   assert.equal(b.totalToPay, 1300);
+});
+
+test("invoice: a fully paid live with nothing else owed comes to zero", () => {
+  const b = computeInvoice(invoice({ livePaid: 2300 }));
+  assert.equal(b.totalToPay, 0);
+});
+
+test("invoice: other lives can still be owed while this live is paid", () => {
+  const b = computeInvoice(invoice({ livePaid: 2300, otherLivesDue: 400 }));
+  assert.equal(b.paymentsApplied, 2300);
+  assert.equal(b.totalToPay, 400);
 });
 
 test("invoice: shipping fee added once when cards are for shipping", () => {
@@ -185,7 +198,7 @@ test("invoice text: address only when shipping applies and enabled", () => {
 });
 
 import { computeDashboard, inRange } from "../../lib/tracker/dashboard";
-import { DEFAULT_OWNER_LABELS, liveSplit, normalizeOwnerTag, paidPerSale, SplitSale } from "../../lib/tracker/split";
+import { allocateCardPayments, DEFAULT_OWNER_LABELS, liveBalances, liveSplit, normalizeOwnerTag, SplitPayment, SplitSale } from "../../lib/tracker/split";
 
 test("dashboard: range-based figures follow the date range, outstanding does not", () => {
   const lives = [
@@ -198,8 +211,8 @@ test("dashboard: range-based figures follow the date range, outstanding does not
     { id: "s3", customerId: "c2", liveId: "b", amount: 300, ownerTag: null, order: "2026-10-18|2" },
   ];
   const payments = [
-    { customerId: "c1", amount: 400, method: "GCASH" as const, purpose: "CARDS" as const, paidOn: "2026-09-05" },
-    { customerId: "c2", amount: 100, method: "MARIBANK" as const, purpose: "CARDS" as const, paidOn: "2026-10-19" },
+    { customerId: "c1", amount: 400, method: "GCASH" as const, purpose: "CARDS" as const, paidOn: "2026-09-05", liveId: null },
+    { customerId: "c2", amount: 100, method: "MARIBANK" as const, purpose: "CARDS" as const, paidOn: "2026-10-19", liveId: null },
   ];
   const customers = [
     { id: "c1", name: "Ana", islandGroup: null },
@@ -244,34 +257,71 @@ test("owner tags are normalised", () => {
   assert.equal(normalizeOwnerTag(null), null);
 });
 
+const pay = (customerId: string, amount: number, liveId: string | null = null, purpose: "CARDS" | "SHIPPING" = "CARDS"): SplitPayment => ({
+  customerId,
+  amount,
+  liveId,
+  purpose,
+});
+const paidOf = (sales: SplitSale[], payments: SplitPayment[]) => allocateCardPayments(sales, payments);
+
 test("split: expected per owner is the sum of that owner's cards in the live", () => {
   const sales = [sp("1", "c1", "L", 1000, "A", "1"), sp("2", "c1", "L", 500, "S", "2"), sp("3", "c2", "L", 245, "A", "3"), sp("4", "c2", "OTHER", 999, "A", "4")];
-  const split = liveSplit("L", sales, paidPerSale(sales, {}), DEFAULT_OWNER_LABELS);
+  const split = liveSplit("L", sales, paidOf(sales, []), DEFAULT_OWNER_LABELS);
   assert.equal(split.rows.find((r) => r.code === "A")?.expected, 1245);
   assert.equal(split.rows.find((r) => r.code === "S")?.expected, 500);
   assert.equal(split.expectedTotal, 1745);
   assert.equal(split.actualTotal, 0);
 });
 
-test("split: payments settle a customer's oldest cards first", () => {
+test("split: general payments settle a customer's oldest cards first", () => {
   // c1 bought 1000 (A, older) then 500 (S, newer) and paid 1200 -> the A card is fully paid, 200 lands on the S card.
   const sales = [sp("1", "c1", "L", 1000, "A", "1"), sp("2", "c1", "L", 500, "S", "2")];
-  const split = liveSplit("L", sales, paidPerSale(sales, { c1: 1200 }), DEFAULT_OWNER_LABELS);
+  const split = liveSplit("L", sales, paidOf(sales, [pay("c1", 1200)]), DEFAULT_OWNER_LABELS);
   assert.equal(split.rows.find((r) => r.code === "A")?.actual, 1000);
   assert.equal(split.rows.find((r) => r.code === "S")?.actual, 200);
   assert.equal(split.actualTotal, 1200);
 });
 
-test("split: an older live is paid before the newer one", () => {
+test("split: a general payment clears the older live before the newer one", () => {
   const sales = [sp("old", "c1", "L1", 300, "A", "2026-09-01"), sp("new", "c1", "L2", 300, "A", "2026-10-01")];
-  const paid = paidPerSale(sales, { c1: 300 });
+  const paid = paidOf(sales, [pay("c1", 300)]);
   assert.equal(paid.get("old"), 300);
   assert.equal(paid.get("new"), 0);
 });
 
+test("payments for a specific live settle THAT live, not the older one", () => {
+  const sales = [sp("old", "c1", "L1", 300, "A", "2026-09-01"), sp("new", "c1", "L2", 300, "A", "2026-10-01")];
+  const paid = paidOf(sales, [pay("c1", 300, "L2")]);
+  assert.equal(paid.get("new"), 300);
+  assert.equal(paid.get("old"), 0);
+  const balances = liveBalances(sales, paid);
+  assert.deepEqual(balances.c1.L1, { cards: 300, paid: 0 });
+  assert.deepEqual(balances.c1.L2, { cards: 300, paid: 300 });
+});
+
+test("a live-specific payment bigger than that live spills onto the oldest unpaid cards", () => {
+  const sales = [sp("old", "c1", "L1", 300, "A", "2026-09-01"), sp("new", "c1", "L2", 100, "A", "2026-10-01")];
+  const paid = paidOf(sales, [pay("c1", 250, "L2")]);
+  assert.equal(paid.get("new"), 100);
+  assert.equal(paid.get("old"), 150);
+});
+
+test("a partial payment for a live leaves that live partly unpaid", () => {
+  const sales = [sp("a", "c1", "L2", 300, "A", "2026-10-01"), sp("b", "c1", "L2", 200, "S", "2026-10-01|2")];
+  const balances = liveBalances(sales, paidOf(sales, [pay("c1", 350, "L2")]));
+  assert.deepEqual(balances.c1.L2, { cards: 500, paid: 350 });
+});
+
+test("shipping-fee payments never reduce what's owed for cards", () => {
+  const sales = [sp("a", "c1", "L", 300, "A", "1")];
+  assert.equal(paidOf(sales, [pay("c1", 64, null, "SHIPPING")]).get("a"), 0);
+  assert.equal(paidOf(sales, [pay("c1", 64, "L", "SHIPPING")]).get("a"), 0);
+});
+
 test("split: overpayment never exceeds the card total; untagged cards get an Unassigned row", () => {
   const sales = [sp("1", "c1", "L", 100, null, "1")];
-  const split = liveSplit("L", sales, paidPerSale(sales, { c1: 500 }), DEFAULT_OWNER_LABELS);
+  const split = liveSplit("L", sales, paidOf(sales, [pay("c1", 500)]), DEFAULT_OWNER_LABELS);
   const unassigned = split.rows.find((r) => r.code === null);
   assert.equal(unassigned?.expected, 100);
   assert.equal(unassigned?.actual, 100);
@@ -281,7 +331,7 @@ test("split: overpayment never exceeds the card total; untagged cards get an Una
 
 test("split: a tag that isn't in the labels still shows up under its own code", () => {
   const sales = [sp("1", "c1", "L", 100, "Z", "1")];
-  const split = liveSplit("L", sales, paidPerSale(sales, {}), DEFAULT_OWNER_LABELS);
+  const split = liveSplit("L", sales, paidOf(sales, []), DEFAULT_OWNER_LABELS);
   assert.equal(split.rows.find((r) => r.code === "Z")?.expected, 100);
 });
 
@@ -292,4 +342,19 @@ test("invoice text: QR links appended only when set", () => {
   assert.match(withQr, /Maribank QR: https:\/\/img\.example\/m\.png/);
   assert.doesNotMatch(buildInvoiceText(invoice()), /Scan to pay/);
   assert.doesNotMatch(buildInvoiceText(invoice({ qrLinks: [{ label: "GCash", url: "" }] })), /Scan to pay/);
+});
+
+test("distribution counts: hand-over cards are tracked separately from shipping cards", () => {
+  const t = computeCustomerTotals(
+    [
+      { amount: 100, liveId: "L1", forShipping: false, shipped: false, distributed: false },
+      { amount: 100, liveId: "L1", forShipping: false, shipped: false, distributed: true },
+      { amount: 100, liveId: "L1", forShipping: true, shipped: false },
+    ],
+    [],
+    [],
+  );
+  assert.equal(t.toDistributeCount, 1);
+  assert.equal(t.distributedCount, 1);
+  assert.equal(t.awaitingShipCount, 1);
 });

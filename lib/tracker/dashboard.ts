@@ -1,7 +1,7 @@
 import { round2, sum } from "./money";
 import type { CustomerTotals } from "./money";
 import type { IslandGroup } from "./regions";
-import { LiveSplit, OwnerLabel, SplitSale, liveSplit, paidPerSale } from "./split";
+import { LiveSplit, OwnerLabel, SplitSale, allocateCardPayments, liveSplit } from "./split";
 
 export interface DateRange {
   /** Inclusive YYYY-MM-DD; undefined = open-ended. */
@@ -13,7 +13,7 @@ export interface DashboardInput {
   customers: { id: string; name: string; islandGroup: IslandGroup | null }[];
   lives: { id: string; title: string; liveDate: string }[];
   sales: SplitSale[];
-  payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string }[];
+  payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string; liveId: string | null }[];
   ownerLabels: OwnerLabel[];
   shipments: { fee: number; shippedOn: string }[];
   totalsByCustomer: Record<string, CustomerTotals>;
@@ -68,11 +68,7 @@ export function computeDashboard(input: DashboardInput, range: DateRange): Dashb
     })
     .sort((a, b) => a.liveDate.localeCompare(b.liveDate));
 
-  const cardPaid: Record<string, number> = {};
-  for (const p of input.payments) {
-    if (p.purpose === "CARDS") cardPaid[p.customerId] = sum([cardPaid[p.customerId] ?? 0, p.amount]);
-  }
-  const paid = paidPerSale(input.sales, cardPaid);
+  const paid = allocateCardPayments(input.sales, input.payments);
   const splitPerLive = [...livesInRange]
     .sort((a, b) => b.liveDate.localeCompare(a.liveDate))
     .map((l) => ({ id: l.id, title: l.title, liveDate: l.liveDate, ...liveSplit(l.id, input.sales, paid, input.ownerLabels) }));

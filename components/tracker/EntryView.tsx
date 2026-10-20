@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { addSale, createLive, deleteLive, deleteSale, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
+import { addSale, createLive, deleteLive, deleteSale, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -17,7 +17,7 @@ import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
 import { shippingFeeFor } from "@/lib/tracker/regions";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { CustomerTotals } from "@/lib/tracker/money";
-import type { TrackerCustomer, TrackerLive, TrackerSale, TrackerSettings } from "@/lib/tracker/data";
+import type { TrackerCustomer, TrackerLive, TrackerPayment, TrackerSale, TrackerSettings } from "@/lib/tracker/data";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 function todayLocal(): string {
@@ -34,9 +34,13 @@ interface Props {
   sales: TrackerSale[];
   totalsByCustomer: Record<string, CustomerTotals>;
   settings: TrackerSettings;
+  /** Every payment of the ledger; the Record payment dialog shows the selected customer's. */
+  payments: TrackerPayment[];
+  /** Per customer, per live: cards and how much is paid (payments made for a live count there first). */
+  liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
 }
 
-export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings }: Props) {
+export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   // Editing a card in place, and editing the live's title/date.
@@ -54,7 +58,9 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   const [customerName, setCustomerName] = useState("");
   const [cardName, setCardName] = useState("");
   const [amount, setAmount] = useState("");
-  const [forShipping, setForShipping] = useState(false);
+  // "For shipping" follows the customer's existing order in this live (an order ships or doesn't, as a whole);
+  // an explicit tick applies only to the name it was made for, so switching customers never carries it over.
+  const [forShippingOverride, setForShippingOverride] = useState<{ key: string; value: boolean } | null>(null);
   // "ALL" | "NONE" (untagged) | an owner code
   const [ownerFilter, setOwnerFilter] = useState<string>("ALL");
   const cardRef = useRef<HTMLInputElement>(null);
@@ -73,6 +79,10 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     [customers, customerName],
   );
   const matchedTotals = matched ? totalsByCustomer[matched.id] : null;
+  const nameKey = customerName.trim().toLowerCase();
+  const matchedOrder = matched ? sales.filter((x) => x.customerId === matched.id && x.shipmentId === null) : [];
+  const autoForShipping = matchedOrder.length > 0 && matchedOrder.some((x) => x.forShipping);
+  const forShipping = forShippingOverride && forShippingOverride.key === nameKey ? forShippingOverride.value : autoForShipping;
 
   // Saved customers matching what's typed: names starting with it first, then names containing it. An exact match needs no suggestion.
   const suggestions = useMemo(() => {
@@ -220,6 +230,20 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
   };
 
+  // What the invoice needs beyond the customer's totals: how much of THIS live is already paid, what's still owed on their other lives, and any unpaid shipping fees.
+  const invoiceBalances = (customerId: string, items: TrackerSale[]) => {
+    const byLive = liveBreakdown[customerId] ?? {};
+    const totals = totalsByCustomer[customerId];
+    return {
+      livePaid: liveId ? (byLive[liveId]?.paid ?? 0) : 0,
+      otherLivesDue: Object.entries(byLive)
+        .filter(([id]) => id !== liveId)
+        .reduce((sum, [, b]) => sum + Math.max(0, b.cards - b.paid), 0),
+      shippingUnpaid: totals ? Math.max(0, totals.shippingCharged - totals.shippingPaid) : 0,
+      awaitingShipThisLive: items.filter((i) => i.forShipping && i.shipmentId === null).length,
+    };
+  };
+
   const invoiceFor = (customerId: string, items: TrackerSale[]): string | null => {
     const customer = customerById.get(customerId);
     const totals = totalsByCustomer[customerId];
@@ -229,6 +253,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
       liveTitle: live.title,
       cards: items.map((i) => ({ cardName: i.cardName, amount: i.amount })),
       totals,
+      ...invoiceBalances(customerId, items),
       shippingFee: shippingFeeFor(customer.islandGroup, settings),
       islandGroup: customer.islandGroup,
       address: customer.address,
@@ -435,7 +460,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                 <input
                   type="checkbox"
                   checked={forShipping}
-                  onChange={(e) => setForShipping(e.target.checked)}
+                  onChange={(e) => setForShippingOverride({ key: nameKey, value: e.target.checked })}
                   className="h-4 w-4 rounded border-card-border accent-gold"
                 />
                 For shipping
@@ -547,6 +572,13 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             // This live's for-shipping cards of this customer that haven't gone out yet (all of them, ignoring the owner filter).
             const readyToShip = sales.filter((x) => x.customerId === g.customerId && x.forShipping && x.shipmentId === null);
             const shippedCount = sales.filter((x) => x.customerId === g.customerId && x.shipmentId !== null).length;
+            // The whole order (all of this customer's cards in this live) - shipping and handing over are decided per order, not per card.
+            const orderCards = sales.filter((x) => x.customerId === g.customerId);
+            const unshippedCards = orderCards.filter((x) => x.shipmentId === null);
+            const shipWholeOrder = unshippedCards.length > 0 && unshippedCards.every((x) => x.forShipping);
+            const toHandOver = unshippedCards.filter((x) => !x.forShipping && x.distributedAt === null);
+            const livePay = liveId ? liveBreakdown[g.customerId]?.[liveId] : undefined;
+            const liveDue = livePay ? Math.max(0, livePay.cards - livePay.paid) : g.subtotal;
             return (
               <div key={g.customerId} className="rounded-2xl border border-card-border bg-card">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-card-border px-4 py-3">
@@ -560,7 +592,49 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                  {totals && totals.cardsTotal > 0 && totals.balance <= 0 && <Badge tone="available">Paid</Badge>}
+                  {livePay && liveDue <= 0 && <Badge tone="available">Paid</Badge>}
+                  {livePay && liveDue > 0 && livePay.paid > 0 && (
+                    <Badge tone="pending">
+                      Paid {formatCurrency(livePay.paid)} · {formatCurrency(liveDue)} left
+                    </Badge>
+                  )}
+                  {unshippedCards.length > 0 && (
+                    <label className="flex items-center gap-1.5 rounded-lg border border-card-border px-2.5 py-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={shipWholeOrder}
+                        disabled={pending}
+                        onChange={(e) =>
+                          run(() =>
+                            setSalesForShipping(
+                              unshippedCards.map((x) => x.id),
+                              e.target.checked,
+                            ),
+                          )
+                        }
+                        className="h-4 w-4 rounded border-card-border accent-gold"
+                      />
+                      Ship this order
+                    </label>
+                  )}
+                  {toHandOver.length > 0 && (
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="px-3 py-1.5"
+                      disabled={pending}
+                      onClick={() =>
+                        run(() =>
+                          setSalesDistributed(
+                            toHandOver.map((x) => x.id),
+                            true,
+                          ),
+                        )
+                      }
+                    >
+                      Mark {toHandOver.length} distributed
+                    </Button>
+                  )}
                   {totals && totals.prepaidShippingCredit > 0 && <Badge tone="gold">SF paid {formatCurrency(totals.prepaidShippingCredit)}</Badge>}
                   <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setPayingId(g.customerId)}>
                     <Wallet size={13} /> Record payment
@@ -653,16 +727,18 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                           );
                         })}
                       </span>
-                      <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
-                        <input
-                          type="checkbox"
-                          checked={s.forShipping}
-                          disabled={pending || s.shipmentId !== null}
-                          onChange={(e) => run(() => setSalesForShipping([s.id], e.target.checked))}
-                          className="h-3.5 w-3.5 rounded border-card-border accent-gold"
-                        />
-                        Ship
-                      </label>
+                      {!s.forShipping && (
+                        <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                          <input
+                            type="checkbox"
+                            checked={s.distributedAt !== null}
+                            disabled={pending}
+                            onChange={(e) => run(() => setSalesDistributed([s.id], e.target.checked))}
+                            className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                          />
+                          Distributed
+                        </label>
+                      )}
                       {s.shipmentId && (
                         <Badge tone="available">
                           <Truck size={12} className="mr-1" /> Shipped
@@ -719,7 +795,14 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             islandGroup: customerById.get(payingId)!.islandGroup,
           }}
           balance={totalsByCustomer[payingId]?.balance ?? 0}
+          live={live ? { id: live.id, title: live.title } : null}
+          liveDue={(() => {
+            const b = liveId ? liveBreakdown[payingId]?.[liveId] : undefined;
+            return b ? Math.max(0, b.cards - b.paid) : null;
+          })()}
+          lives={lives}
           rates={settings}
+          payments={payments.filter((p) => p.customerId === payingId)}
         />
       )}
     </div>

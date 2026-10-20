@@ -137,6 +137,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1.5">
                       {r.totals.awaitingShipCount > 0 && <Badge tone="pending">{r.totals.awaitingShipCount} to ship</Badge>}
+                      {r.totals.toDistributeCount > 0 && <Badge tone="pending">{r.totals.toDistributeCount} to hand over</Badge>}
                       {r.totals.shippedCount > 0 && <Badge tone="available">{r.totals.shippedCount} shipped</Badge>}
                       {r.totals.prepaidShippingCredit > 0 && <Badge tone="gold">{formatCurrency(r.totals.prepaidShippingCredit)} prepaid</Badge>}
                     </div>

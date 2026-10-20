@@ -26,27 +26,65 @@ export interface SplitSale {
   order: string;
 }
 
+export interface SplitPayment {
+  customerId: string;
+  amount: number;
+  /** The live this payment was made for, or null = not tied to a live. */
+  liveId: string | null;
+  purpose: "CARDS" | "SHIPPING";
+}
+
 /**
- * How much of each card has actually been paid. A customer's card payments
- * are applied to their cards oldest-first, so older cards are settled before
- * newer ones - the same order the invoice uses for "previous balance". A
- * payment beyond the customer's card total (e.g. one that also covered
- * shipping) is simply not allocated to any card.
+ * How much of each card has actually been paid, per customer:
+ *  1. A payment made FOR a live settles that live's cards first (oldest first
+ *     within it). Anything beyond that live's total spills into the general pool.
+ *  2. Payments not tied to a live join the pool too.
+ *  3. The pool settles the customer's remaining cards oldest-first, so older
+ *     lives are cleared before newer ones.
+ * Only CARDS payments count here; shipping-fee payments only ever pay shipping.
+ * Money beyond the customer's card total is simply not allocated to any card.
  */
-export function paidPerSale(sales: SplitSale[], cardPaidByCustomer: Record<string, number>): Map<string, number> {
-  const paid = new Map<string, number>();
+export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[]): Map<string, number> {
+  const paid = new Map<string, number>(sales.map((s) => [s.id, 0]));
   const byCustomer = new Map<string, SplitSale[]>();
   for (const s of sales) byCustomer.set(s.customerId, [...(byCustomer.get(s.customerId) ?? []), s]);
 
-  for (const [customerId, items] of byCustomer) {
-    let remaining = cardPaidByCustomer[customerId] ?? 0;
-    for (const s of [...items].sort((a, b) => a.order.localeCompare(b.order))) {
-      const applied = Math.min(s.amount, Math.max(0, remaining));
-      paid.set(s.id, round2(applied));
+  const apply = (items: SplitSale[], amount: number): number => {
+    let remaining = amount;
+    for (const s of items) {
+      const room = round2(s.amount - (paid.get(s.id) ?? 0));
+      const applied = Math.min(room, Math.max(0, remaining));
+      paid.set(s.id, round2((paid.get(s.id) ?? 0) + applied));
       remaining = round2(remaining - applied);
     }
+    return remaining;
+  };
+
+  for (const [customerId, unsorted] of byCustomer) {
+    const items = [...unsorted].sort((a, b) => a.order.localeCompare(b.order));
+    const mine = payments.filter((p) => p.customerId === customerId && p.purpose === "CARDS");
+
+    let pool = sum(mine.filter((p) => p.liveId === null).map((p) => p.amount));
+    const liveIds = [...new Set(mine.map((p) => p.liveId).filter((id): id is string => id !== null))];
+    for (const liveId of liveIds) {
+      const forLive = sum(mine.filter((p) => p.liveId === liveId).map((p) => p.amount));
+      pool = round2(pool + apply(items.filter((s) => s.liveId === liveId), forLive));
+    }
+    apply(items, pool);
   }
   return paid;
+}
+
+/** Cards and paid-so-far for every (customer, live) pair - what each live's order is worth and how much of it is settled. */
+export function liveBalances(sales: SplitSale[], paid: Map<string, number>): Record<string, Record<string, { cards: number; paid: number }>> {
+  const out: Record<string, Record<string, { cards: number; paid: number }>> = {};
+  for (const s of sales) {
+    const byLive = (out[s.customerId] ??= {});
+    const entry = (byLive[s.liveId] ??= { cards: 0, paid: 0 });
+    entry.cards = round2(entry.cards + s.amount);
+    entry.paid = round2(entry.paid + (paid.get(s.id) ?? 0));
+  }
+  return out;
 }
 
 export interface SplitRow {

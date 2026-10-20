@@ -7,8 +7,16 @@ export interface InvoiceInput {
   liveTitle: string;
   /** This live's cards for the customer. */
   cards: { cardName: string; amount: number }[];
-  /** Whole-ledger totals for the customer (all lives). */
+  /** Whole-ledger totals for the customer (all lives) - used for prepaid shipping credit. */
   totals: CustomerTotals;
+  /** How much of THIS live's cards the customer has already paid (payments made for this live, plus any general payment that reached it). */
+  livePaid: number;
+  /** What's still unpaid on the customer's OTHER lives. */
+  otherLivesDue: number;
+  /** Shipping fees already charged (parcels shipped) that aren't paid yet. */
+  shippingUnpaid: number;
+  /** This live's cards for the customer that are flagged for shipping and haven't shipped - a fee is quoted when > 0. */
+  awaitingShipThisLive: number;
   /** Fee for one parcel to the customer's island group; null when the group is unknown. */
   shippingFee: number | null;
   islandGroup: IslandGroup | null;
@@ -35,18 +43,18 @@ export interface InvoiceBreakdown {
 
 /**
  * Prepaid shipping credit is held apart from card payments: it can only pay
- * shipping, so it's removed from the payments that reduce card balances and
- * instead netted against the quoted shipping fee.
+ * shipping, so it's netted against the quoted shipping fee and never reduces
+ * what's owed for cards. Card payments are applied per live by the caller
+ * (see allocateCardPayments), so `livePaid` already reflects payments made
+ * for this specific live.
  */
 export function computeInvoice(input: InvoiceInput): InvoiceBreakdown {
   const { totals } = input;
   const liveTotal = sum(input.cards.map((c) => c.amount));
-  const effectivePayments = round2(totals.paid - totals.prepaidShippingCredit);
-  const priorRaw = round2(totals.cardsTotal - liveTotal + totals.shippingCharged - effectivePayments);
-  const previousBalance = Math.max(0, priorRaw);
-  const paymentsApplied = priorRaw < 0 ? Math.min(-priorRaw, liveTotal) : 0;
+  const paymentsApplied = Math.min(Math.max(0, input.livePaid), liveTotal);
+  const previousBalance = round2(Math.max(0, input.otherLivesDue) + Math.max(0, input.shippingUnpaid));
 
-  const needsShipping = totals.awaitingShipCount > 0;
+  const needsShipping = input.awaitingShipThisLive > 0;
   const shippingUnknown = needsShipping && input.shippingFee === null;
   const shippingFee = needsShipping && input.shippingFee !== null ? input.shippingFee : null;
   const prepaidCovered = shippingFee === null ? 0 : Math.min(totals.prepaidShippingCredit, shippingFee);
@@ -60,7 +68,7 @@ export function computeInvoice(input: InvoiceInput): InvoiceBreakdown {
     prepaidCovered,
     shippingDue,
     shippingUnknown,
-    totalToPay: round2(Math.max(0, liveTotal - paymentsApplied + previousBalance) + shippingDue),
+    totalToPay: round2(liveTotal - paymentsApplied + previousBalance + shippingDue),
   };
 }
 
@@ -89,7 +97,7 @@ export function buildInvoiceText(input: InvoiceInput): string {
   if (b.paymentsApplied > 0) lines.push(`Payments received: -${formatCurrency(b.paymentsApplied)}`);
   lines.push(`TOTAL TO PAY: ${formatCurrency(b.totalToPay)}`);
 
-  if (input.showAddress && input.address && input.totals.awaitingShipCount > 0) {
+  if (input.showAddress && input.address && input.awaitingShipThisLive > 0) {
     lines.push("", `Ship to: ${input.customerName}, ${input.address}`);
   }
   const instructions = input.paymentInstructions.trim();
