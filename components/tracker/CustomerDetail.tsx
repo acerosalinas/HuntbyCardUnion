@@ -128,16 +128,6 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const pendingPaid = round2(pendingCards.reduce((n, s) => n + paidOf(s.id), 0));
   const pendingPct = pendingTotal > 0 ? Math.min(100, Math.round((pendingPaid / pendingTotal) * 100)) : 0;
 
-  // One tick box per live that still has something unpaid on a pending card.
-  const liveChoices = lives
-    .map((l) => ({
-      id: l.id,
-      title: l.title,
-      date: l.liveDate,
-      left: round2(pendingCards.filter((x) => x.liveId === l.id).reduce((n, x) => n + Math.max(0, leftOf(x)), 0)),
-    }))
-    .filter((l) => l.left > 0);
-
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Lives ticked for the invoice. Nothing ticked = every pending live is copied; ticking some copies / marks paid just those.
   const [tickedLives, setTickedLives] = useState<Set<string>>(new Set());
@@ -163,8 +153,21 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const livePayCards = pendingCards.filter((x) => tickedLives.has(x.liveId) && leftOf(x) > 0);
   const livePayLeft = round2(livePayCards.reduce((n, x) => n + leftOf(x), 0));
 
-  const ShippedRow = ({ s, undo = false }: { s: TrackerSale; undo?: boolean }) => {
+  // Undoing a parcel puts every card in it back to pending - so say how many that is.
+  const undoParcel = async (shipmentId: string) => {
+    const count = sales.filter((x) => x.shipmentId === shipmentId).length;
+    const ok = await confirm({
+      title: "Undo this shipment?",
+      message: `The whole parcel (${count} card${count === 1 ? "" : "s"}, possibly from several lives) goes back to pending and its shipping fee is removed from ${customer.name}'s balance.`,
+      confirmLabel: "Undo shipment",
+      tone: "danger",
+    });
+    if (ok) run(() => undoShipment(shipmentId));
+  };
+
+  const ShippedRow = ({ s }: { s: TrackerSale }) => {
     const color = ownerColor(s.ownerTag, settings.ownerLabels);
+    const parcel = s.shipmentId ? shipments.find((sh) => sh.id === s.shipmentId) : null;
     return (
       <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm", color?.row)}>
         <input
@@ -177,23 +180,41 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         />
         <span className="min-w-0 flex-1">
           <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
-          <span className="ml-2 text-xs text-foreground-muted">{liveById.get(s.liveId)?.liveDate}</span>
         </span>
         <span className="font-medium">{formatCurrency(s.amount)}</span>
         {payBadge(s)}
-        {undo && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => setSalesDistributed([s.id], false))}
-            className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold disabled:opacity-40"
-          >
-            <Undo2 size={12} /> Undo
-          </button>
+        {parcel ? (
+          <>
+            <Badge tone="available">
+              <Truck size={12} className="mr-1" /> Shipped {parcel.shippedOn} · fee {formatCurrency(parcel.fee)}
+            </Badge>
+            <button type="button" disabled={pending} onClick={() => undoParcel(parcel.id)} className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold disabled:opacity-40">
+              <Undo2 size={12} /> Undo parcel
+            </button>
+          </>
+        ) : (
+          <>
+            <Badge tone="available">
+              <Package size={12} className="mr-1" /> Handed over {s.distributedAt?.slice(0, 10)}
+            </Badge>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => setSalesDistributed([s.id], false))}
+              className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold disabled:opacity-40"
+            >
+              <Undo2 size={12} /> Undo
+            </button>
+          </>
         )}
       </li>
     );
   };
+
+  // One table per live (oldest first), for both the pending and the shipped lists.
+  const livesAsc = [...lives].sort((x, y) => x.liveDate.localeCompare(y.liveDate));
+  const pendingByLive = livesAsc.map((l) => ({ live: l, cards: pendingCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
+  const shippedByLive = livesAsc.map((l) => ({ live: l, cards: shippedCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
 
   const payBadge = (s: TrackerSale) => {
     const left = leftOf(s);
@@ -270,11 +291,11 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         ))}
       </div>
 
-      {/* Pending cards */}
+      {/* Pending cards - one table per live */}
       <section className={panel}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">
-            Pending <span className="text-sm font-normal text-foreground-muted">· {pendingCards.length} card{pendingCards.length === 1 ? "" : "s"} not shipped yet</span>
+            Pending <span className="text-sm font-normal text-foreground-muted">· {pendingCards.length} card{pendingCards.length === 1 ? "" : "s"} across {pendingByLive.length} live{pendingByLive.length === 1 ? "" : "s"}</span>
           </h3>
           {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
             <Button variant="outline" type="button" onClick={copyPending}>
@@ -282,69 +303,6 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
             </Button>
           )}
         </div>
-
-        {liveChoices.length > 0 && (
-          <div className="mb-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-foreground-muted">Invoices by live (tick to pick):</span>
-              {liveChoices.map((l) => {
-                const on = tickedLives.has(l.id);
-                return (
-                  <label
-                    key={l.id}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors",
-                      on ? "border-gold bg-gold/10" : "border-card-border text-foreground-muted hover:text-foreground",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() =>
-                        setTickedLives((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(l.id)) next.delete(l.id);
-                          else next.add(l.id);
-                          return next;
-                        })
-                      }
-                      className="h-3.5 w-3.5 rounded border-card-border accent-gold"
-                    />
-                    {l.date} · {l.title} · {formatCurrency(l.left)}
-                  </label>
-                );
-              })}
-            </div>
-            {tickedLives.size > 0 && (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
-                <span className="font-medium">
-                  {tickedLives.size} live{tickedLives.size === 1 ? "" : "s"} ticked · {formatCurrency(livePayLeft)} unpaid
-                </span>
-                <div className="ml-auto flex flex-wrap gap-2">
-                  <Button variant="outline" type="button" className="px-3 py-1.5" onClick={copyPending}>
-                    <ClipboardCopy size={13} /> {copied ? "Copied!" : `Copy invoice (${tickedLives.size})`}
-                  </Button>
-                  {livePayCards.length > 0 && (
-                    <Button
-                      variant="gold"
-                      type="button"
-                      className="px-3 py-1.5"
-                      onClick={() => {
-                        setPayFromLives(true);
-                        setPayOpen(true);
-                      }}
-                    >
-                      <Wallet size={13} /> Mark as paid ({formatCurrency(livePayLeft)})
-                    </Button>
-                  )}
-                  <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setTickedLives(new Set())}>
-                    Clear
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {pendingCards.length > 0 && (
           <div className="mb-3">
@@ -360,10 +318,39 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           </div>
         )}
 
+        {tickedLives.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+            <span className="font-medium">
+              {tickedLives.size} live{tickedLives.size === 1 ? "" : "s"} ticked · {formatCurrency(livePayLeft)} unpaid
+            </span>
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button variant="outline" type="button" className="px-3 py-1.5" onClick={copyPending}>
+                <ClipboardCopy size={13} /> {copied ? "Copied!" : `Copy invoice (${tickedLives.size})`}
+              </Button>
+              {livePayCards.length > 0 && (
+                <Button
+                  variant="gold"
+                  type="button"
+                  className="px-3 py-1.5"
+                  onClick={() => {
+                    setPayFromLives(true);
+                    setPayOpen(true);
+                  }}
+                >
+                  <Wallet size={13} /> Mark as paid ({formatCurrency(livePayLeft)})
+                </Button>
+              )}
+              <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setTickedLives(new Set())}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
+
         {selected.size > 0 && (
           <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
             <span className="font-medium">
-              {selected.size} selected · {formatCurrency(selectedLeft)} unpaid
+              {selected.size} card{selected.size === 1 ? "" : "s"} selected · {formatCurrency(selectedLeft)} unpaid
             </span>
             <div className="ml-auto flex flex-wrap gap-2">
               {payableSelected.length > 0 && (
@@ -402,76 +389,115 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         {pendingCards.length === 0 ? (
           <p className="py-6 text-center text-sm text-foreground-muted">{sales.length === 0 ? "No cards yet." : "Nothing pending - every card has been shipped or handed over."}</p>
         ) : (
-          <>
-            <label className="mb-1 flex items-center gap-2 text-xs text-foreground-muted">
-              <input
-                type="checkbox"
-                checked={pendingCards.every((s) => selected.has(s.id))}
-                onChange={(e) =>
-                  setSelected((prev) => {
-                    const next = new Set(prev);
-                    for (const s of pendingCards) {
-                      if (e.target.checked) next.add(s.id);
-                      else next.delete(s.id);
-                    }
-                    return next;
-                  })
-                }
-                className="h-4 w-4 rounded border-card-border accent-gold"
-              />
-              Select all pending
-            </label>
-            <ul className="divide-y divide-card-border">
-              {pendingCards.map((s) => {
-                const color = ownerColor(s.ownerTag, settings.ownerLabels);
-                return (
-                  <li key={s.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-2 text-sm", color?.row)}>
+          <div className="space-y-4">
+            {pendingByLive.map(({ live, cards }) => {
+              const total = round2(cards.reduce((n, x) => n + x.amount, 0));
+              const paid = round2(cards.reduce((n, x) => n + paidOf(x.id), 0));
+              const left = round2(total - paid);
+              const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
+              const ticked = tickedLives.has(live.id);
+              const allSelected = cards.every((x) => selected.has(x.id));
+              return (
+                <div key={live.id} className={cn("overflow-hidden rounded-xl border", ticked ? "border-gold" : "border-card-border")}>
+                  <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5", ticked ? "bg-gold/10" : "bg-foreground/5")}>
                     <input
                       type="checkbox"
-                      aria-label={`Select ${s.cardName}`}
-                      checked={selected.has(s.id)}
-                      onChange={() => toggle(s.id)}
+                      aria-label={`Pick ${live.title} for the invoice`}
+                      title="Tick to copy this live's invoice or mark it as paid"
+                      checked={ticked}
+                      onChange={() =>
+                        setTickedLives((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(live.id)) next.delete(live.id);
+                          else next.add(live.id);
+                          return next;
+                        })
+                      }
                       className="h-4 w-4 rounded border-card-border accent-gold"
                     />
-                    <span className="min-w-0 flex-1">
-                      <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
-                      <span className="ml-2 text-xs text-foreground-muted">
-                        {liveById.get(s.liveId)?.liveDate} · {liveById.get(s.liveId)?.title ?? "Live"}
+                    <span className="min-w-0 flex-1 text-sm">
+                      <span className="font-semibold">{live.liveDate}</span> · {live.title}{" "}
+                      <span className="text-xs text-foreground-muted">
+                        · {cards.length} card{cards.length === 1 ? "" : "s"}
                       </span>
                     </span>
-                    <span className="font-medium">{formatCurrency(s.amount)}</span>
-                    {payBadge(s)}
-                    <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
-                      <input
-                        type="checkbox"
-                        checked={s.forShipping}
-                        disabled={pending}
-                        onChange={(e) => run(() => setSalesForShipping([s.id], e.target.checked))}
-                        className="h-3.5 w-3.5 rounded border-card-border accent-gold"
-                      />
-                      For shipping
-                    </label>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${s.cardName}`}
-                      disabled={pending}
-                      onClick={async () => {
-                        if (await confirm({ title: "Delete card?", message: `Remove ${s.cardName} (${formatCurrency(s.amount)}) from ${customer.name}'s account?`, confirmLabel: "Delete", tone: "danger" }))
-                          run(() => deleteSale(s.id));
-                      }}
-                      className="rounded p-1 text-foreground-muted hover:text-sold disabled:opacity-30"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
+                    <div className="flex items-center gap-2 text-xs text-foreground-muted">
+                      <div className="h-2 w-24 overflow-hidden rounded-full bg-foreground/10" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${live.title} paid`}>
+                        <div className={cn("h-full rounded-full", pct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pct}%` }} />
+                      </div>
+                      {left > 0 ? <span className="font-semibold text-pending">{formatCurrency(left)} left</span> : <span className="font-semibold text-available">paid</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 border-t border-card-border px-3 py-1 text-xs text-foreground-muted">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all cards of ${live.title}`}
+                      checked={allSelected}
+                      onChange={(e) =>
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          for (const x of cards) {
+                            if (e.target.checked) next.add(x.id);
+                            else next.delete(x.id);
+                          }
+                          return next;
+                        })
+                      }
+                      className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                    />
+                    Select all cards in this live
+                  </div>
+                  <ul className="divide-y divide-card-border border-t border-card-border">
+                    {cards.map((s) => {
+                      const color = ownerColor(s.ownerTag, settings.ownerLabels);
+                      return (
+                        <li key={s.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm", color?.row)}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${s.cardName}`}
+                            checked={selected.has(s.id)}
+                            onChange={() => toggle(s.id)}
+                            className="h-4 w-4 rounded border-card-border accent-gold"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
+                          </span>
+                          <span className="font-medium">{formatCurrency(s.amount)}</span>
+                          {payBadge(s)}
+                          <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                            <input
+                              type="checkbox"
+                              checked={s.forShipping}
+                              disabled={pending}
+                              onChange={(e) => run(() => setSalesForShipping([s.id], e.target.checked))}
+                              className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                            />
+                            For shipping
+                          </label>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${s.cardName}`}
+                            disabled={pending}
+                            onClick={async () => {
+                              if (await confirm({ title: "Delete card?", message: `Remove ${s.cardName} (${formatCurrency(s.amount)}) from ${customer.name}'s account?`, confirmLabel: "Delete", tone: "danger" }))
+                                run(() => deleteSale(s.id));
+                            }}
+                            className="rounded p-1 text-foreground-muted hover:text-sold disabled:opacity-30"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
 
-      {/* Shipped / handed over */}
+      {/* Shipped / handed over - one table per live */}
       <section className={panel}>
         <h3 className="mb-3 font-semibold">
           Shipped <span className="text-sm font-normal text-foreground-muted">· {shippedCards.length} card{shippedCards.length === 1 ? "" : "s"} sent or handed over</span>
@@ -480,54 +506,23 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           <p className="py-6 text-center text-sm text-foreground-muted">Nothing shipped yet.</p>
         ) : (
           <div className="space-y-4">
-            {shipments
-              .filter((sh) => shippedCards.some((s) => s.shipmentId === sh.id))
-              .map((sh) => {
-                const cards = shippedCards.filter((s) => s.shipmentId === sh.id);
-                return (
-                  <div key={sh.id}>
-                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-sm">
-                      <span className="font-medium">
-                        <Truck size={13} className="mr-1.5 inline text-available" />
-                        {sh.shippedOn} · {cards.length} card{cards.length === 1 ? "" : "s"} · fee {formatCurrency(sh.fee)}
-                        {sh.prepaidApplied > 0 && <span className="font-normal text-foreground-muted"> (prepaid covered {formatCurrency(sh.prepaidApplied)})</span>}
-                        {sh.note && <span className="font-normal text-foreground-muted"> · {sh.note}</span>}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={async () => {
-                          if (await confirm({ title: "Undo this shipment?", message: "The cards go back to pending and the shipping fee is removed from this customer's balance.", confirmLabel: "Undo shipment", tone: "danger" }))
-                            run(() => undoShipment(sh.id));
-                        }}
-                        className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold"
-                      >
-                        <Undo2 size={12} /> Undo
-                      </button>
-                    </div>
-                    <ul className="divide-y divide-card-border rounded-xl border border-card-border">
-                      {cards.map((s) => (
-                        <ShippedRow key={s.id} s={s} />
-                      ))}
-                    </ul>
-                  </div>
-                );
-              })}
-            {shippedCards.some((s) => s.shipmentId === null) && (
-              <div>
-                <div className="mb-1 text-sm font-medium">
-                  <Package size={13} className="mr-1.5 inline text-available" />
-                  Handed over (not shipped)
+            {shippedByLive.map(({ live, cards }) => (
+              <div key={live.id} className="overflow-hidden rounded-xl border border-card-border">
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-foreground/5 px-3 py-2.5 text-sm">
+                  <span>
+                    <span className="font-semibold">{live.liveDate}</span> · {live.title}{" "}
+                    <span className="text-xs text-foreground-muted">
+                      · {cards.length} card{cards.length === 1 ? "" : "s"} · {formatCurrency(cards.reduce((n, x) => n + x.amount, 0))}
+                    </span>
+                  </span>
                 </div>
-                <ul className="divide-y divide-card-border rounded-xl border border-card-border">
-                  {shippedCards
-                    .filter((s) => s.shipmentId === null)
-                    .map((s) => (
-                      <ShippedRow key={s.id} s={s} undo />
-                    ))}
+                <ul className="divide-y divide-card-border border-t border-card-border">
+                  {cards.map((c) => (
+                    <ShippedRow key={c.id} s={c} />
+                  ))}
                 </ul>
               </div>
-            )}
+            ))}
           </div>
         )}
       </section>
