@@ -10,6 +10,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
+import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { Select } from "@/components/ui/Select";
 import {
@@ -71,6 +72,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Copied invoices leave the shipping fee out unless this is switched on.
+  const [includeShipping, setIncludeShipping] = useState(false);
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -280,6 +283,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         liveDate: l.liveDate,
         cards: pendingCards.filter((x) => x.liveId === l.id).map((x) => ({ cardName: x.cardName, amount: x.amount, paid: paidOf(x.id) })),
       })),
+    includeShipping,
     shippingUnpaid: Math.max(0, totals.shippingCharged - totals.shippingPaid),
     awaitingShipCount: totals.awaitingShipCount,
     shippingFee: shippingFeeFor(customer.islandGroup, settings),
@@ -343,11 +347,14 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           <h3 className="font-semibold">
             Pending <span className="text-sm font-normal text-foreground-muted">· {pendingCards.length} card{pendingCards.length === 1 ? "" : "s"} across {pendingByLive.length} live{pendingByLive.length === 1 ? "" : "s"}</span>
           </h3>
-          {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
-            <Button variant="outline" type="button" onClick={copyPending}>
-              <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <ShippingFeeToggle on={includeShipping} onChange={setIncludeShipping} />
+            {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
+              <Button variant="outline" type="button" onClick={copyPending}>
+                <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
+              </Button>
+            )}
+          </div>
         </div>
 
         {pendingCards.length > 0 && (

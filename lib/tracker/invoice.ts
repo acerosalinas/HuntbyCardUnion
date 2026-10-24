@@ -26,6 +26,8 @@ export interface InvoiceInput {
   paymentInstructions: string;
   /** Links to payment QR images, e.g. GCash / Maribank - appended so customers can tap to open them. */
   qrLinks?: { label: string; url: string }[];
+  /** Whether shipping fees (the quote for a parcel still to go, and unpaid fees of parcels already sent) go on the invoice. Defaults to true; the screens pass false unless the user switches it on. */
+  includeShipping?: boolean;
 }
 
 export interface InvoiceBreakdown {
@@ -52,9 +54,10 @@ export function computeInvoice(input: InvoiceInput): InvoiceBreakdown {
   const { totals } = input;
   const liveTotal = sum(input.cards.map((c) => c.amount));
   const paymentsApplied = Math.min(Math.max(0, input.livePaid), liveTotal);
-  const previousBalance = round2(Math.max(0, input.otherLivesDue) + Math.max(0, input.shippingUnpaid));
+  const includeShipping = input.includeShipping !== false;
+  const previousBalance = round2(Math.max(0, input.otherLivesDue) + (includeShipping ? Math.max(0, input.shippingUnpaid) : 0));
 
-  const needsShipping = input.awaitingShipThisLive > 0;
+  const needsShipping = includeShipping && input.awaitingShipThisLive > 0;
   const shippingUnknown = needsShipping && input.shippingFee === null;
   const shippingFee = needsShipping && input.shippingFee !== null ? input.shippingFee : null;
   const prepaidCovered = shippingFee === null ? 0 : Math.min(totals.prepaidShippingCredit, shippingFee);
@@ -97,7 +100,7 @@ export function buildInvoiceText(input: InvoiceInput): string {
   if (b.paymentsApplied > 0) lines.push(`Payments received: -${formatCurrency(b.paymentsApplied)}`);
   lines.push(`TOTAL TO PAY: ${formatCurrency(b.totalToPay)}`);
 
-  if (input.showAddress && input.address && input.awaitingShipThisLive > 0) {
+  if (input.showAddress && input.address && input.includeShipping !== false && input.awaitingShipThisLive > 0) {
     lines.push("", `Ship to: ${input.customerName}, ${input.address}`);
   }
   const instructions = input.paymentInstructions.trim();

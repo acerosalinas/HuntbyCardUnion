@@ -32,6 +32,8 @@ export interface StatementInput {
   showAddress: boolean;
   paymentInstructions: string;
   qrLinks?: { label: string; url: string }[];
+  /** Whether shipping fees go on the statement. Defaults to true; the screens pass false unless the user switches it on. */
+  includeShipping?: boolean;
 }
 
 export interface PendingOrder {
@@ -70,13 +72,14 @@ export function computeStatement(input: StatementInput): Statement {
     .filter((o) => o.lines.length > 0)
     .sort((a, b) => a.liveDate.localeCompare(b.liveDate));
 
-  const needsShipping = input.awaitingShipCount > 0;
+  const includeShipping = input.includeShipping !== false;
+  const needsShipping = includeShipping && input.awaitingShipCount > 0;
   const shippingUnknown = needsShipping && input.shippingFee === null;
   const shippingFee = needsShipping && input.shippingFee !== null ? input.shippingFee : null;
   const prepaidCovered = shippingFee === null ? 0 : Math.min(input.prepaidCredit, shippingFee);
   const shippingDue = shippingFee === null ? 0 : round2(shippingFee - prepaidCovered);
   const cardsDue = sum(orders.map((o) => o.balance));
-  const shippingUnpaid = Math.max(0, input.shippingUnpaid);
+  const shippingUnpaid = includeShipping ? Math.max(0, input.shippingUnpaid) : 0;
 
   return {
     orders,
@@ -118,7 +121,7 @@ export function buildStatementText(input: StatementInput): string {
   }
   lines.push(`TOTAL TO PAY: ${formatCurrency(s.totalToPay)}`);
 
-  if (input.showAddress && input.address && input.awaitingShipCount > 0) {
+  if (input.showAddress && input.address && input.includeShipping !== false && input.awaitingShipCount > 0) {
     lines.push("", `Ship to: ${input.customerName}, ${input.address}`);
   }
   const instructions = input.paymentInstructions.trim();

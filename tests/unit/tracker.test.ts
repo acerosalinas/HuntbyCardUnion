@@ -557,3 +557,35 @@ test("allocations to another customer's cards are ignored", () => {
   assert.equal(paid.get("theirs"), 0);
   assert.equal(paid.get("mine"), 100); // the unusable allocation falls back to oldest-first for c1
 });
+
+test("shipping fee is left off an invoice unless it's switched on", () => {
+  const totals = computeCustomerTotals([sale(1500, "L1", true), sale(800, "L1", true)], [], []);
+  const base = invoice({ totals, shippingFee: 94, islandGroup: "VISAYAS", address: "Cebu City", shippingUnpaid: 64, otherLivesDue: 100 });
+
+  const on = computeInvoice(base);
+  assert.equal(on.shippingDue, 94);
+  assert.equal(on.previousBalance, 164); // 100 + 64 unpaid fee of a parcel already sent
+  assert.equal(on.totalToPay, 2300 + 164 + 94);
+
+  const off = computeInvoice({ ...base, includeShipping: false });
+  assert.equal(off.shippingFee, null);
+  assert.equal(off.shippingDue, 0);
+  assert.equal(off.previousBalance, 100);
+  assert.equal(off.totalToPay, 2400);
+  const text = buildInvoiceText({ ...base, includeShipping: false });
+  assert.doesNotMatch(text, /Shipping/);
+  assert.doesNotMatch(text, /Ship to/);
+  assert.match(buildInvoiceText(base), /Shipping \(Visayas\): ₱94/);
+});
+
+test("statement: shipping fees are left off unless switched on", () => {
+  const input = statement({ shippingUnpaid: 64, awaitingShipCount: 2, shippingFee: 94, islandGroup: "VISAYAS", address: "Cebu City" });
+  assert.equal(computeStatement(input).totalToPay, 160 + 64 + 94);
+  const off = { ...input, includeShipping: false };
+  assert.equal(computeStatement(off).totalToPay, 160);
+  const text = buildStatementText(off);
+  assert.doesNotMatch(text, /Shipping/);
+  assert.doesNotMatch(text, /Ship to/);
+  assert.doesNotMatch(text, /to be confirmed/);
+  assert.match(text, /TOTAL TO PAY: ₱160/);
+});

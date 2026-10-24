@@ -11,6 +11,7 @@ import { Select } from "@/components/ui/Select";
 import { addSale, createLive, deleteLive, deleteSale, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
+import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { buildInvoiceText } from "@/lib/tracker/invoice";
 import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
@@ -50,6 +51,8 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   const [liveDraft, setLiveDraft] = useState({ title: "", date: "" });
   // Which customer's parcel is being marked shipped from this screen, and which cards go in it.
   const [payingId, setPayingId] = useState<string | null>(null);
+  // Copied invoices leave the shipping fee out unless this is switched on.
+  const [includeShipping, setIncludeShipping] = useState(false);
   const [shipping, setShipping] = useState<{ customerId: string; saleIds: string[] } | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +263,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
       showAddress: settings.showAddressOnInvoice,
       paymentInstructions: settings.paymentInstructions,
       qrLinks: qrLinks,
+      includeShipping,
     });
   };
 
@@ -527,6 +531,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                   <QrCode size={14} /> {copiedKey === "qr-" + q.label ? "Copied!" : "Copy " + q.label + " QR"}
                 </Button>
               ))}
+              {allGroups.length > 0 && <ShippingFeeToggle on={includeShipping} onChange={setIncludeShipping} />}
               {allGroups.length > 0 && (
                 <Button variant="outline" type="button" onClick={copyAll}>
                   <ClipboardCopy size={14} /> {copiedKey === "all" ? "Copied!" : "Copy all invoices"}
