@@ -128,7 +128,21 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const pendingPaid = round2(pendingCards.reduce((n, s) => n + paidOf(s.id), 0));
   const pendingPct = pendingTotal > 0 ? Math.min(100, Math.round((pendingPaid / pendingTotal) * 100)) : 0;
 
+  // One tick box per live that still has something unpaid on a pending card.
+  const liveChoices = lives
+    .map((l) => ({
+      id: l.id,
+      title: l.title,
+      date: l.liveDate,
+      left: round2(pendingCards.filter((x) => x.liveId === l.id).reduce((n, x) => n + Math.max(0, leftOf(x)), 0)),
+    }))
+    .filter((l) => l.left > 0);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Lives ticked for the invoice. Nothing ticked = every pending live is copied; ticking some copies / marks paid just those.
+  const [tickedLives, setTickedLives] = useState<Set<string>>(new Set());
+  // Whether the payment dialog was opened from the ticked lives (rather than from individually ticked cards).
+  const [payFromLives, setPayFromLives] = useState(false);
   const [shipOpen, setShipOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const selectedCards = sales.filter((s) => selected.has(s.id)).sort(byOrder);
@@ -144,6 +158,10 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       else next.add(id);
       return next;
     });
+
+  // Every unpaid pending card of the ticked lives - what "Mark as paid" settles.
+  const livePayCards = pendingCards.filter((x) => tickedLives.has(x.liveId) && leftOf(x) > 0);
+  const livePayLeft = round2(livePayCards.reduce((n, x) => n + leftOf(x), 0));
 
   const ShippedRow = ({ s, undo = false }: { s: TrackerSale; undo?: boolean }) => {
     const color = ownerColor(s.ownerTag, settings.ownerLabels);
@@ -187,12 +205,13 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   // The customer's PENDING balance only, grouped by order date (see lib/tracker/statement.ts).
   const statementInput = {
     customerName: customer.name,
+    // Shipped / handed-over cards are treated as paid, so only PENDING cards of the ticked lives go on the invoice.
     orders: lives
-      .filter((l) => sales.some((x) => x.liveId === l.id))
+      .filter((l) => (tickedLives.size === 0 || tickedLives.has(l.id)) && pendingCards.some((x) => x.liveId === l.id))
       .map((l) => ({
         liveTitle: l.title,
         liveDate: l.liveDate,
-        cards: sales.filter((x) => x.liveId === l.id).map((x) => ({ cardName: x.cardName, amount: x.amount, paid: paidBySale[x.id] ?? 0 })),
+        cards: pendingCards.filter((x) => x.liveId === l.id).map((x) => ({ cardName: x.cardName, amount: x.amount, paid: paidOf(x.id) })),
       })),
     shippingUnpaid: Math.max(0, totals.shippingCharged - totals.shippingPaid),
     awaitingShipCount: totals.awaitingShipCount,
@@ -257,12 +276,75 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           <h3 className="font-semibold">
             Pending <span className="text-sm font-normal text-foreground-muted">· {pendingCards.length} card{pendingCards.length === 1 ? "" : "s"} not shipped yet</span>
           </h3>
-          {pendingStatement.totalToPay > 0 && (
+          {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
             <Button variant="outline" type="button" onClick={copyPending}>
               <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
             </Button>
           )}
         </div>
+
+        {liveChoices.length > 0 && (
+          <div className="mb-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-foreground-muted">Invoices by live (tick to pick):</span>
+              {liveChoices.map((l) => {
+                const on = tickedLives.has(l.id);
+                return (
+                  <label
+                    key={l.id}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors",
+                      on ? "border-gold bg-gold/10" : "border-card-border text-foreground-muted hover:text-foreground",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() =>
+                        setTickedLives((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(l.id)) next.delete(l.id);
+                          else next.add(l.id);
+                          return next;
+                        })
+                      }
+                      className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                    />
+                    {l.date} · {l.title} · {formatCurrency(l.left)}
+                  </label>
+                );
+              })}
+            </div>
+            {tickedLives.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+                <span className="font-medium">
+                  {tickedLives.size} live{tickedLives.size === 1 ? "" : "s"} ticked · {formatCurrency(livePayLeft)} unpaid
+                </span>
+                <div className="ml-auto flex flex-wrap gap-2">
+                  <Button variant="outline" type="button" className="px-3 py-1.5" onClick={copyPending}>
+                    <ClipboardCopy size={13} /> {copied ? "Copied!" : `Copy invoice (${tickedLives.size})`}
+                  </Button>
+                  {livePayCards.length > 0 && (
+                    <Button
+                      variant="gold"
+                      type="button"
+                      className="px-3 py-1.5"
+                      onClick={() => {
+                        setPayFromLives(true);
+                        setPayOpen(true);
+                      }}
+                    >
+                      <Wallet size={13} /> Mark as paid ({formatCurrency(livePayLeft)})
+                    </Button>
+                  )}
+                  <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setTickedLives(new Set())}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {pendingCards.length > 0 && (
           <div className="mb-3">
@@ -632,7 +714,9 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           open
           onClose={() => {
             setPayOpen(false);
+            setPayFromLives(false);
             setSelected(new Set());
+            setTickedLives(new Set());
           }}
           customer={{ id: customer.id, name: customer.name, islandGroup: customer.islandGroup }}
           balance={totals.balance}
@@ -644,7 +728,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           lives={lives}
           customerLiveIds={[...new Set(sales.map((s) => s.liveId))]}
           payments={payments}
-          selectedCards={payableSelected.map((s) => ({ id: s.id, name: s.cardName, amount: s.amount, left: leftOf(s) }))}
+          selectedCards={(payFromLives ? livePayCards : payableSelected).map((s) => ({ id: s.id, name: s.cardName, amount: s.amount, left: leftOf(s) }))}
         />
       )}
     </div>
