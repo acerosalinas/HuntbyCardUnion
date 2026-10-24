@@ -1,7 +1,7 @@
 import { round2, sum } from "./money";
 import type { CustomerTotals } from "./money";
 import type { IslandGroup } from "./regions";
-import { LiveSplit, OwnerLabel, SplitSale, allocateCardPayments, liveSplit } from "./split";
+import { LiveSplit, OwnerLabel, SplitRow, SplitSale, allocateCardPayments, liveSplit } from "./split";
 
 export interface DateRange {
   /** Inclusive YYYY-MM-DD; undefined = open-ended. */
@@ -15,6 +15,8 @@ export interface DashboardInput {
   sales: SplitSale[];
   payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string; liveId: string | null }[];
   ownerLabels: OwnerLabel[];
+  /** Money handed to card owners, per live. */
+  payouts: { liveId: string; recipientTag: string | null; amount: number }[];
   shipments: { fee: number; shippedOn: string }[];
   totalsByCustomer: Record<string, CustomerTotals>;
 }
@@ -29,7 +31,7 @@ export interface DashboardData {
   livesInRange: number;
   perLive: { id: string; title: string; liveDate: string; total: number; cards: number; customers: number }[];
   /** Expected vs actual per owner, one entry per live in range, newest first. */
-  splitPerLive: ({ id: string; title: string; liveDate: string } & LiveSplit)[];
+  splitPerLive: ({ id: string; title: string; liveDate: string; distributedTotal: number } & LiveSplit)[];
   byMethod: { GCASH: number; MARIBANK: number };
   recentPayments: { customerId: string; name: string; amount: number; method: "GCASH" | "MARIBANK"; paidOn: string }[];
   /** Point-in-time: where things stand right now, whatever the range. */
@@ -71,7 +73,14 @@ export function computeDashboard(input: DashboardInput, range: DateRange): Dashb
   const paid = allocateCardPayments(input.sales, input.payments);
   const splitPerLive = [...livesInRange]
     .sort((a, b) => b.liveDate.localeCompare(a.liveDate))
-    .map((l) => ({ id: l.id, title: l.title, liveDate: l.liveDate, ...liveSplit(l.id, input.sales, paid, input.ownerLabels) }));
+    .map((l) => {
+      const split = liveSplit(l.id, input.sales, paid, input.ownerLabels);
+      const rows = split.rows.map((r) => ({
+        ...r,
+        distributed: sum(input.payouts.filter((p) => p.liveId === l.id && p.recipientTag === r.code).map((p) => p.amount)),
+      }));
+      return { id: l.id, title: l.title, liveDate: l.liveDate, ...split, rows, distributedTotal: sum(rows.map((r) => r.distributed)) };
+    });
 
   const owing = Object.entries(input.totalsByCustomer)
     .filter(([, t]) => t.balance > 0)
@@ -109,4 +118,32 @@ export function computeDashboard(input: DashboardInput, range: DateRange): Dashb
     awaitingShipCards: shipQueue.reduce((s, c) => s + c.cards, 0),
     shipQueue: shipQueue.slice(0, 8),
   };
+}
+
+export interface OwnerProgress {
+  code: string;
+  name: string;
+  expected: number;
+  actual: number;
+  distributed: number;
+}
+
+/**
+ * Expected / actual / given-out per ACTIVE owner, added up across the given
+ * lives. Inactive owners are left out of the progress bars only - they still
+ * appear in the split tables, so those totals keep adding up.
+ */
+export function ownerProgress(splits: { rows: SplitRow[] }[], labels: OwnerLabel[]): OwnerProgress[] {
+  return labels
+    .filter((l) => l.active !== false)
+    .map((l) => {
+      const rows = splits.map((sp) => sp.rows.find((r) => r.code === l.code)).filter((r): r is SplitRow => r !== undefined);
+      return {
+        code: l.code,
+        name: l.name,
+        expected: sum(rows.map((r) => r.expected)),
+        actual: sum(rows.map((r) => r.actual)),
+        distributed: sum(rows.map((r) => r.distributed)),
+      };
+    });
 }

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { loadTrackerData } from "@/lib/tracker/data";
-import { computeDashboard, DateRange } from "@/lib/tracker/dashboard";
+import { computeDashboard, DateRange, ownerProgress } from "@/lib/tracker/dashboard";
 import { ISLAND_GROUP_LABELS } from "@/lib/tracker/regions";
 import { Badge } from "@/components/ui/Badge";
+import { PayoutCell } from "@/components/tracker/PayoutCell";
+import { OwnerProgressBars } from "@/components/tracker/OwnerProgress";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -48,6 +50,7 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
       })),
       payments: data.payments.map((p) => ({ customerId: p.customerId, amount: p.amount, method: p.method, purpose: p.purpose, paidOn: p.paidOn, liveId: p.liveId })),
       ownerLabels: data.settings.ownerLabels,
+      payouts: data.payouts.map((p) => ({ liveId: p.liveId, recipientTag: p.recipientTag, amount: p.amount })),
       shipments: data.shipments,
       totalsByCustomer: data.totalsByCustomer,
     },
@@ -130,6 +133,14 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
         ))}
       </div>
 
+      <section className={panel}>
+        <h2 className={heading}>Progress by owner</h2>
+        <OwnerProgressBars items={ownerProgress(d.splitPerLive, data.settings.ownerLabels)} labels={data.settings.ownerLabels} />
+        <p className="mt-3 text-xs text-foreground-muted">
+          Collected so far out of what each owner&apos;s cards add up to, across {rangeLabel}. Choose who appears under Settings → Card owners.
+        </p>
+      </section>
+
       {/* Per-live owner split: expected vs actual, like the live-end reconciliation sheet. */}
       <section className="space-y-3">
         <div>
@@ -149,11 +160,14 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
                   {live.title} <span className="text-xs font-normal text-foreground-muted">{live.liveDate}</span>
                 </span>
                 <span className="text-xs font-normal text-foreground-muted">
-                  Total {formatCurrency(live.expectedTotal)} · collected {formatCurrency(live.actualTotal)}
+                  Total {formatCurrency(live.expectedTotal)} · collected {formatCurrency(live.actualTotal)} · given out {formatCurrency(live.distributedTotal)}
                   {live.expectedTotal - live.actualTotal > 0 && <span className="text-pending"> · {formatCurrency(live.expectedTotal - live.actualTotal)} to collect</span>}
                 </span>
               </summary>
-              <div className="grid grid-cols-1 gap-4 border-t border-card-border p-4 sm:grid-cols-2">
+              <div className="border-t border-card-border p-4 pb-0">
+                <OwnerProgressBars items={ownerProgress([live], data.settings.ownerLabels)} labels={data.settings.ownerLabels} compact />
+              </div>
+              <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-3">
                 {(
                   [
                     ["Expected total", "expected", live.expectedTotal],
@@ -179,6 +193,31 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
                     </tbody>
                   </table>
                 ))}
+                <table className="w-full text-sm">
+                  <caption className="mb-1.5 text-left text-xs font-medium uppercase tracking-wide text-foreground-muted">Payment distributed</caption>
+                  <tbody className="divide-y divide-card-border">
+                    {live.rows.map((r) => (
+                      <tr key={r.code ?? "none"}>
+                        <td className="py-1.5 pr-3 font-medium">{r.name}</td>
+                        <td className="py-1.5 text-right">
+                          <PayoutCell
+                            liveId={live.id}
+                            liveTitle={live.title}
+                            recipientTag={r.code}
+                            recipientName={r.name}
+                            actual={r.actual}
+                            distributed={r.distributed}
+                            payouts={data.payouts.filter((p) => p.liveId === live.id && p.recipientTag === r.code)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="font-bold">
+                      <td className="pt-2 pr-3">Overall</td>
+                      <td className="pt-2 text-right">{formatCurrency(live.distributedTotal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </details>
           ))

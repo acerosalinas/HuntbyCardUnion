@@ -197,7 +197,7 @@ test("invoice text: address only when shipping applies and enabled", () => {
   assert.doesNotMatch(buildInvoiceText(invoice({ address: "Brgy. X, Manila" })), /Ship to/);
 });
 
-import { computeDashboard, inRange } from "../../lib/tracker/dashboard";
+import { computeDashboard, inRange, ownerProgress } from "../../lib/tracker/dashboard";
 import { allocateCardPayments, DEFAULT_OWNER_LABELS, liveBalances, liveSplit, normalizeOwnerTag, SplitPayment, SplitSale } from "../../lib/tracker/split";
 
 test("dashboard: range-based figures follow the date range, outstanding does not", () => {
@@ -222,7 +222,7 @@ test("dashboard: range-based figures follow the date range, outstanding does not
     c1: computeCustomerTotals([sale(1000, "a"), sale(500, "b", true)], [{ amount: 400, purpose: "CARDS" }], []),
     c2: computeCustomerTotals([sale(300, "b")], [{ amount: 100, purpose: "CARDS" }], []),
   };
-  const d = computeDashboard({ customers, lives, sales, payments, ownerLabels: DEFAULT_OWNER_LABELS, shipments: [], totalsByCustomer }, { from: "2026-10-01" });
+  const d = computeDashboard({ customers, lives, sales, payments, ownerLabels: DEFAULT_OWNER_LABELS, payouts: [], shipments: [], totalsByCustomer }, { from: "2026-10-01" });
   assert.equal(d.soldInRange, 800); // only the October live
   assert.equal(d.collectedInRange, 100); // only the October payment
   assert.equal(d.byMethod.MARIBANK, 100);
@@ -357,4 +357,153 @@ test("distribution counts: hand-over cards are tracked separately from shipping 
   assert.equal(t.toDistributeCount, 1);
   assert.equal(t.distributedCount, 1);
   assert.equal(t.awaitingShipCount, 1);
+});
+
+import { buildStatementText, computeStatement, formatShortDate, StatementInput } from "../../lib/tracker/statement";
+
+function statement(overrides: Partial<StatementInput> = {}): StatementInput {
+  return {
+    customerName: "Maye",
+    orders: [
+      {
+        liveTitle: "10/24 live",
+        liveDate: "2026-10-24",
+        cards: [
+          { cardName: "Herdier", amount: 50, paid: 0 },
+          { cardName: "Chimchar", amount: 40, paid: 0 },
+        ],
+      },
+      { liveTitle: "10/25 live", liveDate: "2026-10-25", cards: [{ cardName: "Swinub", amount: 70, paid: 0 }] },
+    ],
+    shippingUnpaid: 0,
+    awaitingShipCount: 0,
+    shippingFee: null,
+    islandGroup: null,
+    prepaidCredit: 0,
+    address: null,
+    showAddress: true,
+    paymentInstructions: "GCash 0900",
+    ...overrides,
+  };
+}
+
+test("statement: short dates are month-name based", () => {
+  assert.equal(formatShortDate("2026-10-24"), "Oct 24");
+  assert.equal(formatShortDate("2026-01-05"), "Jan 5");
+});
+
+test("statement: pending orders are grouped by date, oldest first, with their card lists", () => {
+  const s = computeStatement(statement({ orders: [...statement().orders].reverse() }));
+  assert.deepEqual(s.orders.map((o) => o.liveDate), ["2026-10-24", "2026-10-25"]);
+  assert.equal(s.orders[0].lines.length, 2);
+  assert.equal(s.cardsDue, 160);
+  assert.equal(s.totalToPay, 160);
+  const text = buildStatementText(statement());
+  assert.match(text, /Oct 24 order \(10\/24 live\):\n1\. Herdier - ₱50\n2\. Chimchar - ₱40\nOrder balance: ₱90/);
+  assert.match(text, /Oct 25 order \(10\/25 live\):\n1\. Swinub - ₱70/);
+  assert.match(text, /TOTAL TO PAY: ₱160/);
+});
+
+test("statement: fully paid orders are left out entirely", () => {
+  const input = statement();
+  input.orders[0].cards = input.orders[0].cards.map((c) => ({ ...c, paid: c.amount }));
+  const s = computeStatement(input);
+  assert.equal(s.orders.length, 1);
+  assert.equal(s.orders[0].liveDate, "2026-10-25");
+  assert.equal(s.totalToPay, 70);
+  assert.doesNotMatch(buildStatementText(input), /Oct 24/);
+});
+
+test("statement: partial payments show only what is left, per card", () => {
+  const input = statement();
+  input.orders[0].cards = [
+    { cardName: "Herdier", amount: 50, paid: 50 },
+    { cardName: "Chimchar", amount: 40, paid: 15 },
+  ];
+  const s = computeStatement(input);
+  assert.deepEqual(s.orders[0].lines, [{ cardName: "Chimchar", amount: 40, left: 25 }]);
+  assert.equal(s.orders[0].balance, 25);
+  const text = buildStatementText(input);
+  assert.match(text, /1\. Chimchar - ₱25 \(₱25 left of ₱40\)/);
+  assert.doesNotMatch(text, /Herdier/);
+  assert.equal(s.totalToPay, 95);
+});
+
+test("statement: nothing pending says so", () => {
+  const input = statement();
+  input.orders = input.orders.map((o) => ({ ...o, cards: o.cards.map((c) => ({ ...c, paid: c.amount })) }));
+  assert.match(buildStatementText(input), /all settled/);
+});
+
+test("statement: unpaid shipping and an unshipped parcel are added once, net of prepaid", () => {
+  const s = computeStatement(statement({ shippingUnpaid: 64, awaitingShipCount: 3, shippingFee: 94, islandGroup: "VISAYAS", prepaidCredit: 30 }));
+  assert.equal(s.shippingUnpaid, 64);
+  assert.equal(s.shippingDue, 64);
+  assert.equal(s.totalToPay, 160 + 64 + 64);
+  const text = buildStatementText(statement({ awaitingShipCount: 3, shippingFee: 94, islandGroup: "VISAYAS", address: "Cebu City" }));
+  assert.match(text, /Shipping \(Visayas\): ₱94/);
+  assert.match(text, /Ship to: Maye, Cebu City/);
+});
+
+test("statement: unknown island group asks for the address and adds no fee", () => {
+  const s = computeStatement(statement({ awaitingShipCount: 2 }));
+  assert.equal(s.shippingUnknown, true);
+  assert.equal(s.totalToPay, 160);
+  assert.match(buildStatementText(statement({ awaitingShipCount: 2 })), /to be confirmed/);
+});
+
+test("dashboard: payouts are summed per owner per live and don't touch other lives", () => {
+  const lives = [
+    { id: "a", title: "A live", liveDate: "2026-10-18" },
+    { id: "b", title: "B live", liveDate: "2026-10-19" },
+  ];
+  const sales = [
+    { id: "s1", customerId: "c1", liveId: "a", amount: 1000, ownerTag: "A", order: "1" },
+    { id: "s2", customerId: "c1", liveId: "b", amount: 500, ownerTag: "S", order: "2" },
+  ];
+  const d = computeDashboard(
+    {
+      customers: [{ id: "c1", name: "Ana", islandGroup: null }],
+      lives,
+      sales,
+      payments: [{ customerId: "c1", amount: 1500, method: "GCASH", purpose: "CARDS", paidOn: "2026-10-20", liveId: null }],
+      ownerLabels: DEFAULT_OWNER_LABELS,
+      payouts: [
+        { liveId: "a", recipientTag: "A", amount: 600 },
+        { liveId: "a", recipientTag: "A", amount: 100 },
+        { liveId: "b", recipientTag: "S", amount: 500 },
+      ],
+      shipments: [],
+      totalsByCustomer: { c1: computeCustomerTotals([sale(1000, "a"), sale(500, "b")], [{ amount: 1500, purpose: "CARDS" }], []) },
+    },
+    {},
+  );
+  const liveA = d.splitPerLive.find((l) => l.id === "a")!;
+  const liveB = d.splitPerLive.find((l) => l.id === "b")!;
+  assert.equal(liveA.rows.find((r) => r.code === "A")?.distributed, 700);
+  assert.equal(liveA.rows.find((r) => r.code === "A")?.actual, 1000);
+  assert.equal(liveA.rows.find((r) => r.code === "S")?.distributed, 0);
+  assert.equal(liveA.distributedTotal, 700);
+  assert.equal(liveB.rows.find((r) => r.code === "S")?.distributed, 500);
+  assert.equal(liveB.distributedTotal, 500);
+});
+
+test("owner progress: only active owners get a bar, summed across lives; tables are unaffected", () => {
+  const row = (code: string | null, expected: number, actual: number, distributed = 0) => ({ code, name: code ?? "Unassigned", expected, actual, distributed });
+  const splits = [
+    { rows: [row("A", 1000, 600, 500), row("S", 500, 500), row(null, 50, 0)] },
+    { rows: [row("A", 300, 300), row("S", 200, 0)] },
+  ];
+  const labels = [
+    { code: "A", name: "AC" },
+    { code: "S", name: "Shane", active: false },
+    { code: "J", name: "Jay", active: true },
+  ];
+  const progress = ownerProgress(splits, labels);
+  assert.deepEqual(progress.map((p) => p.code), ["A", "J"]);
+  assert.deepEqual(progress[0], { code: "A", name: "AC", expected: 1300, actual: 900, distributed: 500 });
+  // A newly added owner with no cards yet still gets an (empty) bar.
+  assert.deepEqual(progress[1], { code: "J", name: "Jay", expected: 0, actual: 0, distributed: 0 });
+  // Turning Shane back on brings him back; nothing is lost.
+  assert.deepEqual(ownerProgress(splits, [{ code: "S", name: "Shane" }]).map((p) => p.expected), [700]);
 });

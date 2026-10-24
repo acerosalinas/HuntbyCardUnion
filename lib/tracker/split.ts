@@ -3,6 +3,8 @@ import { round2, sum } from "./money";
 export interface OwnerLabel {
   code: string;
   name: string;
+  /** Shown in the Dashboard graphs / progress bars. Missing = active, so owners saved before this existed keep working. */
+  active?: boolean;
 }
 
 export const DEFAULT_OWNER_LABELS: OwnerLabel[] = [
@@ -93,6 +95,8 @@ export interface SplitRow {
   name: string;
   expected: number;
   actual: number;
+  /** Already handed to this owner (payouts). Filled in by the dashboard; 0 here. */
+  distributed: number;
 }
 
 export interface LiveSplit {
@@ -126,5 +130,6 @@ function rowFor(code: string | null, name: string, items: SplitSale[], paid: Map
     name,
     expected: sum(items.map((i) => i.amount)),
     actual: sum(items.map((i) => paid.get(i.id) ?? 0)),
+    distributed: 0,
   };
 }

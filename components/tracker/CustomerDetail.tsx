@@ -21,6 +21,7 @@ import {
   undoShipment,
 } from "@/app/tracker/actions";
 import { copyText } from "@/lib/tracker/clipboard";
+import { buildStatementText, computeStatement } from "@/lib/tracker/statement";
 import { CustomerTotals } from "@/lib/tracker/money";
 import {
   ISLAND_GROUP_LABELS,
@@ -53,12 +54,14 @@ interface Props {
   payments: TrackerPayment[];
   shipments: TrackerShipment[];
   settings: TrackerSettings;
+  /** How much of each card is already paid (payments made for a live settle that live first). */
+  paidBySale: Record<string, number>;
 }
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
-export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings }: Props) {
+export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
@@ -128,11 +131,35 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       return next;
     });
 
-  const copyReminder = async () => {
-    const lines = [`Hi ${customer.name}! Just a friendly reminder - your outstanding balance is ${formatCurrency(totals.balance)}.`];
-    if (settings.paymentInstructions.trim()) lines.push("", settings.paymentInstructions.trim());
-    const ok = await copyText(lines.join("\n"));
+  // The customer's PENDING balance only, grouped by order date (see lib/tracker/statement.ts).
+  const statementInput = {
+    customerName: customer.name,
+    orders: lives
+      .filter((l) => sales.some((x) => x.liveId === l.id))
+      .map((l) => ({
+        liveTitle: l.title,
+        liveDate: l.liveDate,
+        cards: sales.filter((x) => x.liveId === l.id).map((x) => ({ cardName: x.cardName, amount: x.amount, paid: paidBySale[x.id] ?? 0 })),
+      })),
+    shippingUnpaid: Math.max(0, totals.shippingCharged - totals.shippingPaid),
+    awaitingShipCount: totals.awaitingShipCount,
+    shippingFee: shippingFeeFor(customer.islandGroup, settings),
+    islandGroup: customer.islandGroup,
+    prepaidCredit: totals.prepaidShippingCredit,
+    address: customer.address,
+    showAddress: settings.showAddressOnInvoice,
+    paymentInstructions: settings.paymentInstructions,
+    qrLinks: [
+      { label: "GCash", url: settings.gcashQrUrl ?? "" },
+      { label: "Maribank", url: settings.maribankQrUrl ?? "" },
+    ].filter((q) => q.url),
+  };
+  const pendingStatement = computeStatement(statementInput);
+
+  const copyPending = async () => {
+    const ok = await copyText(buildStatementText(statementInput));
     setCopied(ok);
+    if (!ok) setError("Couldn't copy - your browser blocked clipboard access.");
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -158,9 +185,9 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           {customer.islandGroup && <Badge tone="neutral">{ISLAND_GROUP_LABELS[customer.islandGroup]}</Badge>}
           {totals.prepaidShippingCredit > 0 && <Badge tone="gold">{formatCurrency(totals.prepaidShippingCredit)} shipping prepaid</Badge>}
         </div>
-        {totals.balance > 0 && (
-          <Button variant="outline" type="button" onClick={copyReminder}>
-            <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy payment reminder"}
+        {pendingStatement.totalToPay > 0 && (
+          <Button variant="outline" type="button" onClick={copyPending}>
+            <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
           </Button>
         )}
       </div>

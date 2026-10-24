@@ -23,6 +23,7 @@ export default async function TrackerCustomerPage({ params }: { params: Promise<
       payments={data.payments.filter((p) => p.customerId === id)}
       shipments={data.shipments.filter((s) => s.customerId === id)}
       settings={data.settings}
+      paidBySale={data.paidBySale}
     />
   );
 }

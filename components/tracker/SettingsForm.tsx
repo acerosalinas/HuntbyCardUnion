@@ -58,7 +58,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
           showAddressOnInvoice: showAddress,
           gcashQrUrl: gcashQr,
           maribankQrUrl: maribankQr,
-          ownerLabels: owners.map((o) => ({ code: o.code.trim(), name: o.name.trim() })).filter((o) => o.code || o.name),
+          ownerLabels: owners.map((o) => ({ code: o.code.trim(), name: o.name.trim(), active: o.active !== false })).filter((o) => o.code || o.name),
         });
         setSaved(true);
       } catch (err) {
@@ -137,7 +137,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
       <div>
         <label className={label}>Card owners</label>
         <p className="mb-2 text-xs text-foreground-muted">
-          Tag each card with a short code while you sell (e.g. A for AC, S for Shane). The Dashboard splits every live&apos;s expected and actual totals by owner.
+          Tag each card with a short code while you sell (e.g. A for AC, S for Shane). The Dashboard splits every live&apos;s expected and actual totals by owner. Untick Active to hide an owner from the graphs and progress bars - their cards still count in the totals.
         </p>
         <div className="space-y-2">
           {owners.map((o, i) => (
@@ -157,6 +157,15 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
                 aria-label="Owner name"
                 onChange={(e) => setOwners(owners.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
               />
+              <label className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted" title="Show this owner in the Dashboard graphs and progress bars">
+                <input
+                  type="checkbox"
+                  checked={o.active !== false}
+                  onChange={(e) => setOwners(owners.map((x, j) => (j === i ? { ...x, active: e.target.checked } : x)))}
+                  className="h-4 w-4 rounded border-card-border accent-gold"
+                />
+                Active
+              </label>
               <Button type="button" variant="outline" className="px-3" disabled={owners.length <= 1} onClick={() => setOwners(owners.filter((_, j) => j !== i))}>
                 Remove
               </Button>
@@ -164,7 +173,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
           ))}
         </div>
         {owners.length < 6 && (
-          <Button type="button" variant="outline" className="mt-2" onClick={() => setOwners([...owners, { code: "", name: "" }])}>
+          <Button type="button" variant="outline" className="mt-2" onClick={() => setOwners([...owners, { code: "", name: "", active: true }])}>
             Add owner
           </Button>
         )}

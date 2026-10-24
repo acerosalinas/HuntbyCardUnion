@@ -78,6 +78,16 @@ export interface TrackerShipment {
   note: string | null;
 }
 
+export interface TrackerPayout {
+  id: string;
+  liveId: string;
+  /** Card owner code the money went to; null = cards with no owner tag. */
+  recipientTag: string | null;
+  amount: number;
+  paidOn: string;
+  note: string | null;
+}
+
 export interface TrackerData {
   settings: TrackerSettings;
   customers: TrackerCustomer[];
@@ -88,13 +98,20 @@ export interface TrackerData {
   totalsByCustomer: Record<string, CustomerTotals>;
   /** Per customer, per live: what that live's order is worth and how much of it is paid (payments made for a live count there first). */
   liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
+  /** How much of each card is paid (payments made for a live settle that live first). */
+  paidBySale: Record<string, number>;
+  payouts: TrackerPayout[];
 }
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
 function parseOwnerLabels(raw: unknown): OwnerLabel[] {
   if (!Array.isArray(raw)) return DEFAULT_OWNER_LABELS;
   const labels = raw
-    .map((x) => ({ code: normalizeOwnerTag((x as { code?: string })?.code) ?? "", name: String((x as { name?: string })?.name ?? "").trim() }))
+    .map((x) => ({
+      code: normalizeOwnerTag((x as { code?: string })?.code) ?? "",
+      name: String((x as { name?: string })?.name ?? "").trim(),
+      active: (x as { active?: boolean })?.active !== false,
+    }))
     .filter((l) => l.code !== "" && l.name !== "");
   return labels.length > 0 ? labels : DEFAULT_OWNER_LABELS;
 }
@@ -224,7 +241,27 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     ownerTag: x.ownerTag,
     order: `${liveDateById.get(x.liveId) ?? ""}|${x.createdAt}`,
   }));
-  const liveBreakdown = liveBalances(splitSales, allocateCardPayments(splitSales, payments));
+  const paidMap = allocateCardPayments(splitSales, payments);
+  const liveBreakdown = liveBalances(splitSales, paidMap);
+  const paidBySale = Object.fromEntries(paidMap);
 
-  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown };
+  // Payouts live in a table added later; if its migration hasn't run yet the rest of the tracker must still work.
+  let payouts: TrackerPayout[] = [];
+  try {
+    const rows = await fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_payouts").select("*").eq("owner_id", ownerId).order("paid_on", { ascending: false }).range(f, t),
+    );
+    payouts = rows.map((r) => ({
+      id: r.id as string,
+      liveId: r.live_id as string,
+      recipientTag: normalizeOwnerTag(r.recipient_tag as string | null),
+      amount: Number(r.amount),
+      paidOn: r.paid_on as string,
+      note: (r.note as string | null) ?? null,
+    }));
+  } catch (err) {
+    if (!/tracker_payouts|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+  }
+
+  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts };
 }

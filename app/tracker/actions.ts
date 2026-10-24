@@ -112,6 +112,15 @@ export async function deleteLive(liveId: string) {
     .eq("owner_id", admin.id)
     .not("shipment_id", "is", null);
   if (shippedError) throw new Error(shippedError.message);
+  const { count: payoutCount, error: payoutError } = await db
+    .from("tracker_payouts")
+    .select("id", { count: "exact", head: true })
+    .eq("live_id", id)
+    .eq("owner_id", admin.id);
+  if (payoutError && !/tracker_payouts|schema cache|does not exist/i.test(payoutError.message)) throw new Error(payoutError.message);
+  if (payoutCount) {
+    throw new Error("Payments were already distributed to owners for this live. Undo those on the Dashboard first.");
+  }
   if (shipped) {
     throw new Error(
       shipped + " card" + (shipped === 1 ? " in this live is" : "s in this live are") + " already marked shipped. Undo those shipments first (open the customer and press Undo under Parcels shipped).",
@@ -393,6 +402,40 @@ export async function setPaymentLive(paymentId: string, liveId: string | null) {
   refresh();
 }
 
+/** Records money handed to a card owner (or to "no owner") for a live. */
+export async function recordPayout(input: { liveId: string; recipientTag: string | null; amount: number; paidOn: string; note: string }) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(
+    z.object({
+      liveId: z.string().uuid(),
+      recipientTag: z.string().trim().max(8).nullable(),
+      amount: money.refine((n) => n > 0, "Amount must be more than zero."),
+      paidOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the date."),
+      note: text(300),
+    }),
+    input,
+  );
+  const db = createAdminClient();
+  await assertOwned(db, "tracker_lives", v.liveId, admin.id, "Live");
+  const { error } = await db.from("tracker_payouts").insert({
+    owner_id: admin.id,
+    live_id: v.liveId,
+    recipient_tag: normalizeOwnerTag(v.recipientTag),
+    amount: v.amount,
+    paid_on: v.paidOn,
+    note: v.note || null,
+  });
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
+export async function deletePayout(id: string) {
+  const admin = await requireTrackerAdmin();
+  const { error } = await createAdminClient().from("tracker_payouts").delete().eq("id", id).eq("owner_id", admin.id);
+  if (error) throw new Error(error.message);
+  refresh();
+}
+
 export async function deletePayment(id: string) {
   const admin = await requireTrackerAdmin();
   const { error } = await createAdminClient().from("tracker_payments").delete().eq("id", id).eq("owner_id", admin.id);
@@ -459,7 +502,7 @@ export async function saveSettings(input: {
   visayasMindanaoFee: number;
   paymentInstructions: string;
   showAddressOnInvoice: boolean;
-  ownerLabels: { code: string; name: string }[];
+  ownerLabels: { code: string; name: string; active?: boolean }[];
   gcashQrUrl: string | null;
   maribankQrUrl: string | null;
 }) {
@@ -473,13 +516,13 @@ export async function saveSettings(input: {
       gcashQrUrl: z.string().max(500).nullable(),
       maribankQrUrl: z.string().max(500).nullable(),
       ownerLabels: z
-        .array(z.object({ code: text(8).min(1, "Each owner needs a short code."), name: text(40).min(1, "Each owner needs a name.") }))
+        .array(z.object({ code: text(8).min(1, "Each owner needs a short code."), name: text(40).min(1, "Each owner needs a name."), active: z.boolean().optional() }))
         .min(1, "Keep at least one owner.")
         .max(6),
     }),
     input,
   );
-  const ownerLabels = v.ownerLabels.map((l) => ({ code: normalizeOwnerTag(l.code) as string, name: l.name }));
+  const ownerLabels = v.ownerLabels.map((l) => ({ code: normalizeOwnerTag(l.code) as string, name: l.name, active: l.active !== false }));
   if (new Set(ownerLabels.map((l) => l.code)).size !== ownerLabels.length) throw new Error("Owner codes must be different from each other.");
   const { error } = await createAdminClient()
     .from("tracker_settings")
