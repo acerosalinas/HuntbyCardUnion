@@ -20,6 +20,7 @@ export default async function TrackerCustomersPage() {
     islandGroup: c.islandGroup,
     totals: data.totalsByCustomer[c.id],
     lastPaymentOn: lastPaymentByCustomer.get(c.id) ?? null,
+    cardsPaid: data.sales.filter((x) => x.customerId === c.id).reduce((n, x) => n + (data.paidBySale[x.id] ?? 0), 0),
   }));
 
   return <CustomersView rows={rows} />;

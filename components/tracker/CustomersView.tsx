@@ -15,6 +15,8 @@ export interface CustomerRow {
   islandGroup: IslandGroup | null;
   totals: CustomerTotals;
   lastPaymentOn: string | null;
+  /** How much of their cards is paid so far (money matched to cards, not shipping fees). */
+  cardsPaid: number;
 }
 
 type Filter = "OUTSTANDING" | "TO_SHIP" | "ALL";
@@ -110,6 +112,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3 text-right">Paid</th>
                 <th className="px-4 py-3 text-right">Balance</th>
+                <th className="px-4 py-3">Paid progress</th>
                 <th className="px-4 py-3">Last payment</th>
                 <th className="px-4 py-3">Shipping</th>
               </tr>
@@ -132,6 +135,19 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                     )}
                   >
                     {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const pct = r.totals.cardsTotal > 0 ? Math.min(100, Math.round((r.cardsPaid / r.totals.cardsTotal) * 100)) : 0;
+                      return (
+                        <div className="w-28" title={`${formatCurrency(r.cardsPaid)} of ${formatCurrency(r.totals.cardsTotal)} paid`}>
+                          <div className="h-2 overflow-hidden rounded-full bg-foreground/10">
+                            <div className={cn("h-full rounded-full", pct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs text-foreground-muted">{pct}% paid</span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-foreground-muted">{r.lastPaymentOn ?? "Never"}</td>
                   <td className="px-4 py-3">

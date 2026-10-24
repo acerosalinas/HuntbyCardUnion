@@ -47,6 +47,8 @@ interface Props {
   customerLiveIds: string[];
   /** This customer's payments, newest first - each can be undone here. */
   payments: TrackerPayment[];
+  /** Cards ticked on the customer page: this payment is recorded against exactly these, in this order. `left` = still unpaid. */
+  selectedCards?: { id: string; name: string; amount: number; left: number }[];
 }
 
 /** Records one payment - optionally together with the shipping fee ("paid with SF"), saved as a cards part and a prepaid-shipping part in a single step. */
@@ -58,13 +60,14 @@ export function PayDialog(props: Props) {
   );
 }
 
-function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, otherLivesDue, shippingUnpaid, lives, customerLiveIds }: Props) {
+function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, otherLivesDue, shippingUnpaid, lives, customerLiveIds, selectedCards }: Props) {
   const confirm = useConfirm();
   const router = useRouter();
   const defaultFee = shippingFeeFor(customer.islandGroup, rates);
   // Customers often pay for one live only, so by default the payment is tied to this live's order.
   const [applyTo, setApplyTo] = useState<"LIVE" | "ANY">(live ? "LIVE" : "ANY");
-  const initialDue = live && liveDue !== null ? liveDue : balance;
+  const selectedLeft = selectedCards && selectedCards.length > 0 ? Math.round(selectedCards.reduce((n, c) => n + c.left, 0) * 100) / 100 : null;
+  const initialDue = selectedLeft ?? (live && liveDue !== null ? liveDue : balance);
   const [cards, setCards] = useState(initialDue > 0 ? String(initialDue) : "");
   // A shipping fee that's been charged but not paid is the usual reason a customer still "owes" after their cards are settled,
   // so it's pre-filled here instead of leaving it to be spotted.
@@ -118,7 +121,24 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
     setError(null);
     startTransition(async () => {
       try {
-        await recordPayments({ customerId: customer.id, liveId: applyTo === "LIVE" && live ? live.id : null, cardsAmount, shippingAmount: sfAmount, method, paidOn, note });
+        // Spread the amount over the ticked cards in order; a smaller payment fully pays the first cards and part-pays the last.
+        let remaining = cardsAmount;
+        const allocations: { saleId: string; amount: number }[] = [];
+        for (const c of selectedCards ?? []) {
+          const part = Math.min(c.left, remaining);
+          if (part > 0) allocations.push({ saleId: c.id, amount: Math.round(part * 100) / 100 });
+          remaining = Math.round((remaining - part) * 100) / 100;
+        }
+        await recordPayments({
+          customerId: customer.id,
+          liveId: applyTo === "LIVE" && live ? live.id : null,
+          cardsAmount,
+          shippingAmount: sfAmount,
+          method,
+          paidOn,
+          note,
+          allocations,
+        });
         onClose();
       } catch (err) {
         setError(extractErrorMessage(err) ?? "Couldn't record the payment.");
@@ -128,6 +148,21 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
 
   return (
     <div className="space-y-4">
+      {selectedCards && selectedCards.length > 0 && (
+        <div className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+          <p className="mb-1 font-medium">
+            Paying for {selectedCards.length} ticked card{selectedCards.length === 1 ? "" : "s"} · {formatCurrency(selectedLeft ?? 0)} unpaid
+          </p>
+          <ul className="max-h-24 space-y-0.5 overflow-y-auto text-xs text-foreground-muted">
+            {selectedCards.map((c) => (
+              <li key={c.id} className="flex justify-between gap-2">
+                <span className="truncate">{c.name}</span>
+                <span className="shrink-0">{formatCurrency(c.left)}{c.left < c.amount ? ` left of ${formatCurrency(c.amount)}` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="space-y-1 text-sm text-foreground-muted">
         {live && liveDue !== null && (
           <p>
@@ -179,7 +214,7 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
         <div className="mb-1 flex items-center justify-between">
           <label className={label}>Amount paid for cards</label>
           {(() => {
-            const due = applyTo === "LIVE" && liveDue !== null ? liveDue : balance;
+            const due = selectedLeft ?? (applyTo === "LIVE" && liveDue !== null ? liveDue : balance);
             return (
               due > 0 && (
                 <button type="button" onClick={() => setCards(String(due))} className="text-xs text-gold hover:underline">

@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
-import { ArrowLeft, ClipboardCopy, Trash2, Truck, Undo2 } from "lucide-react";
+import { ArrowLeft, ClipboardCopy, Package, Trash2, Truck, Undo2, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
+import { PayDialog } from "@/components/tracker/PayDialog";
+import { ownerColor } from "@/lib/tracker/ownerColors";
 import { Select } from "@/components/ui/Select";
 import {
   deleteCustomer,
@@ -16,6 +18,7 @@ import {
   deleteSale,
   recordPayment,
   setPaymentLive,
+  setSalesDistributed,
   saveCustomer,
   setSalesForShipping,
   undoShipment,
@@ -38,7 +41,7 @@ import type {
   TrackerSettings,
   TrackerShipment,
 } from "@/lib/tracker/data";
-import { extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 function todayLocal(): string {
   const d = new Date();
@@ -110,18 +113,29 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
     });
   };
 
-  // ---- Shipping ----
+  // ---- Cards: pending vs shipped, selection, payment status ----
   const liveById = useMemo(() => new Map(lives.map((l) => [l.id, l])), [lives]);
-  const unshipped = sales.filter((s) => s.shipmentId === null);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(unshipped.filter((s) => s.forShipping).map((s) => s.id)));
-  const [shipOpen, setShipOpen] = useState(false);
-  const selectedIds = unshipped.filter((s) => selected.has(s.id)).map((s) => s.id);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const paidOf = (id: string) => paidBySale[id] ?? 0;
+  const leftOf = (s: TrackerSale) => round2(s.amount - paidOf(s.id));
+  // A card is "shipped" once it's in a parcel (shipping) or handed over (not shipping); everything else is still pending.
+  const isDone = (s: TrackerSale) => s.shipmentId !== null || s.distributedAt !== null;
+  const byOrder = (a: TrackerSale, b: TrackerSale) =>
+    (liveById.get(a.liveId)?.liveDate ?? "").localeCompare(liveById.get(b.liveId)?.liveDate ?? "") || a.createdAt.localeCompare(b.createdAt);
+  const pendingCards = sales.filter((s) => !isDone(s)).sort(byOrder);
+  const shippedCards = sales.filter(isDone).sort(byOrder);
+  const pendingTotal = round2(pendingCards.reduce((n, s) => n + s.amount, 0));
+  const pendingPaid = round2(pendingCards.reduce((n, s) => n + paidOf(s.id), 0));
+  const pendingPct = pendingTotal > 0 ? Math.min(100, Math.round((pendingPaid / pendingTotal) * 100)) : 0;
 
-  const openShip = () => {
-    if (selectedIds.length === 0) return setError("Tick the cards that are going in this parcel first.");
-    setError(null);
-    setShipOpen(true);
-  };
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [shipOpen, setShipOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const selectedCards = sales.filter((s) => selected.has(s.id)).sort(byOrder);
+  const selectedLeft = round2(selectedCards.reduce((n, s) => n + Math.max(0, leftOf(s)), 0));
+  const toShip = selectedCards.filter((s) => s.shipmentId === null && s.forShipping);
+  const toDistribute = selectedCards.filter((s) => s.distributedAt === null && s.shipmentId === null && !s.forShipping);
+  const payableSelected = selectedCards.filter((s) => leftOf(s) > 0);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -130,6 +144,45 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       else next.add(id);
       return next;
     });
+
+  const ShippedRow = ({ s, undo = false }: { s: TrackerSale; undo?: boolean }) => {
+    const color = ownerColor(s.ownerTag, settings.ownerLabels);
+    return (
+      <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm", color?.row)}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${s.cardName}`}
+          checked={selected.has(s.id)}
+          disabled={leftOf(s) <= 0}
+          onChange={() => toggle(s.id)}
+          className="h-4 w-4 rounded border-card-border accent-gold disabled:opacity-30"
+        />
+        <span className="min-w-0 flex-1">
+          <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
+          <span className="ml-2 text-xs text-foreground-muted">{liveById.get(s.liveId)?.liveDate}</span>
+        </span>
+        <span className="font-medium">{formatCurrency(s.amount)}</span>
+        {payBadge(s)}
+        {undo && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(() => setSalesDistributed([s.id], false))}
+            className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold disabled:opacity-40"
+          >
+            <Undo2 size={12} /> Undo
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  const payBadge = (s: TrackerSale) => {
+    const left = leftOf(s);
+    if (left <= 0) return <Badge tone="available">Paid</Badge>;
+    if (paidOf(s.id) > 0) return <Badge tone="pending">{formatCurrency(left)} left</Badge>;
+    return <Badge tone="neutral">Unpaid</Badge>;
+  };
 
   // The customer's PENDING balance only, grouped by order date (see lib/tracker/statement.ts).
   const statementInput = {
@@ -185,11 +238,6 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           {customer.islandGroup && <Badge tone="neutral">{ISLAND_GROUP_LABELS[customer.islandGroup]}</Badge>}
           {totals.prepaidShippingCredit > 0 && <Badge tone="gold">{formatCurrency(totals.prepaidShippingCredit)} shipping prepaid</Badge>}
         </div>
-        {pendingStatement.totalToPay > 0 && (
-          <Button variant="outline" type="button" onClick={copyPending}>
-            <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
-          </Button>
-        )}
       </div>
 
       {error && <p className="rounded-lg border border-sold/30 bg-sold-bg px-3 py-2 text-sm text-sold">{error}</p>}
@@ -203,100 +251,201 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         ))}
       </div>
 
-      {/* Cards & shipping */}
+      {/* Pending cards */}
       <section className={panel}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">Cards</h3>
-          {unshipped.length > 0 && (
-            <Button variant="gold" type="button" onClick={openShip} disabled={pending}>
-              <Truck size={14} /> Mark {selectedIds.length || ""} shipped
+          <h3 className="font-semibold">
+            Pending <span className="text-sm font-normal text-foreground-muted">· {pendingCards.length} card{pendingCards.length === 1 ? "" : "s"} not shipped yet</span>
+          </h3>
+          {pendingStatement.totalToPay > 0 && (
+            <Button variant="outline" type="button" onClick={copyPending}>
+              <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
             </Button>
           )}
         </div>
-        {sales.length === 0 ? (
-          <p className="py-6 text-center text-sm text-foreground-muted">No cards yet.</p>
-        ) : (
-          <ul className="divide-y divide-card-border">
-            {sales.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
-                {s.shipmentId === null ? (
-                  <input
-                    type="checkbox"
-                    aria-label={`Include ${s.cardName} in the parcel`}
-                    checked={selected.has(s.id)}
-                    onChange={() => toggle(s.id)}
-                    className="h-4 w-4 rounded border-card-border accent-gold"
-                  />
-                ) : (
-                  <Truck size={14} className="text-available" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{s.cardName}</span>
-                  <span className="text-xs text-foreground-muted">
-                    {liveById.get(s.liveId)?.title ?? "Live"}
-                    {s.ownerTag && <> · {settings.ownerLabels.find((o) => o.code === s.ownerTag)?.name ?? s.ownerTag}</>}
-                  </span>
-                </span>
-                <span className="font-medium">{formatCurrency(s.amount)}</span>
-                {s.shipmentId === null ? (
-                  <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
-                    <input
-                      type="checkbox"
-                      checked={s.forShipping}
-                      disabled={pending}
-                      onChange={(e) => run(() => setSalesForShipping([s.id], e.target.checked))}
-                      className="h-3.5 w-3.5 rounded border-card-border accent-gold"
-                    />
-                    For shipping
-                  </label>
-                ) : (
-                  <Badge tone="available">Shipped</Badge>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Delete ${s.cardName}`}
-                  disabled={pending || s.shipmentId !== null}
-                  onClick={async () => {
-                    if (await confirm({ title: "Delete card?", message: `Remove ${s.cardName} (${formatCurrency(s.amount)}) from ${customer.name}'s account?`, confirmLabel: "Delete", tone: "danger" }))
-                      run(() => deleteSale(s.id));
-                  }}
-                  className="rounded p-1 text-foreground-muted hover:text-sold disabled:opacity-30"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
+
+        {pendingCards.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1 flex items-baseline justify-between text-xs text-foreground-muted">
+              <span>Paid on pending cards</span>
+              <span>
+                <span className="font-semibold text-foreground">{formatCurrency(pendingPaid)}</span> of {formatCurrency(pendingTotal)} · {pendingPct}%
+              </span>
+            </div>
+            <div role="progressbar" aria-valuenow={pendingPct} aria-valuemin={0} aria-valuemax={100} aria-label="Paid on pending cards" className="h-2.5 overflow-hidden rounded-full bg-foreground/10">
+              <div className={cn("h-full rounded-full transition-all", pendingPct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pendingPct}%` }} />
+            </div>
+          </div>
         )}
 
-        {shipments.length > 0 && (
-          <div className="mt-4 border-t border-card-border pt-3">
-            <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">Parcels shipped</h4>
-            <ul className="space-y-1.5 text-sm">
-              {shipments.map((sh) => {
-                const count = sales.filter((s) => s.shipmentId === sh.id).length;
+        {selected.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+            <span className="font-medium">
+              {selected.size} selected · {formatCurrency(selectedLeft)} unpaid
+            </span>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {payableSelected.length > 0 && (
+                <Button variant="gold" type="button" className="px-3 py-1.5" onClick={() => setPayOpen(true)}>
+                  <Wallet size={13} /> Record payment for these
+                </Button>
+              )}
+              {toShip.length > 0 && (
+                <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setShipOpen(true)}>
+                  <Truck size={13} /> Mark {toShip.length} shipped
+                </Button>
+              )}
+              {toDistribute.length > 0 && (
+                <Button
+                  variant="outline"
+                  type="button"
+                  className="px-3 py-1.5"
+                  disabled={pending}
+                  onClick={() =>
+                    run(async () => {
+                      await setSalesDistributed(toDistribute.map((s) => s.id), true);
+                      setSelected(new Set());
+                    })
+                  }
+                >
+                  <Package size={13} /> Mark {toDistribute.length} distributed
+                </Button>
+              )}
+              <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {pendingCards.length === 0 ? (
+          <p className="py-6 text-center text-sm text-foreground-muted">{sales.length === 0 ? "No cards yet." : "Nothing pending - every card has been shipped or handed over."}</p>
+        ) : (
+          <>
+            <label className="mb-1 flex items-center gap-2 text-xs text-foreground-muted">
+              <input
+                type="checkbox"
+                checked={pendingCards.every((s) => selected.has(s.id))}
+                onChange={(e) =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    for (const s of pendingCards) {
+                      if (e.target.checked) next.add(s.id);
+                      else next.delete(s.id);
+                    }
+                    return next;
+                  })
+                }
+                className="h-4 w-4 rounded border-card-border accent-gold"
+              />
+              Select all pending
+            </label>
+            <ul className="divide-y divide-card-border">
+              {pendingCards.map((s) => {
+                const color = ownerColor(s.ownerTag, settings.ownerLabels);
                 return (
-                  <li key={sh.id} className="flex flex-wrap items-center justify-between gap-2">
-                    <span>
-                      {sh.shippedOn} · {count} card{count === 1 ? "" : "s"} · fee {formatCurrency(sh.fee)}
-                      {sh.prepaidApplied > 0 && <span className="text-foreground-muted"> (prepaid covered {formatCurrency(sh.prepaidApplied)})</span>}
-                      {sh.note && <span className="text-foreground-muted"> · {sh.note}</span>}
+                  <li key={s.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-2 text-sm", color?.row)}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${s.cardName}`}
+                      checked={selected.has(s.id)}
+                      onChange={() => toggle(s.id)}
+                      className="h-4 w-4 rounded border-card-border accent-gold"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
+                      <span className="ml-2 text-xs text-foreground-muted">
+                        {liveById.get(s.liveId)?.liveDate} · {liveById.get(s.liveId)?.title ?? "Live"}
+                      </span>
                     </span>
+                    <span className="font-medium">{formatCurrency(s.amount)}</span>
+                    {payBadge(s)}
+                    <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                      <input
+                        type="checkbox"
+                        checked={s.forShipping}
+                        disabled={pending}
+                        onChange={(e) => run(() => setSalesForShipping([s.id], e.target.checked))}
+                        className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                      />
+                      For shipping
+                    </label>
                     <button
                       type="button"
+                      aria-label={`Delete ${s.cardName}`}
                       disabled={pending}
                       onClick={async () => {
-                        if (await confirm({ title: "Undo this shipment?", message: "The cards go back to not shipped and the shipping fee is removed from this customer's balance.", confirmLabel: "Undo shipment", tone: "danger" }))
-                          run(() => undoShipment(sh.id));
+                        if (await confirm({ title: "Delete card?", message: `Remove ${s.cardName} (${formatCurrency(s.amount)}) from ${customer.name}'s account?`, confirmLabel: "Delete", tone: "danger" }))
+                          run(() => deleteSale(s.id));
                       }}
-                      className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold"
+                      className="rounded p-1 text-foreground-muted hover:text-sold disabled:opacity-30"
                     >
-                      <Undo2 size={12} /> Undo
+                      <Trash2 size={14} />
                     </button>
                   </li>
                 );
               })}
             </ul>
+          </>
+        )}
+      </section>
+
+      {/* Shipped / handed over */}
+      <section className={panel}>
+        <h3 className="mb-3 font-semibold">
+          Shipped <span className="text-sm font-normal text-foreground-muted">· {shippedCards.length} card{shippedCards.length === 1 ? "" : "s"} sent or handed over</span>
+        </h3>
+        {shippedCards.length === 0 ? (
+          <p className="py-6 text-center text-sm text-foreground-muted">Nothing shipped yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {shipments
+              .filter((sh) => shippedCards.some((s) => s.shipmentId === sh.id))
+              .map((sh) => {
+                const cards = shippedCards.filter((s) => s.shipmentId === sh.id);
+                return (
+                  <div key={sh.id}>
+                    <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <span className="font-medium">
+                        <Truck size={13} className="mr-1.5 inline text-available" />
+                        {sh.shippedOn} · {cards.length} card{cards.length === 1 ? "" : "s"} · fee {formatCurrency(sh.fee)}
+                        {sh.prepaidApplied > 0 && <span className="font-normal text-foreground-muted"> (prepaid covered {formatCurrency(sh.prepaidApplied)})</span>}
+                        {sh.note && <span className="font-normal text-foreground-muted"> · {sh.note}</span>}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={async () => {
+                          if (await confirm({ title: "Undo this shipment?", message: "The cards go back to pending and the shipping fee is removed from this customer's balance.", confirmLabel: "Undo shipment", tone: "danger" }))
+                            run(() => undoShipment(sh.id));
+                        }}
+                        className="inline-flex items-center gap-1 text-xs text-foreground-muted hover:text-sold"
+                      >
+                        <Undo2 size={12} /> Undo
+                      </button>
+                    </div>
+                    <ul className="divide-y divide-card-border rounded-xl border border-card-border">
+                      {cards.map((s) => (
+                        <ShippedRow key={s.id} s={s} />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            {shippedCards.some((s) => s.shipmentId === null) && (
+              <div>
+                <div className="mb-1 text-sm font-medium">
+                  <Package size={13} className="mr-1.5 inline text-available" />
+                  Handed over (not shipped)
+                </div>
+                <ul className="divide-y divide-card-border rounded-xl border border-card-border">
+                  {shippedCards
+                    .filter((s) => s.shipmentId === null)
+                    .map((s) => (
+                      <ShippedRow key={s.id} s={s} undo />
+                    ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -474,10 +623,30 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         onClose={() => setShipOpen(false)}
         onShipped={() => setSelected(new Set())}
         customer={{ id: customer.id, name: customer.name, islandGroup: customer.islandGroup }}
-        saleIds={selectedIds}
+        saleIds={toShip.map((s) => s.id)}
         prepaidCredit={totals.prepaidShippingCredit}
         rates={settings}
       />
+      {payOpen && (
+        <PayDialog
+          open
+          onClose={() => {
+            setPayOpen(false);
+            setSelected(new Set());
+          }}
+          customer={{ id: customer.id, name: customer.name, islandGroup: customer.islandGroup }}
+          balance={totals.balance}
+          rates={settings}
+          live={null}
+          liveDue={null}
+          otherLivesDue={0}
+          shippingUnpaid={Math.max(0, totals.shippingCharged - totals.shippingPaid)}
+          lives={lives}
+          customerLiveIds={[...new Set(sales.map((s) => s.liveId))]}
+          payments={payments}
+          selectedCards={payableSelected.map((s) => ({ id: s.id, name: s.cardName, amount: s.amount, left: leftOf(s) }))}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
 import { islandGroupForRegion, REGIONS } from "@/lib/tracker/regions";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
+import { sum } from "@/lib/tracker/money";
 import { validateImageFile } from "@/lib/imageValidation";
 import { uploadToR2 } from "@/lib/r2";
 
@@ -363,12 +364,15 @@ export async function recordPayments(input: {
   method: "GCASH" | "MARIBANK";
   paidOn: string;
   note: string;
+  /** Cards the cards-part of this payment was ticked against, in the order they should be paid. */
+  allocations?: { saleId: string; amount: number }[];
 }) {
   const admin = await requireTrackerAdmin();
   const v = parse(
     z.object({
       customerId: z.string().uuid(),
       liveId: z.string().uuid().nullable(),
+      allocations: z.array(z.object({ saleId: z.string().uuid(), amount: money.refine((n) => n > 0, "Each allocation must be more than zero.") })).max(500).optional(),
       cardsAmount: money,
       shippingAmount: money,
       method: z.enum(["GCASH", "MARIBANK"]),
@@ -386,8 +390,35 @@ export async function recordPayments(input: {
     ...(v.cardsAmount > 0 ? [{ ...base, amount: v.cardsAmount, purpose: "CARDS" }] : []),
     ...(v.shippingAmount > 0 ? [{ ...base, amount: v.shippingAmount, purpose: "SHIPPING" }] : []),
   ];
-  const { error } = await db.from("tracker_payments").insert(rows);
+  const allocations = v.allocations ?? [];
+  if (allocations.length > 0) {
+    const allocated = sum(allocations.map((a) => a.amount));
+    if (allocated > v.cardsAmount + 0.001) throw new Error("The cards ticked add up to more than the amount paid for cards.");
+    const ids = [...new Set(allocations.map((a) => a.saleId))];
+    const { count, error: ownError } = await db
+      .from("tracker_sales")
+      .select("id", { count: "exact", head: true })
+      .in("id", ids)
+      .eq("owner_id", admin.id)
+      .eq("customer_id", v.customerId);
+    if (ownError) throw new Error(ownError.message);
+    if (count !== ids.length) throw new Error("Some of the ticked cards don't belong to this customer.");
+  }
+
+  const { data: inserted, error } = await db.from("tracker_payments").insert(rows).select("id, purpose");
   if (error) throw new Error(error.message);
+
+  const cardsPayment = (inserted ?? []).find((r) => r.purpose === "CARDS");
+  if (allocations.length > 0 && cardsPayment) {
+    const { error: allocError } = await db
+      .from("tracker_payment_allocations")
+      .insert(allocations.map((a) => ({ owner_id: admin.id, payment_id: cardsPayment.id, sale_id: a.saleId, amount: a.amount })));
+    if (allocError) {
+      // Don't leave a payment behind that isn't tied to the cards the user ticked.
+      await db.from("tracker_payments").delete().in("id", (inserted ?? []).map((r) => r.id)).eq("owner_id", admin.id);
+      throw new Error(allocError.message);
+    }
+  }
   refresh();
 }
 

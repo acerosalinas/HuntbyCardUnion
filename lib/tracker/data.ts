@@ -65,6 +65,8 @@ export interface TrackerPayment {
   purpose: "CARDS" | "SHIPPING";
   /** The live this payment was made for, or null = general (settles the oldest cards first). */
   liveId: string | null;
+  /** Cards this payment was ticked against when it was recorded (empty = applied automatically). */
+  allocations: { saleId: string; amount: number }[];
   paidOn: string;
   note: string | null;
 }
@@ -210,6 +212,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     method: r.method as TrackerPayment["method"],
     purpose: r.purpose as TrackerPayment["purpose"],
     liveId: (r.live_id as string | null | undefined) ?? null,
+    allocations: [],
     paidOn: r.paid_on as string,
     note: (r.note as string | null) ?? null,
   }));
@@ -241,6 +244,22 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     ownerTag: x.ownerTag,
     order: `${liveDateById.get(x.liveId) ?? ""}|${x.createdAt}`,
   }));
+  // Cards a payment was ticked against. The table was added later; without its migration payments simply apply automatically.
+  try {
+    const allocationRows = await fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_payment_allocations").select("payment_id, sale_id, amount").eq("owner_id", ownerId).range(f, t),
+    );
+    const byPayment = new Map<string, { saleId: string; amount: number }[]>();
+    for (const r of allocationRows) {
+      const list = byPayment.get(r.payment_id as string) ?? [];
+      list.push({ saleId: r.sale_id as string, amount: Number(r.amount) });
+      byPayment.set(r.payment_id as string, list);
+    }
+    for (const p of payments) p.allocations = byPayment.get(p.id) ?? [];
+  } catch (err) {
+    if (!/tracker_payment_allocations|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+  }
+
   const paidMap = allocateCardPayments(splitSales, payments);
   const liveBreakdown = liveBalances(splitSales, paidMap);
   const paidBySale = Object.fromEntries(paidMap);

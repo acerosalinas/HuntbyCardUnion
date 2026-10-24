@@ -13,7 +13,7 @@ export interface DashboardInput {
   customers: { id: string; name: string; islandGroup: IslandGroup | null }[];
   lives: { id: string; title: string; liveDate: string }[];
   sales: SplitSale[];
-  payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string; liveId: string | null }[];
+  payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string; liveId: string | null; allocations?: { saleId: string; amount: number }[] }[];
   ownerLabels: OwnerLabel[];
   /** Money handed to card owners, per live. */
   payouts: { liveId: string; recipientTag: string | null; amount: number }[];

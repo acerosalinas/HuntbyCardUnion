@@ -34,10 +34,15 @@ export interface SplitPayment {
   /** The live this payment was made for, or null = not tied to a live. */
   liveId: string | null;
   purpose: "CARDS" | "SHIPPING";
+  /** Cards this payment was explicitly recorded against (ticked when it was recorded). */
+  allocations?: { saleId: string; amount: number }[];
 }
 
 /**
  * How much of each card has actually been paid, per customer:
+ *  0. A payment recorded against specific cards (ticked when it was entered)
+ *     pays exactly those cards, up to what each still needs. Whatever part of
+ *     it couldn't be used there carries on below like an untargeted payment.
  *  1. A payment made FOR a live settles that live's cards first (oldest first
  *     within it). Anything beyond that live's total spills into the general pool.
  *  2. Payments not tied to a live join the pool too.
@@ -64,12 +69,29 @@ export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[
 
   for (const [customerId, unsorted] of byCustomer) {
     const items = [...unsorted].sort((a, b) => a.order.localeCompare(b.order));
+    const byId = new Map(items.map((s) => [s.id, s]));
     const mine = payments.filter((p) => p.customerId === customerId && p.purpose === "CARDS");
 
-    let pool = sum(mine.filter((p) => p.liveId === null).map((p) => p.amount));
-    const liveIds = [...new Set(mine.map((p) => p.liveId).filter((id): id is string => id !== null))];
+    // Step 0: explicit card allocations. What a payment couldn't place becomes its remainder.
+    const remainders: { liveId: string | null; amount: number }[] = [];
+    for (const p of mine) {
+      let remaining = p.amount;
+      for (const a of p.allocations ?? []) {
+        const card = byId.get(a.saleId);
+        if (!card) continue;
+        const room = round2(card.amount - (paid.get(card.id) ?? 0));
+        const applied = Math.min(room, a.amount, remaining);
+        if (applied <= 0) continue;
+        paid.set(card.id, round2((paid.get(card.id) ?? 0) + applied));
+        remaining = round2(remaining - applied);
+      }
+      remainders.push({ liveId: p.liveId, amount: remaining });
+    }
+
+    let pool = sum(remainders.filter((r) => r.liveId === null).map((r) => r.amount));
+    const liveIds = [...new Set(remainders.map((r) => r.liveId).filter((id): id is string => id !== null))];
     for (const liveId of liveIds) {
-      const forLive = sum(mine.filter((p) => p.liveId === liveId).map((p) => p.amount));
+      const forLive = sum(remainders.filter((r) => r.liveId === liveId).map((r) => r.amount));
       pool = round2(pool + apply(items.filter((s) => s.liveId === liveId), forLive));
     }
     apply(items, pool);

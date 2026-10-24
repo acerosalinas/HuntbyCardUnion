@@ -507,3 +507,53 @@ test("owner progress: only active owners get a bar, summed across lives; tables 
   // Turning Shane back on brings him back; nothing is lost.
   assert.deepEqual(ownerProgress(splits, [{ code: "S", name: "Shane" }]).map((p) => p.expected), [700]);
 });
+
+test("a payment ticked against specific cards pays exactly those, not the oldest", () => {
+  const sales = [sp("old", "c1", "L1", 300, "A", "2026-09-01"), sp("new", "c1", "L2", 100, "A", "2026-10-01")];
+  const payment: SplitPayment = { ...pay("c1", 100), allocations: [{ saleId: "new", amount: 100 }] };
+  const paid = allocateCardPayments(sales, [payment]);
+  assert.equal(paid.get("new"), 100);
+  assert.equal(paid.get("old"), 0);
+});
+
+test("a payment smaller than the ticked cards pays them in the order given and leaves the rest owing", () => {
+  const sales = [sp("a", "c1", "L", 50, "A", "1"), sp("b", "c1", "L", 40, "S", "2"), sp("c", "c1", "L", 70, "A", "3")];
+  const payment: SplitPayment = {
+    ...pay("c1", 70),
+    allocations: [
+      { saleId: "a", amount: 50 },
+      { saleId: "b", amount: 20 },
+    ],
+  };
+  const paid = allocateCardPayments(sales, [payment]);
+  assert.equal(paid.get("a"), 50);
+  assert.equal(paid.get("b"), 20);
+  assert.equal(paid.get("c"), 0);
+});
+
+test("money a ticked payment couldn't use falls through to the normal rules instead of vanishing", () => {
+  // The card was already paid in full by an earlier payment, so the second payment's allocation has no room.
+  const sales = [sp("a", "c1", "L", 100, "A", "1"), sp("b", "c1", "L", 100, "A", "2")];
+  const first: SplitPayment = { ...pay("c1", 100), allocations: [{ saleId: "a", amount: 100 }] };
+  const second: SplitPayment = { ...pay("c1", 100), allocations: [{ saleId: "a", amount: 100 }] };
+  const paid = allocateCardPayments(sales, [first, second]);
+  assert.equal(paid.get("a"), 100);
+  assert.equal(paid.get("b"), 100);
+});
+
+test("a ticked payment's unallocated remainder follows the live it was made for", () => {
+  const sales = [sp("old", "c1", "L1", 300, "A", "2026-09-01"), sp("x", "c1", "L2", 100, "A", "2026-10-01"), sp("y", "c1", "L2", 100, "A", "2026-10-02")];
+  const payment: SplitPayment = { ...pay("c1", 150, "L2"), allocations: [{ saleId: "x", amount: 100 }] };
+  const paid = allocateCardPayments(sales, [payment]);
+  assert.equal(paid.get("x"), 100);
+  assert.equal(paid.get("y"), 50); // the 50 left over stays inside L2, not the older live
+  assert.equal(paid.get("old"), 0);
+});
+
+test("allocations to another customer's cards are ignored", () => {
+  const sales = [sp("mine", "c1", "L", 100, "A", "1"), sp("theirs", "c2", "L", 100, "A", "2")];
+  const payment: SplitPayment = { ...pay("c1", 100), allocations: [{ saleId: "theirs", amount: 100 }] };
+  const paid = allocateCardPayments(sales, [payment]);
+  assert.equal(paid.get("theirs"), 0);
+  assert.equal(paid.get("mine"), 100); // the unusable allocation falls back to oldest-first for c1
+});
