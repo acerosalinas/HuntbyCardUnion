@@ -17,6 +17,8 @@ export interface OwnerColor {
   button: string;
   /** Filled part of a progress bar. */
   bar: string;
+  /** Lighter tone of the same colour, for the "expected" line. */
+  barSoft: string;
 }
 
 const PALETTE: OwnerColor[] = [
@@ -27,6 +29,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-emerald-500/40 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300",
     button: "bg-emerald-600 text-white hover:bg-emerald-500",
     bar: "bg-emerald-500",
+    barSoft: "bg-emerald-500/30",
   },
   {
     row: "bg-pink-500/10",
@@ -35,6 +38,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-pink-500/40 text-pink-700 hover:bg-pink-500/15 dark:text-pink-300",
     button: "bg-pink-600 text-white hover:bg-pink-500",
     bar: "bg-pink-500",
+    barSoft: "bg-pink-500/30",
   },
   {
     row: "bg-sky-500/10",
@@ -43,6 +47,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-sky-500/40 text-sky-700 hover:bg-sky-500/15 dark:text-sky-300",
     button: "bg-sky-600 text-white hover:bg-sky-500",
     bar: "bg-sky-500",
+    barSoft: "bg-sky-500/30",
   },
   {
     row: "bg-amber-500/10",
@@ -51,6 +56,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-amber-500/40 text-amber-700 hover:bg-amber-500/15 dark:text-amber-300",
     button: "bg-amber-600 text-white hover:bg-amber-500",
     bar: "bg-amber-500",
+    barSoft: "bg-amber-500/30",
   },
   {
     row: "bg-violet-500/10",
@@ -59,6 +65,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-violet-500/40 text-violet-700 hover:bg-violet-500/15 dark:text-violet-300",
     button: "bg-violet-600 text-white hover:bg-violet-500",
     bar: "bg-violet-500",
+    barSoft: "bg-violet-500/30",
   },
   {
     row: "bg-orange-500/10",
@@ -67,6 +74,7 @@ const PALETTE: OwnerColor[] = [
     chipOff: "border-orange-500/40 text-orange-700 hover:bg-orange-500/15 dark:text-orange-300",
     button: "bg-orange-600 text-white hover:bg-orange-500",
     bar: "bg-orange-500",
+    barSoft: "bg-orange-500/30",
   },
 ];
 

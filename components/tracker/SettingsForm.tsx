@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { saveSettings, uploadTrackerQr } from "@/app/tracker/actions";
 import type { TrackerSettings } from "@/lib/tracker/data";
-import { extractErrorMessage } from "@/lib/utils";
+import { cn, extractErrorMessage } from "@/lib/utils";
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 
@@ -137,7 +137,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
       <div>
         <label className={label}>Card owners</label>
         <p className="mb-2 text-xs text-foreground-muted">
-          Tag each card with a short code while you sell (e.g. A for AC, S for Shane). The Dashboard splits every live&apos;s expected and actual totals by owner. Untick Active to hide an owner from the graphs and progress bars - their cards still count in the totals.
+          Tag each card with a short code while you sell (e.g. A for AC, S for Shane). The Dashboard splits every live&apos;s expected and actual totals by owner. Switch an owner to Inactive (red) to hide them from the graphs and progress bars - their cards still count in the totals.
         </p>
         <div className="space-y-2">
           {owners.map((o, i) => (
@@ -157,15 +157,32 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
                 aria-label="Owner name"
                 onChange={(e) => setOwners(owners.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
               />
-              <label className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted" title="Show this owner in the Dashboard graphs and progress bars">
-                <input
-                  type="checkbox"
-                  checked={o.active !== false}
-                  onChange={(e) => setOwners(owners.map((x, j) => (j === i ? { ...x, active: e.target.checked } : x)))}
-                  className="h-4 w-4 rounded border-card-border accent-gold"
-                />
-                Active
-              </label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={o.active !== false}
+                aria-label={`${o.name || "Owner"} ${o.active !== false ? "active" : "inactive"} - click to switch`}
+                title="Show this owner in the Dashboard graphs and progress bars"
+                onClick={() => setOwners(owners.map((x, j) => (j === i ? { ...x, active: x.active === false } : x)))}
+                className="flex shrink-0 items-center gap-2"
+              >
+                <span
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    o.active !== false ? "bg-available" : "bg-sold",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                      o.active !== false ? "translate-x-5" : "translate-x-0.5",
+                    )}
+                  />
+                </span>
+                <span className={cn("w-14 text-left text-xs font-semibold", o.active !== false ? "text-available" : "text-sold")}>
+                  {o.active !== false ? "Active" : "Inactive"}
+                </span>
+              </button>
               <Button type="button" variant="outline" className="px-3" disabled={owners.length <= 1} onClick={() => setOwners(owners.filter((_, j) => j !== i))}>
                 Remove
               </Button>
