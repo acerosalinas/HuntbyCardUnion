@@ -17,6 +17,7 @@ import {
   deletePayment,
   deleteSale,
   recordPayment,
+  recordPayments,
   setPaymentLive,
   setSalesDistributed,
   saveCustomer,
@@ -129,6 +130,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const pendingPct = pendingTotal > 0 ? Math.min(100, Math.round((pendingPaid / pendingTotal) * 100)) : 0;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Method used by the one-tap "Paid" button on each live's table.
+  const [quickMethod, setQuickMethod] = useState<"GCASH" | "MARIBANK">("GCASH");
   // Lives ticked for the invoice. Nothing ticked = every pending live is copied; ticking some copies / marks paid just those.
   const [tickedLives, setTickedLives] = useState<Set<string>>(new Set());
   // Whether the payment dialog was opened from the ticked lives (rather than from individually ticked cards).
@@ -152,6 +155,49 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   // Every unpaid pending card of the ticked lives - what "Mark as paid" settles.
   const livePayCards = pendingCards.filter((x) => tickedLives.has(x.liveId) && leftOf(x) > 0);
   const livePayLeft = round2(livePayCards.reduce((n, x) => n + leftOf(x), 0));
+
+  // One tap: records a payment for everything still unpaid in this table, tied to that live and to exactly those cards.
+  // Shipping never does this on its own - only this button (or the payment dialogs) records money.
+  const paidControl = (liveId: string, cards: TrackerSale[]) => {
+    const due = cards.filter((c) => leftOf(c) > 0);
+    if (due.length === 0) return <Badge tone="available">Paid</Badge>;
+    const amount = round2(due.reduce((n, c) => n + leftOf(c), 0));
+    return (
+      <div className="flex items-center gap-1.5">
+        <select
+          aria-label="Payment method for the Paid button"
+          value={quickMethod}
+          onChange={(e) => setQuickMethod(e.target.value as "GCASH" | "MARIBANK")}
+          className="rounded-md border border-card-border bg-background-elevated px-1.5 py-1 text-xs text-foreground"
+        >
+          <option value="GCASH">GCash</option>
+          <option value="MARIBANK">Maribank</option>
+        </select>
+        <Button
+          variant="gold"
+          type="button"
+          className="px-3 py-1 text-xs"
+          disabled={pending}
+          onClick={() =>
+            run(async () => {
+              await recordPayments({
+                customerId: customer.id,
+                liveId,
+                cardsAmount: amount,
+                shippingAmount: 0,
+                method: quickMethod,
+                paidOn: todayLocal(),
+                note: "",
+                allocations: due.map((c) => ({ saleId: c.id, amount: leftOf(c) })),
+              });
+            })
+          }
+        >
+          Paid · {formatCurrency(amount)}
+        </Button>
+      </div>
+    );
+  };
 
   // Undoing a parcel puts every card in it back to pending - so say how many that is.
   const undoParcel = async (shipmentId: string) => {
@@ -427,6 +473,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                       </div>
                       {left > 0 ? <span className="font-semibold text-pending">{formatCurrency(left)} left</span> : <span className="font-semibold text-available">paid</span>}
                     </div>
+                    {left > 0 && <div className="ml-auto">{paidControl(live.id, cards)}</div>}
                   </div>
                   <div className="flex items-center gap-2 border-t border-card-border px-3 py-1 text-xs text-foreground-muted">
                     <input
@@ -515,6 +562,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                       · {cards.length} card{cards.length === 1 ? "" : "s"} · {formatCurrency(cards.reduce((n, x) => n + x.amount, 0))}
                     </span>
                   </span>
+                  {paidControl(live.id, cards)}
                 </div>
                 <ul className="divide-y divide-card-border border-t border-card-border">
                   {cards.map((c) => (
