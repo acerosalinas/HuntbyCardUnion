@@ -300,6 +300,40 @@ export async function saveCustomer(id: string, input: CustomerInput) {
   refresh();
 }
 
+/** Handle search for the "link this customer to an account" box. */
+export async function findBuyers(query: string): Promise<{ id: string; handle: string; fullName: string }[]> {
+  await requireTrackerAdmin();
+  const q = query.trim().replace(/^@/, "");
+  if (q.length < 2) return [];
+  const { data, error } = await createAdminClient().from("profiles").select("id, handle, full_name").ilike("handle", `%${escapeLike(q)}%`).limit(8);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => ({ id: r.id as string, handle: r.handle as string, fullName: r.full_name as string }));
+}
+
+/** Links a tracker customer to a marketplace account (or unlinks with null). One account can be linked to one customer. */
+export async function linkCustomerBuyer(customerId: string, buyerId: string | null) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ customerId: z.string().uuid(), buyerId: z.string().uuid().nullable() }), { customerId, buyerId });
+  const db = createAdminClient();
+  await assertOwned(db, "tracker_customers", v.customerId, admin.id, "Customer");
+
+  if (v.buyerId) {
+    const { data: profile, error: profileError } = await db.from("profiles").select("id").eq("id", v.buyerId).maybeSingle();
+    if (profileError) throw new Error(profileError.message);
+    if (!profile) throw new Error("That account doesn't exist.");
+  }
+
+  const { error } = await db.from("tracker_customers").update({ buyer_id: v.buyerId }).eq("id", v.customerId).eq("owner_id", admin.id);
+  if (error) {
+    if (error.code === "23505") {
+      const { data: other } = await db.from("tracker_customers").select("name").eq("owner_id", admin.id).eq("buyer_id", v.buyerId as string).maybeSingle();
+      throw new Error(`That account is already linked to ${other?.name ?? "another customer"}. Unlink it there first.`);
+    }
+    throw new Error(error.message);
+  }
+  refresh();
+}
+
 export async function deleteCustomer(id: string) {
   const admin = await requireTrackerAdmin();
   const db = createAdminClient();

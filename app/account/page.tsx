@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, Heart, PackageSearch, Settings, UserCircle } from "lucide-react";
+import { AlertTriangle, ClipboardList, Heart, PackageSearch, Settings, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { logout } from "./actions";
@@ -37,6 +37,12 @@ export default async function AccountPage() {
         <Button variant="outline" className="w-full">
           <PackageSearch size={14} />
           My Dibs
+        </Button>
+      </Link>
+      <Link href="/account/orders" className="w-full">
+        <Button variant="outline" className="w-full">
+          <ClipboardList size={14} />
+          My Live Orders
         </Button>
       </Link>
       <Link href="/account/wishlist" className="w-full">

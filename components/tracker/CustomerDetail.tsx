@@ -21,6 +21,8 @@ import {
   recordPayments,
   setPaymentLive,
   setSalesDistributed,
+  findBuyers,
+  linkCustomerBuyer,
   saveCustomer,
   setSalesForShipping,
   undoShipment,
@@ -61,17 +63,21 @@ interface Props {
   settings: TrackerSettings;
   /** How much of each card is already paid (payments made for a live settle that live first). */
   paidBySale: Record<string, number>;
+  /** The marketplace account this customer is linked to (they can sign in and see their own orders), if any. */
+  linkedBuyer: { id: string; handle: string; fullName: string } | null;
 }
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
-export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale }: Props) {
+export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [buyerQuery, setBuyerQuery] = useState("");
+  const [buyerResults, setBuyerResults] = useState<{ id: string; handle: string; fullName: string }[] | null>(null);
   // Copied invoices leave the shipping fee out unless this is switched on.
   const [includeShipping, setIncludeShipping] = useState(false);
 
@@ -674,6 +680,74 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      {/* Customer account link */}
+      <section className={panel}>
+        <h3 className="mb-1 font-semibold">Customer account</h3>
+        <p className="mb-3 text-xs text-foreground-muted">
+          Link this customer to their Hunt by Card Union account so they can sign in and see their own cards, balance and shipped status under <span className="font-medium">My Live Orders</span>. Only they can see it.
+        </p>
+        {linkedBuyer ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span>
+              Linked to <span className="font-semibold">@{linkedBuyer.handle}</span> <span className="text-foreground-muted">({linkedBuyer.fullName})</span>
+            </span>
+            <Button
+              variant="outline"
+              type="button"
+              disabled={pending}
+              onClick={async () => {
+                if (await confirm({ title: "Unlink this account?", message: `@${linkedBuyer.handle} will no longer see ${customer.name}'s orders.`, confirmLabel: "Unlink", tone: "danger" }))
+                  run(() => linkCustomerBuyer(customer.id, null));
+              }}
+            >
+              Unlink
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                run(async () => setBuyerResults(await findBuyers(buyerQuery)));
+              }}
+            >
+              <Input value={buyerQuery} onChange={(e) => setBuyerQuery(e.target.value)} placeholder="Search their @handle" maxLength={40} />
+              <Button type="submit" variant="outline" disabled={pending || buyerQuery.trim().length < 2}>
+                Search
+              </Button>
+            </form>
+            {buyerResults && buyerResults.length === 0 && <p className="text-sm text-foreground-muted">No accounts match that handle.</p>}
+            {buyerResults && buyerResults.length > 0 && (
+              <ul className="divide-y divide-card-border rounded-xl border border-card-border text-sm">
+                {buyerResults.map((b) => (
+                  <li key={b.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <span>
+                      @{b.handle} <span className="text-foreground-muted">({b.fullName})</span>
+                    </span>
+                    <Button
+                      variant="gold"
+                      type="button"
+                      className="px-3 py-1"
+                      disabled={pending}
+                      onClick={() =>
+                        run(async () => {
+                          await linkCustomerBuyer(customer.id, b.id);
+                          setBuyerResults(null);
+                          setBuyerQuery("");
+                        })
+                      }
+                    >
+                      Link
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </section>
 

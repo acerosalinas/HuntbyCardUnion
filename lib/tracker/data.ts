@@ -37,6 +37,8 @@ export interface TrackerCustomer {
   /** Derived from the region on every read, so it can't go stale. */
   islandGroup: IslandGroup | null;
   address: string | null;
+  /** Marketplace buyer account this customer is linked to (they can sign in and see their own orders), or null. */
+  buyerId: string | null;
 }
 export interface TrackerLive {
   id: string;
@@ -121,7 +123,7 @@ function parseOwnerLabels(raw: unknown): OwnerLabel[] {
 const PAGE = 1000;
 
 /** PostgREST caps a single response at 1000 rows - page through so a long-running ledger never silently truncates (and under-reports a balance). */
-async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+export async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await build(from, from + PAGE - 1);
@@ -190,6 +192,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     zip: c.zip,
     street: c.street,
     islandGroup: islandGroupForRegion(c.region),
+    buyerId: (c.buyer_id as string | null | undefined) ?? null,
     address: addressLine(c as { street: string | null; barangay: string | null; province_city: string | null; zip: string | null }),
   }));
   const lives: TrackerLive[] = liveRows.map((l) => ({ id: l.id, title: l.title, liveDate: l.live_date }));

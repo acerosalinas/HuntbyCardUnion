@@ -589,3 +589,88 @@ test("statement: shipping fees are left off unless switched on", () => {
   assert.doesNotMatch(text, /to be confirmed/);
   assert.match(text, /TOTAL TO PAY: ₱160/);
 });
+
+import { buildPortalView, PortalInput } from "../../lib/tracker/portalView";
+
+function portalInput(overrides: Partial<PortalInput> = {}): PortalInput {
+  const card = (id: string, liveId: string, amount: number, extra: Partial<PortalInput["sales"][number]> = {}) => ({
+    id,
+    customerId: "c1",
+    liveId,
+    cardName: "Card " + id,
+    amount,
+    forShipping: false,
+    shipmentId: null,
+    distributedAt: null,
+    createdAt: "2026-10-2" + id.length + "T00:00:00Z",
+    ...extra,
+  });
+  return {
+    sales: [card("a", "L1", 100), card("bb", "L1", 50), card("ccc", "L2", 200)],
+    lives: [
+      { id: "L2", title: "Second live", liveDate: "2026-10-24" },
+      { id: "L1", title: "First live", liveDate: "2026-10-18" },
+    ],
+    payments: [],
+    shipments: [],
+    ...overrides,
+  };
+}
+
+test("portal: lives are listed oldest first with totals and nothing paid yet", () => {
+  const v = buildPortalView(portalInput());
+  assert.deepEqual(v.lives.map((l) => l.title), ["First live", "Second live"]);
+  assert.equal(v.cardsTotal, 350);
+  assert.equal(v.cardsPaid, 0);
+  assert.equal(v.amountDue, 350);
+  assert.equal(v.progressPct, 0);
+});
+
+test("portal: only recorded payments move the progress line, oldest cards first", () => {
+  const v = buildPortalView(portalInput({ payments: [{ customerId: "c1", amount: 175, purpose: "CARDS", liveId: null, allocations: [] }] }));
+  assert.equal(v.cardsPaid, 175);
+  assert.equal(v.cardsLeft, 175);
+  assert.equal(v.progressPct, 50);
+  assert.equal(v.lives[0].left, 0); // the first live (150) is cleared first
+  assert.equal(v.lives[1].paid, 25);
+});
+
+test("portal: a payment ticked against specific cards pays exactly those", () => {
+  const v = buildPortalView(
+    portalInput({ payments: [{ customerId: "c1", amount: 200, purpose: "CARDS", liveId: null, allocations: [{ saleId: "ccc", amount: 200 }] }] }),
+  );
+  assert.equal(v.lives[1].left, 0);
+  assert.equal(v.lives[0].left, 150);
+});
+
+test("portal: shipped and handed-over cards show their state and date", () => {
+  const input = portalInput();
+  input.sales[0] = { ...input.sales[0], shipmentId: "S1" };
+  input.sales[1] = { ...input.sales[1], distributedAt: "2026-10-20T00:00:00Z" };
+  input.sales[2] = { ...input.sales[2], forShipping: true };
+  input.shipments = [{ id: "S1", fee: 64, shippedOn: "2026-10-20" }];
+  const v = buildPortalView(input);
+  const [a, bb] = v.lives[0].cards;
+  assert.equal(a.state, "SHIPPED");
+  assert.equal(a.shippedOn, "2026-10-20");
+  assert.equal(bb.state, "HANDED_OVER");
+  assert.equal(v.lives[1].cards[0].state, "PENDING");
+  assert.equal(v.lives[1].cards[0].wantsShipping, true);
+});
+
+test("portal: a shipped parcel's unpaid fee is owed until a shipping payment covers it", () => {
+  const input = portalInput({ shipments: [{ id: "S1", fee: 64, shippedOn: "2026-10-20" }] });
+  assert.equal(buildPortalView(input).shippingUnpaid, 64);
+  assert.equal(buildPortalView(input).amountDue, 350 + 64);
+  const paidFee = { ...input, payments: [{ customerId: "c1", amount: 64, purpose: "SHIPPING" as const, liveId: null, allocations: [] }] };
+  assert.equal(buildPortalView(paidFee).shippingUnpaid, 0);
+});
+
+test("portal: the view exposes no owner tags, addresses, payment methods or other customers", () => {
+  const v = buildPortalView(portalInput());
+  const json = JSON.stringify(v);
+  for (const forbidden of ["ownerTag", "owner_tag", "customerId", "address", "method", "recipient", "payout"]) {
+    assert.ok(!json.includes(forbidden), `portal view must not contain ${forbidden}`);
+  }
+  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "shippedOn", "state", "wantsShipping"]);
+});
