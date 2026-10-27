@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
@@ -348,6 +349,9 @@ export async function deleteCustomer(id: string) {
   const { error } = await db.from("tracker_customers").delete().eq("id", id).eq("owner_id", admin.id);
   if (error) throw new Error(error.message);
   refresh();
+  // Leave from the server: the page the user is on (this customer's) no longer exists, so letting the
+  // revalidation rebuild it fails ("An error occurred in the Server Components render", React #441).
+  redirect("/tracker/customers");
 }
 
 export async function recordPayment(input: {
@@ -664,4 +668,15 @@ export async function rejectClaim(claimId: string, reason: string) {
   });
   refresh();
   revalidatePath("/account/orders");
+}
+
+/** Takes one card's paid status back: removes the share of payments recorded against it. Returns the amount taken back. */
+export async function markCardUnpaid(saleId: string): Promise<number> {
+  const admin = await requireTrackerAdmin();
+  const id = parse(z.string().uuid(), saleId);
+  const { data, error } = await createAdminClient().rpc("tracker_revert_card_payment", { p_owner: admin.id, p_sale: id });
+  if (error) throw new Error(error.message);
+  refresh();
+  revalidatePath("/account/orders");
+  return Number(data ?? 0);
 }

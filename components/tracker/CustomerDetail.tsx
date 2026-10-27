@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
 import { ArrowLeft, ClipboardCopy, Package, Trash2, Truck, Undo2, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
@@ -12,6 +11,7 @@ import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { ownerColor } from "@/lib/tracker/ownerColors";
+import { explicitlyPaid } from "@/lib/tracker/split";
 import { Select } from "@/components/ui/Select";
 import {
   deleteCustomer,
@@ -23,6 +23,7 @@ import {
   setSalesDistributed,
   findBuyers,
   linkCustomerBuyer,
+  markCardUnpaid,
   saveCustomer,
   setSalesForShipping,
   undoShipment,
@@ -71,7 +72,6 @@ const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreg
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
 export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer }: Props) {
-  const router = useRouter();
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -271,11 +271,40 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const pendingByLive = livesAsc.map((l) => ({ live: l, cards: pendingCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
   const shippedByLive = livesAsc.map((l) => ({ live: l, cards: shippedCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
 
+  // Paid status for a card, plus a way to take it back if it was ticked by mistake.
   const payBadge = (s: TrackerSale) => {
     const left = leftOf(s);
-    if (left <= 0) return <Badge tone="available">Paid</Badge>;
-    if (paidOf(s.id) > 0) return <Badge tone="pending">{formatCurrency(left)} left</Badge>;
-    return <Badge tone="neutral">Unpaid</Badge>;
+    const status =
+      left <= 0 ? <Badge tone="available">Paid</Badge> : paidOf(s.id) > 0 ? <Badge tone="pending">{formatCurrency(left)} left</Badge> : <Badge tone="neutral">Unpaid</Badge>;
+    if (paidOf(s.id) <= 0) return status;
+
+    const takeBack = explicitlyPaid(s.id, payments);
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {status}
+        <button
+          type="button"
+          disabled={pending || takeBack <= 0}
+          title={takeBack > 0 ? "Take this card's payment back - it becomes unpaid again" : "This card was covered by an older automatic payment - undo that payment in the Payments list instead"}
+          onClick={async () => {
+            if (
+              await confirm({
+                title: "Mark this card unpaid?",
+                message: `${formatCurrency(takeBack)} that was recorded for ${s.cardName} will be taken back out of its payment, and ${customer.name}'s balance goes back up.`,
+                confirmLabel: "Mark unpaid",
+                tone: "danger",
+              })
+            )
+              run(async () => {
+                await markCardUnpaid(s.id);
+              });
+          }}
+          className="inline-flex items-center gap-1 rounded-md border border-card-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-sold/50 hover:text-sold disabled:opacity-40 disabled:hover:border-card-border disabled:hover:text-foreground-muted"
+        >
+          <Undo2 size={11} /> Unpaid
+        </button>
+      </span>
+    );
   };
 
   // The customer's PENDING balance only, grouped by order date (see lib/tracker/statement.ts).
@@ -810,8 +839,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
               onClick={async () => {
                 if (await confirm({ title: "Delete customer?", message: `${customer.name} will be removed. This only works for customers with no cards or payments.`, confirmLabel: "Delete", tone: "danger" }))
                   run(async () => {
+                    // The server action redirects to the customers list itself once the customer is gone.
                     await deleteCustomer(customer.id);
-                    router.replace("/tracker/customers");
                   });
               }}
             >

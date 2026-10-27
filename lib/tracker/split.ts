@@ -155,3 +155,14 @@ function rowFor(code: string | null, name: string, items: SplitSale[], paid: Map
     distributed: 0,
   };
 }
+
+/** How much of a card is paid through payments recorded AGAINST it - the part "Mark unpaid" can take back. */
+export function explicitlyPaid(saleId: string, payments: { purpose: "CARDS" | "SHIPPING"; allocations?: { saleId: string; amount: number }[] }[]): number {
+  return sum(
+    payments
+      .filter((p) => p.purpose === "CARDS")
+      .flatMap((p) => p.allocations ?? [])
+      .filter((a) => a.saleId === saleId)
+      .map((a) => a.amount),
+  );
+}

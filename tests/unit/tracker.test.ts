@@ -693,3 +693,17 @@ test("portal: cards under a pending proof are flagged and the claim list is newe
   assert.equal(v.cardsPaid, 0);
   assert.equal(v.progressPct, 0);
 });
+
+import { explicitlyPaid } from "../../lib/tracker/split";
+
+test("explicitlyPaid: only card payments recorded against that card count toward 'Mark unpaid'", () => {
+  const payments = [
+    { purpose: "CARDS" as const, allocations: [{ saleId: "a", amount: 40 }, { saleId: "b", amount: 10 }] },
+    { purpose: "CARDS" as const, allocations: [{ saleId: "a", amount: 25 }] },
+    { purpose: "SHIPPING" as const, allocations: [{ saleId: "a", amount: 999 }] }, // shipping payments never pay cards
+    { purpose: "CARDS" as const }, // an older automatic payment: nothing recorded against any card
+  ];
+  assert.equal(explicitlyPaid("a", payments), 65);
+  assert.equal(explicitlyPaid("b", payments), 10);
+  assert.equal(explicitlyPaid("zzz", payments), 0);
+});
