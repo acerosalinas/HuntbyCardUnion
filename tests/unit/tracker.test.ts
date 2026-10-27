@@ -672,7 +672,7 @@ test("portal: the view exposes no owner tags, addresses, payment methods or othe
   for (const forbidden of ["ownerTag", "owner_tag", "customerId", "address", "method", "recipient", "payout"]) {
     assert.ok(!json.includes(forbidden), `portal view must not contain ${forbidden}`);
   }
-  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "shippedOn", "state", "underReview", "wantsShipping"]);
+  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "payNow", "plan", "shippedOn", "state", "underReview", "wantsShipping"]);
 });
 
 test("portal: cards under a pending proof are flagged and the claim list is newest first", () => {
@@ -706,4 +706,151 @@ test("explicitlyPaid: only card payments recorded against that card count toward
   assert.equal(explicitlyPaid("a", payments), 65);
   assert.equal(explicitlyPaid("b", payments), 10);
   assert.equal(explicitlyPaid("zzz", payments), 0);
+});
+
+import { addDays, evaluatePlan, splitEvenly, validateSchedule } from "../../lib/tracker/installments";
+
+const plan1500 = [
+  { seq: 1, dueDate: "2026-10-27", amount: 750 },
+  { seq: 2, dueDate: "2026-11-03", amount: 750 },
+];
+
+test("plan: nothing paid on the day it starts - the first payment is due, the second is upcoming", () => {
+  const e = evaluatePlan(plan1500, 0, "2026-10-27");
+  assert.equal(e.rows[0].state, "DUE");
+  assert.equal(e.rows[1].state, "UPCOMING");
+  assert.equal(e.dueNow, 750);
+  assert.deepEqual(e.next, { seq: 2, dueDate: "2026-11-03", amount: 750 });
+  assert.equal(e.payNext, 750);
+  assert.equal(e.left, 1500);
+  assert.equal(e.complete, false);
+});
+
+test("plan: paying 750 fills the first installment, so nothing is due until next week", () => {
+  const e = evaluatePlan(plan1500, 750, "2026-10-27");
+  assert.equal(e.rows[0].state, "PAID");
+  assert.equal(e.dueNow, 0);
+  assert.equal(e.paid, 750);
+  assert.equal(e.left, 750);
+  assert.equal(e.payNext, 750); // the next installment is what to pre-fill
+  assert.equal(e.paidCount, 1);
+});
+
+test("plan: a missed date is overdue, and a payment smaller than an installment part-fills it", () => {
+  const e = evaluatePlan(plan1500, 400, "2026-11-05");
+  assert.equal(e.rows[0].covered, 400);
+  assert.equal(e.rows[0].state, "OVERDUE");
+  assert.equal(e.rows[1].state, "OVERDUE");
+  assert.equal(e.overdue, true);
+  assert.equal(e.dueNow, 1100); // 350 left of the first + all of the second
+});
+
+test("plan: paying everything completes it; overpaying never exceeds the card", () => {
+  const e = evaluatePlan(plan1500, 2000, "2026-10-27");
+  assert.equal(e.complete, true);
+  assert.equal(e.paid, 1500);
+  assert.equal(e.left, 0);
+  assert.equal(e.dueNow, 0);
+  assert.equal(e.payNext, 0);
+});
+
+test("plan: payments fill installments in order regardless of how the rows are listed", () => {
+  const e = evaluatePlan([...plan1500].reverse(), 750, "2026-10-20");
+  assert.equal(e.rows[0].seq, 1);
+  assert.equal(e.rows[0].state, "PAID");
+});
+
+test("schedule validation", () => {
+  assert.equal(validateSchedule([{ dueDate: "2026-10-27", amount: 750 }, { dueDate: "2026-11-03", amount: 750 }], 1500), null);
+  assert.match(validateSchedule([{ dueDate: "2026-10-27", amount: 1500 }], 1500) ?? "", /at least 2/);
+  assert.match(validateSchedule([{ dueDate: "2026-10-27", amount: 700 }, { dueDate: "2026-11-03", amount: 700 }], 1500) ?? "", /add up to/);
+  assert.match(validateSchedule([{ dueDate: "2026-11-03", amount: 750 }, { dueDate: "2026-10-27", amount: 750 }], 1500) ?? "", /date order/);
+  assert.match(validateSchedule([{ dueDate: "2026-10-27", amount: 0 }, { dueDate: "2026-11-03", amount: 1500 }], 1500) ?? "", /more than zero/);
+  assert.match(validateSchedule([{ dueDate: "", amount: 750 }, { dueDate: "2026-11-03", amount: 750 }], 1500) ?? "", /Pick a date/);
+});
+
+test("splitEvenly: odd centavos go on the first payment and the parts always add up", () => {
+  const parts = splitEvenly(1000, 3, "2026-10-27", 7);
+  assert.deepEqual(parts.map((p) => p.amount), [333.34, 333.33, 333.33]);
+  assert.deepEqual(parts.map((p) => p.dueDate), ["2026-10-27", "2026-11-03", "2026-11-10"]);
+  assert.equal(validateSchedule(parts, 1000), null);
+  assert.deepEqual(splitEvenly(1500, 2, "2026-10-27", 7).map((p) => p.amount), [750, 750]);
+});
+
+test("addDays crosses month and year ends", () => {
+  assert.equal(addDays("2026-12-28", 7), "2027-01-04");
+  assert.equal(addDays("2026-02-25", 7), "2026-03-04");
+});
+
+test("statement: a card on a plan is billed only what's due now, and later installments are announced", () => {
+  const input = statement({
+    orders: [
+      {
+        liveTitle: "10/24 live",
+        liveDate: "2026-10-24",
+        cards: [
+          { cardName: "Charizard", amount: 1500, paid: 0, plan: { dueNow: 750, next: { dueDate: "2026-11-03", amount: 750 } } },
+          { cardName: "Pikachu", amount: 100, paid: 0 },
+        ],
+      },
+    ],
+  });
+  const s = computeStatement(input);
+  assert.equal(s.cardsDue, 850); // 750 now + the whole 100, NOT 1,500 + 100
+  assert.deepEqual(s.upcoming, [{ cardName: "Charizard", amount: 750, dueDate: "2026-11-03" }]);
+  const text = buildStatementText(input);
+  assert.match(text, /Charizard - ₱750 due now \(installment plan - ₱750 more later\)/);
+  assert.match(text, /Pikachu - ₱100/);
+  assert.match(text, /Coming up:\n- Charizard: ₱750 on Nov 3/);
+  assert.match(text, /TOTAL TO PAY: ₱850/);
+});
+
+test("statement: a plan card with nothing due yet isn't billed, just announced", () => {
+  const input = statement({
+    orders: [{ liveTitle: "L", liveDate: "2026-10-24", cards: [{ cardName: "Charizard", amount: 1500, paid: 750, plan: { dueNow: 0, next: { dueDate: "2026-11-03", amount: 750 } } }] }],
+  });
+  const s = computeStatement(input);
+  assert.equal(s.orders.length, 0);
+  assert.equal(s.totalToPay, 0);
+  assert.match(buildStatementText(input), /Nothing is due right now[\s\S]*Charizard - ₱750 on Nov 3/);
+});
+
+test("statement: an overdue plan card is billed everything that's overdue", () => {
+  const s = computeStatement(
+    statement({ orders: [{ liveTitle: "L", liveDate: "2026-10-24", cards: [{ cardName: "Charizard", amount: 1500, paid: 0, plan: { dueNow: 1500, next: null } }] }] }),
+  );
+  assert.equal(s.cardsDue, 1500);
+  assert.equal(s.upcoming.length, 0);
+});
+
+test("portal: an approved plan shows its schedule, and the pay form pre-fills the installment due, not the whole card", () => {
+  const input = portalInput({
+    today: "2026-10-27",
+    plans: [{ saleId: "ccc", status: "ACTIVE", declineReason: null, installments: [{ seq: 1, dueDate: "2026-10-27", amount: 100 }, { seq: 2, dueDate: "2026-11-03", amount: 100 }] }],
+  });
+  const v = buildPortalView(input);
+  const card = v.lives[1].cards[0];
+  assert.equal(card.left, 200);
+  assert.equal(card.payNow, 100);
+  assert.equal(card.plan?.status, "ACTIVE");
+  assert.equal(card.plan?.dueNow, 100);
+  assert.deepEqual(card.plan?.installments.map((i) => i.state), ["DUE", "UPCOMING"]);
+  // After the first 100 is paid, the next installment is what's pre-filled.
+  const paid = buildPortalView({ ...input, payments: [{ customerId: "c1", amount: 100, purpose: "CARDS", liveId: null, allocations: [{ saleId: "ccc", amount: 100 }] }] });
+  const after = paid.lives[1].cards[0];
+  assert.equal(after.plan?.installments[0].state, "PAID");
+  assert.equal(after.payNow, 100);
+  assert.equal(after.plan?.paid, 100);
+});
+
+test("portal: a pending request shows what was asked, and a declined one shows the reason; neither changes what's owed", () => {
+  const requested = buildPortalView(
+    portalInput({ plans: [{ saleId: "a", status: "REQUESTED", declineReason: null, installments: [{ seq: 1, dueDate: "2026-10-30", amount: 50 }, { seq: 2, dueDate: "2026-11-06", amount: 50 }] }] }),
+  );
+  const card = requested.lives[0].cards[0];
+  assert.equal(card.plan?.status, "REQUESTED");
+  assert.equal(card.payNow, 100); // not an approved plan yet - pay in full as usual
+  assert.equal(requested.amountDue, 350);
+  const declined = buildPortalView(portalInput({ plans: [{ saleId: "a", status: "DECLINED", declineReason: "Please pay in full", installments: [] }] }));
+  assert.equal(declined.lives[0].cards[0].plan?.declineReason, "Please pay in full");
 });

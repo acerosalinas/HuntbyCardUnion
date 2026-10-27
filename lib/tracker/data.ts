@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { computeCustomerTotals, CustomerTotals } from "./money";
 import { IslandGroup, islandGroupForRegion } from "./regions";
 import { DEFAULT_OWNER_LABELS, OwnerLabel, allocateCardPayments, liveBalances, normalizeOwnerTag } from "./split";
+import type { Installment } from "./installments";
 
 export interface TrackerSettings {
   luzonFee: number;
@@ -82,6 +83,18 @@ export interface TrackerShipment {
   note: string | null;
 }
 
+export interface TrackerPlan {
+  id: string;
+  customerId: string;
+  saleId: string;
+  status: "REQUESTED" | "ACTIVE" | "DECLINED" | "CANCELLED";
+  requestedBy: "CUSTOMER" | "ADMIN";
+  note: string | null;
+  declineReason: string | null;
+  createdAt: string;
+  installments: Installment[];
+}
+
 export interface TrackerPayout {
   id: string;
   liveId: string;
@@ -105,6 +118,10 @@ export interface TrackerData {
   /** How much of each card is paid (payments made for a live settle that live first). */
   paidBySale: Record<string, number>;
   payouts: TrackerPayout[];
+  /** Open installment plans (requested or active), one per card at most. */
+  plans: TrackerPlan[];
+  /** For cards on an ACTIVE plan that still owe money: how much. Shipping such a card early gets a warning. */
+  planUnpaidBySale: Record<string, number>;
 }
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
@@ -267,6 +284,44 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
   const liveBreakdown = liveBalances(splitSales, paidMap);
   const paidBySale = Object.fromEntries(paidMap);
 
+  // Installment plans (tables arrive with migration_live_tracker_installments.sql; the rest of the tracker works without them).
+  const plans: TrackerPlan[] = [];
+  try {
+    const planRows = await fetchAll<Record<string, unknown>>((f, t) =>
+      supabase.from("tracker_installment_plans").select("*").eq("owner_id", ownerId).in("status", ["REQUESTED", "ACTIVE"]).range(f, t),
+    );
+    const planIds = planRows.map((r) => r.id as string);
+    const installmentRows = planIds.length
+      ? await fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_plan_installments").select("*").in("plan_id", planIds).range(f, t))
+      : [];
+    for (const r of planRows) {
+      plans.push({
+        id: r.id as string,
+        customerId: r.customer_id as string,
+        saleId: r.sale_id as string,
+        status: r.status as TrackerPlan["status"],
+        requestedBy: r.requested_by as TrackerPlan["requestedBy"],
+        note: (r.note as string | null) ?? null,
+        declineReason: (r.decline_reason as string | null) ?? null,
+        createdAt: r.created_at as string,
+        installments: installmentRows
+          .filter((i) => i.plan_id === r.id)
+          .map((i) => ({ seq: Number(i.seq), dueDate: i.due_date as string, amount: Number(i.amount) }))
+          .sort((a, b) => a.seq - b.seq),
+      });
+    }
+  } catch (err) {
+    if (!/tracker_installment_plans|tracker_plan_installments|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+  }
+  const planUnpaidBySale: Record<string, number> = {};
+  for (const plan of plans) {
+    if (plan.status !== "ACTIVE") continue;
+    const sale = sales.find((x) => x.id === plan.saleId);
+    if (!sale) continue;
+    const left = Math.round((sale.amount - (paidBySale[sale.id] ?? 0)) * 100) / 100;
+    if (left > 0) planUnpaidBySale[sale.id] = left;
+  }
+
   // Payouts live in a table added later; if its migration hasn't run yet the rest of the tracker must still work.
   let payouts: TrackerPayout[] = [];
   try {
@@ -285,5 +340,5 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     if (!/tracker_payouts|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
   }
 
-  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts };
+  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts, plans, planUnpaidBySale };
 }

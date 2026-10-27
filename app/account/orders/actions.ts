@@ -8,6 +8,7 @@ import { validateImageFile } from "@/lib/imageValidation";
 import { notifyUser } from "@/lib/notify";
 import { loadPortalInternal, PortalCustomerInternal } from "@/lib/tracker/portal";
 import { round2 } from "@/lib/tracker/money";
+import { validateSchedule } from "@/lib/tracker/installments";
 
 // Everything here runs as the SIGNED-IN BUYER. The customer is never taken from
 // the request on trust: it must be one of the tracker customers linked to this
@@ -143,6 +144,64 @@ export async function portalSubmitClaim(formData: FormData) {
     body: `${customer.customerName} sent a proof of payment to review.`,
     link: "/tracker/proofs",
   });
+  revalidatePath("/account/orders");
+  revalidatePath("/tracker", "layout");
+}
+
+/** The customer asks to pay one card in installments. It stays a REQUEST until the seller approves (or edits) it. */
+export async function portalRequestPlan(customerId: string, saleId: string, installments: { dueDate: string; amount: number }[], note: string) {
+  const v = z
+    .object({
+      customerId: z.string().uuid(),
+      saleId: z.string().uuid(),
+      installments: z.array(z.object({ dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), amount: z.number().finite().positive().max(10_000_000) })).min(2).max(12),
+      note: z.string().trim().max(300),
+    })
+    .parse({ customerId, saleId, installments, note });
+  const { buyerId, buyerHandle, customer } = await linkedCustomer(v.customerId);
+
+  const card = allCards(customer).find((c) => c.id === v.saleId);
+  if (!card) throw new Error("That card isn't on your account.");
+  if (card.left <= 0) throw new Error("That card is already paid.");
+  if (card.plan?.status === "ACTIVE") throw new Error("This card already has an approved installment plan.");
+  const problem = validateSchedule(v.installments, card.amount);
+  if (problem) throw new Error(problem);
+
+  const db = createAdminClient();
+  const { error } = await db.rpc("tracker_set_plan", {
+    p_owner: customer.ownerId,
+    p_sale: v.saleId,
+    p_installments: v.installments.map((i) => ({ due_date: i.dueDate, amount: i.amount })),
+    p_status: "REQUESTED",
+    p_requested_by: "CUSTOMER",
+    p_buyer: buyerId,
+    p_note: v.note || null,
+  });
+  if (error) throw new Error(error.message);
+
+  await notifyUser(db, {
+    recipientId: customer.ownerId,
+    type: "tracker_proof_submitted",
+    title: `Installment request from @${buyerHandle}`,
+    body: `${customer.customerName} asked to pay ${card.name} in installments.`,
+    link: "/tracker/plans",
+  });
+  revalidatePath("/account/orders");
+  revalidatePath("/tracker", "layout");
+}
+
+/** The customer takes back a request that hasn't been decided yet. */
+export async function portalWithdrawPlan(customerId: string, saleId: string) {
+  const v = z.object({ customerId: z.string().uuid(), saleId: z.string().uuid() }).parse({ customerId, saleId });
+  const { customer } = await linkedCustomer(v.customerId);
+  const { error } = await createAdminClient()
+    .from("tracker_installment_plans")
+    .update({ status: "CANCELLED", decided_at: new Date().toISOString() })
+    .eq("sale_id", v.saleId)
+    .eq("customer_id", customer.customerId)
+    .eq("owner_id", customer.ownerId)
+    .eq("status", "REQUESTED");
+  if (error) throw new Error(error.message);
   revalidatePath("/account/orders");
   revalidatePath("/tracker", "layout");
 }

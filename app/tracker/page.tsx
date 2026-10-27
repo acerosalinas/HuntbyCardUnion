@@ -22,6 +22,7 @@ export default async function TrackerEntryPage({ searchParams }: { searchParams:
       settings={data.settings}
       payments={data.payments}
       liveBreakdown={data.liveBreakdown}
+      planUnpaid={data.planUnpaidBySale}
     />
   );
 }

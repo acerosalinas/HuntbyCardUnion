@@ -103,6 +103,41 @@ export async function loadPortalInternal(buyerId: string): Promise<PortalCustome
       }));
     }
 
+    // This customer's installment plans (tables arrive with migration_live_tracker_installments.sql).
+    // Per card: the open plan (requested / approved) if there is one, else the latest declined request so they can see why.
+    const plans: NonNullable<Parameters<typeof buildPortalView>[0]["plans"]> = [];
+    const { data: planRows, error: planError } = await db
+      .from("tracker_installment_plans")
+      .select("id, sale_id, status, decline_reason, created_at")
+      .eq("customer_id", customerId)
+      .eq("owner_id", ownerId)
+      .in("status", ["REQUESTED", "ACTIVE", "DECLINED"])
+      .order("created_at", { ascending: false });
+    if (planError && !/tracker_installment_plans/i.test(planError.message) && !MISSING.test(planError.message)) throw new Error(planError.message);
+    if ((planRows ?? []).length > 0) {
+      const { data: instRows, error: instError } = await db
+        .from("tracker_plan_installments")
+        .select("plan_id, seq, due_date, amount")
+        .in("plan_id", (planRows ?? []).map((r) => r.id as string));
+      if (instError) throw new Error(instError.message);
+      const taken = new Set<string>();
+      const ordered = [...(planRows ?? [])].sort((a, b) => (a.status === "DECLINED" ? 1 : 0) - (b.status === "DECLINED" ? 1 : 0));
+      for (const r of ordered) {
+        const saleId = r.sale_id as string;
+        if (taken.has(saleId)) continue;
+        taken.add(saleId);
+        plans.push({
+          saleId,
+          status: r.status as "REQUESTED" | "ACTIVE" | "DECLINED",
+          declineReason: (r.decline_reason as string | null) ?? null,
+          installments: (instRows ?? [])
+            .filter((i) => i.plan_id === r.id)
+            .map((i) => ({ seq: Number(i.seq), dueDate: i.due_date as string, amount: Number(i.amount) }))
+            .sort((a, b) => a.seq - b.seq),
+        });
+      }
+    }
+
     const view = buildPortalView({
       sales: sales.map((r) => ({
         id: r.id as string,
@@ -125,6 +160,7 @@ export async function loadPortalInternal(buyerId: string): Promise<PortalCustome
       })),
       shipments: shipments.map((r) => ({ id: r.id as string, fee: Number(r.fee), shippedOn: r.shipped_on as string })),
       claims,
+      plans,
     });
 
     const settings = settingsRes.data;

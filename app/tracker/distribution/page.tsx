@@ -15,6 +15,7 @@ export default async function TrackerDistributionPage() {
       shipments={data.shipments}
       totalsByCustomer={data.totalsByCustomer}
       settings={data.settings}
+      planUnpaid={data.planUnpaidBySale}
     />
   );
 }

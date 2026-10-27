@@ -15,7 +15,13 @@ export interface StatementOrder {
   liveTitle: string;
   liveDate: string;
   /** Every card of the customer in that live, with how much of it is already paid. */
-  cards: { cardName: string; amount: number; paid: number }[];
+  cards: {
+    cardName: string;
+    amount: number;
+    paid: number;
+    /** Set when the card is on an approved installment plan: only what's due now is billed, the rest is "upcoming". */
+    plan?: { dueNow: number; next: { dueDate: string; amount: number } | null };
+  }[];
 }
 
 export interface StatementInput {
@@ -40,12 +46,14 @@ export interface PendingOrder {
   liveTitle: string;
   liveDate: string;
   /** Only cards that still have something left to pay. `left` < `amount` means partly paid. */
-  lines: { cardName: string; amount: number; left: number }[];
+  lines: { cardName: string; amount: number; left: number; plan?: { remaining: number; next: { dueDate: string; amount: number } | null } }[];
   balance: number;
 }
 
 export interface Statement {
   orders: PendingOrder[];
+  /** Installments on plan cards that aren't due yet - listed for information, not added to the total. */
+  upcoming: { cardName: string; amount: number; dueDate: string }[];
   cardsDue: number;
   shippingUnpaid: number;
   shippingFee: number | null;
@@ -62,11 +70,23 @@ export interface Statement {
  * to go out, net of any prepaid shipping credit.
  */
 export function computeStatement(input: StatementInput): Statement {
+  const upcoming: Statement["upcoming"] = [];
   const orders: PendingOrder[] = input.orders
     .map((o) => {
-      const lines = o.cards
-        .map((c) => ({ cardName: c.cardName, amount: c.amount, left: round2(c.amount - c.paid) }))
-        .filter((c) => c.left > 0);
+      const lines: PendingOrder["lines"] = [];
+      for (const c of o.cards) {
+        const remaining = round2(c.amount - c.paid);
+        if (remaining <= 0) continue;
+        if (c.plan) {
+          // A plan card is billed only for what's due now; later installments are just announced.
+          const dueNow = Math.min(remaining, Math.max(0, c.plan.dueNow));
+          if (dueNow > 0) lines.push({ cardName: c.cardName, amount: c.amount, left: dueNow, plan: { remaining, next: c.plan.next } });
+          else if (c.plan.next) upcoming.push({ cardName: c.cardName, amount: c.plan.next.amount, dueDate: c.plan.next.dueDate });
+          if (dueNow > 0 && remaining > dueNow && c.plan.next) upcoming.push({ cardName: c.cardName, amount: c.plan.next.amount, dueDate: c.plan.next.dueDate });
+          continue;
+        }
+        lines.push({ cardName: c.cardName, amount: c.amount, left: remaining });
+      }
       return { liveTitle: o.liveTitle, liveDate: o.liveDate, lines, balance: sum(lines.map((l) => l.left)) };
     })
     .filter((o) => o.lines.length > 0)
@@ -83,6 +103,7 @@ export function computeStatement(input: StatementInput): Statement {
 
   return {
     orders,
+    upcoming,
     cardsDue,
     shippingUnpaid,
     shippingFee,
@@ -96,19 +117,31 @@ export function computeStatement(input: StatementInput): Statement {
 export function buildStatementText(input: StatementInput): string {
   const s = computeStatement(input);
   if (s.totalToPay <= 0 && !s.shippingUnknown) {
-    return `Hi ${input.customerName}! You're all settled - no pending balance. Thank you!`;
+    if (s.upcoming.length === 0) return `Hi ${input.customerName}! You're all settled - no pending balance. Thank you!`;
+    const parts = s.upcoming.map((u) => `${u.cardName} - ${formatCurrency(u.amount)} on ${formatShortDate(u.dueDate)}`);
+    return `Hi ${input.customerName}! Nothing is due right now. Your next installment${parts.length === 1 ? "" : "s"}:\n${parts.join("\n")}`;
   }
 
   const lines: string[] = [`Hi ${input.customerName}! Here's your pending balance:`, ""];
   for (const o of s.orders) {
     lines.push(`${formatShortDate(o.liveDate)} order (${o.liveTitle}):`);
     o.lines.forEach((l, i) => {
+      if (l.plan) {
+        const more = l.plan.remaining > l.left ? ` - ${formatCurrency(l.plan.remaining - l.left)} more later` : "";
+        lines.push(`${i + 1}. ${l.cardName} - ${formatCurrency(l.left)} due now (installment plan${more})`);
+        return;
+      }
       const partial = l.left < l.amount ? ` (${formatCurrency(l.left)} left of ${formatCurrency(l.amount)})` : "";
       lines.push(`${i + 1}. ${l.cardName} - ${partial ? formatCurrency(l.left) + partial : formatCurrency(l.amount)}`);
     });
     lines.push(`Order balance: ${formatCurrency(o.balance)}`, "");
   }
 
+  if (s.upcoming.length > 0) {
+    lines.push("Coming up:");
+    for (const u of s.upcoming) lines.push(`- ${u.cardName}: ${formatCurrency(u.amount)} on ${formatShortDate(u.dueDate)}`);
+    lines.push("");
+  }
   if (s.shippingUnpaid > 0) lines.push(`Shipping fees (parcels sent): ${formatCurrency(s.shippingUnpaid)}`);
   if (s.shippingFee !== null) {
     const label = input.islandGroup ? ` (${ISLAND_GROUP_LABELS[input.islandGroup]})` : "";

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useMemo, useState, useTransition } from "react";
-import { ArrowLeft, ClipboardCopy, Package, Trash2, Truck, Undo2, Wallet } from "lucide-react";
+import { ArrowLeft, CalendarClock, ClipboardCopy, Package, Trash2, Truck, Undo2, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -12,6 +12,8 @@ import { PayDialog } from "@/components/tracker/PayDialog";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { explicitlyPaid } from "@/lib/tracker/split";
+import { evaluatePlan } from "@/lib/tracker/installments";
+import { PlanDialog } from "@/components/tracker/PlanDialog";
 import { Select } from "@/components/ui/Select";
 import {
   deleteCustomer,
@@ -42,6 +44,7 @@ import type {
   TrackerCustomer,
   TrackerLive,
   TrackerPayment,
+  TrackerPlan,
   TrackerSale,
   TrackerSettings,
   TrackerShipment,
@@ -66,12 +69,14 @@ interface Props {
   paidBySale: Record<string, number>;
   /** The marketplace account this customer is linked to (they can sign in and see their own orders), if any. */
   linkedBuyer: { id: string; handle: string; fullName: string } | null;
+  /** This customer's open installment plans (requested or approved), one per card at most. */
+  plans: TrackerPlan[];
 }
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
-export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer }: Props) {
+export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer, plans }: Props) {
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -238,6 +243,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         </span>
         <span className="font-medium">{formatCurrency(s.amount)}</span>
         {payBadge(s)}
+        {planControls(s)}
         {parcel ? (
           <>
             <Badge tone="available">
@@ -270,6 +276,49 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const livesAsc = [...lives].sort((x, y) => x.liveDate.localeCompare(y.liveDate));
   const pendingByLive = livesAsc.map((l) => ({ live: l, cards: pendingCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
   const shippedByLive = livesAsc.map((l) => ({ live: l, cards: shippedCards.filter((x) => x.liveId === l.id) })).filter((g) => g.cards.length > 0);
+
+  // ---- Installment plans ----
+  const [planCardId, setPlanCardId] = useState<string | null>(null);
+  const todayStr = todayLocal();
+  const planOf = (saleId: string) => plans.find((p) => p.saleId === saleId) ?? null;
+  const activeEval = (s: TrackerSale) => {
+    const plan = planOf(s.id);
+    return plan?.status === "ACTIVE" ? evaluatePlan(plan.installments, paidOf(s.id), todayStr) : null;
+  };
+
+  // Plan status + a button to enter / review / edit a plan, shown on cards that still owe something (or already have a plan).
+  const planControls = (s: TrackerSale) => {
+    const plan = planOf(s.id);
+    const ev = activeEval(s);
+    if (!plan && leftOf(s) <= 0) return null;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {plan?.status === "REQUESTED" && <Badge tone="gold">Plan requested</Badge>}
+        {ev && (ev.complete ? <Badge tone="available">Plan done</Badge> : ev.overdue ? <Badge tone="sold">Overdue · {ev.paidCount}/{ev.count}</Badge> : <Badge tone="pending">Plan {ev.paidCount}/{ev.count}</Badge>)}
+        <button
+          type="button"
+          title={plan ? "Open this card's installment plan" : "Set up an installment plan for this card"}
+          onClick={() => setPlanCardId(s.id)}
+          className="inline-flex items-center gap-1 rounded-md border border-card-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-gold/60 hover:text-foreground"
+        >
+          <CalendarClock size={11} /> {plan?.status === "REQUESTED" ? "Review" : plan ? "Plan" : "Installments"}
+        </button>
+      </span>
+    );
+  };
+
+  // Warn before shipping / handing over a card that's on a plan and still owes money. Nothing is blocked.
+  const confirmPlanCardsGo = async (cards: TrackerSale[]): Promise<boolean> => {
+    const owing = cards.filter((c) => activeEval(c) && leftOf(c) > 0);
+    if (owing.length === 0) return true;
+    const owed = round2(owing.reduce((n, c) => n + leftOf(c), 0));
+    return confirm({
+      title: "Send before the installments are paid?",
+      message: `${owing.length} of these cards ${owing.length === 1 ? "is" : "are"} on an installment plan and still owe ${formatCurrency(owed)} (${owing.map((c) => c.cardName).join(", ")}). Ship or hand over anyway?`,
+      confirmLabel: "Send anyway",
+      tone: "danger",
+    });
+  };
 
   // Paid status for a card, plus a way to take it back if it was ticked by mistake.
   const payBadge = (s: TrackerSale) => {
@@ -316,7 +365,12 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       .map((l) => ({
         liveTitle: l.title,
         liveDate: l.liveDate,
-        cards: pendingCards.filter((x) => x.liveId === l.id).map((x) => ({ cardName: x.cardName, amount: x.amount, paid: paidOf(x.id) })),
+        cards: pendingCards
+          .filter((x) => x.liveId === l.id)
+          .map((x) => {
+            const ev = activeEval(x);
+            return { cardName: x.cardName, amount: x.amount, paid: paidOf(x.id), plan: ev ? { dueNow: ev.dueNow, next: ev.next ? { dueDate: ev.next.dueDate, amount: ev.next.amount } : null } : undefined };
+          }),
       })),
     includeShipping,
     shippingUnpaid: Math.max(0, totals.shippingCharged - totals.shippingPaid),
@@ -447,7 +501,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 </Button>
               )}
               {toShip.length > 0 && (
-                <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setShipOpen(true)}>
+                <Button variant="outline" type="button" className="px-3 py-1.5" onClick={async () => (await confirmPlanCardsGo(toShip)) && setShipOpen(true)}>
                   <Truck size={13} /> Mark {toShip.length} shipped
                 </Button>
               )}
@@ -457,12 +511,13 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                   type="button"
                   className="px-3 py-1.5"
                   disabled={pending}
-                  onClick={() =>
+                  onClick={async () => {
+                    if (!(await confirmPlanCardsGo(toDistribute))) return;
                     run(async () => {
                       await setSalesDistributed(toDistribute.map((s) => s.id), true);
                       setSelected(new Set());
-                    })
-                  }
+                    });
+                  }}
                 >
                   <Package size={13} /> Mark {toDistribute.length} distributed
                 </Button>
@@ -553,6 +608,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                           </span>
                           <span className="font-medium">{formatCurrency(s.amount)}</span>
                           {payBadge(s)}
+                          {planControls(s)}
                           <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
                             <input
                               type="checkbox"
@@ -884,6 +940,11 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           selectedCards={(payFromLives ? livePayCards : payableSelected).map((s) => ({ id: s.id, name: s.cardName, amount: s.amount, left: leftOf(s) }))}
         />
       )}
+      {planCardId && (() => {
+        const card = sales.find((x) => x.id === planCardId);
+        if (!card) return null;
+        return <PlanDialog onClose={() => setPlanCardId(null)} card={{ id: card.id, name: card.cardName, amount: card.amount, paid: paidOf(card.id) }} plan={planOf(card.id)} today={todayStr} />;
+      })()}
     </div>
   );
 }

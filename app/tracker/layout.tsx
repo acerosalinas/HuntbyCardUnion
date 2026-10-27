@@ -24,6 +24,11 @@ export default async function TrackerLayout({ children }: { children: React.Reac
   const admin = await requireTrackerAdminOrRedirect();
 
   // Proofs waiting for review, for the menu badge. Quietly 0 until the claims migration has been run.
+  const { count: planCount } = await createAdminClient()
+    .from("tracker_installment_plans")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", admin.id)
+    .eq("status", "REQUESTED");
   const { count: proofCount } = await createAdminClient()
     .from("tracker_payment_claims")
     .select("id", { count: "exact", head: true })
@@ -65,7 +70,7 @@ export default async function TrackerLayout({ children }: { children: React.Reac
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
-        <TrackerNav proofCount={proofCount ?? 0} />
+        <TrackerNav proofCount={proofCount ?? 0} planCount={planCount ?? 0} />
       </div>
       </StickyBar>
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">{children}</div>

@@ -1,12 +1,14 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
-import { Package, Send, Truck } from "lucide-react";
+import { CalendarClock, Package, Send, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { portalSetShipping, portalSubmitClaim } from "@/app/account/orders/actions";
+import { Modal } from "@/components/ui/Modal";
+import { PlanEditor } from "@/components/tracker/PlanEditor";
+import { portalRequestPlan, portalSetShipping, portalSubmitClaim, portalWithdrawPlan } from "@/app/account/orders/actions";
 import type { PortalCustomer } from "@/lib/tracker/portal";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
@@ -37,7 +39,10 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
 
   const allCards = view.lives.flatMap((l) => l.cards);
   const pickedCards = allCards.filter((c) => picked.has(c.id));
-  const pickedOwed = Math.round(pickedCards.reduce((n, c) => n + c.left, 0) * 100) / 100;
+  // Pre-fill what's due now: the installment for a card on a plan, otherwise everything left on it.
+  const pickedOwed = Math.round(pickedCards.reduce((n, c) => n + c.payNow, 0) * 100) / 100;
+  const pickedLeft = Math.round(pickedCards.reduce((n, c) => n + c.left, 0) * 100) / 100;
+  const [planCardId, setPlanCardId] = useState<string | null>(null);
   const cardsAmount = amountText === null ? pickedOwed : Number(amountText);
   const sfAmount = withSf ? Number(sfText || 0) : 0;
   const total = (Number.isFinite(cardsAmount) ? cardsAmount : 0) + (Number.isFinite(sfAmount) ? sfAmount : 0);
@@ -210,6 +215,62 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
                           Ship
                         </label>
                       )}
+                      {c.plan?.status === "ACTIVE" && (
+                        <div className="basis-full rounded-lg bg-foreground/5 px-3 py-2">
+                          <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <span className="font-medium">
+                              <CalendarClock size={12} className="mr-1 inline" /> Installment plan
+                            </span>
+                            <span className="text-foreground-muted">
+                              {formatCurrency(c.plan.paid)} of {formatCurrency(c.plan.total)}
+                              {c.plan.overdue && <span className="ml-1 font-semibold text-sold">· overdue</span>}
+                            </span>
+                          </div>
+                          <div
+                            role="progressbar"
+                            aria-valuenow={c.plan.total > 0 ? Math.round((c.plan.paid / c.plan.total) * 100) : 0}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`${c.name} installment progress`}
+                            className="mb-1.5 h-2 overflow-hidden rounded-full bg-foreground/10"
+                          >
+                            <div className={cn("h-full rounded-full", c.plan.complete ? "bg-available" : c.plan.overdue ? "bg-sold" : "bg-gold")} style={{ width: `${c.plan.total > 0 ? Math.min(100, (c.plan.paid / c.plan.total) * 100) : 0}%` }} />
+                          </div>
+                          <ul className="flex flex-wrap gap-1.5 text-xs">
+                            {c.plan.installments.map((i) => (
+                              <li
+                                key={i.seq}
+                                className={cn(
+                                  "rounded-full border px-2 py-0.5",
+                                  i.state === "PAID" && "border-available/40 text-available",
+                                  i.state === "OVERDUE" && "border-sold/50 text-sold",
+                                  i.state === "DUE" && "border-pending/50 text-pending",
+                                  i.state === "UPCOMING" && "border-card-border text-foreground-muted",
+                                )}
+                              >
+                                {i.state === "PAID" ? "✓ " : ""}
+                                {formatCurrency(i.amount)} · {i.dueDate}
+                                {i.state === "OVERDUE" && i.covered > 0 ? ` (${formatCurrency(i.amount - i.covered)} left)` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {c.plan?.status === "REQUESTED" && (
+                        <div className="flex basis-full flex-wrap items-center gap-2 text-xs">
+                          <Badge tone="gold">Installment request sent</Badge>
+                          <span className="text-foreground-muted">Waiting for the seller to approve.</span>
+                          <button type="button" disabled={pending} onClick={() => run(() => portalWithdrawPlan(customer.customerId, c.id))} className="text-foreground-muted underline hover:text-sold">
+                            Withdraw
+                          </button>
+                        </div>
+                      )}
+                      {c.plan?.status === "DECLINED" && c.left > 0 && <p className="basis-full text-xs text-sold">Installments weren&apos;t approved: {c.plan.declineReason}</p>}
+                      {c.left > 0 && !c.underReview && (!c.plan || c.plan.status === "DECLINED") && (
+                        <button type="button" onClick={() => setPlanCardId(c.id)} className="inline-flex items-center gap-1 text-xs text-gold hover:underline">
+                          <CalendarClock size={12} /> Ask for installments
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -224,7 +285,7 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
           <h3 className="font-semibold">Send proof of payment</h3>
           <p className="text-xs text-foreground-muted">
             {pickedCards.length > 0
-              ? `${pickedCards.length} card${pickedCards.length === 1 ? "" : "s"} ticked · ${formatCurrency(pickedOwed)} unpaid`
+              ? `${pickedCards.length} card${pickedCards.length === 1 ? "" : "s"} ticked · ${formatCurrency(pickedLeft)} unpaid`
               : "Tick the cards you paid for above (or just the shipping fee below)."}
           </p>
           <div className="grid grid-cols-2 gap-3">
@@ -297,6 +358,36 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
           </ul>
         </div>
       )}
+      {planCardId &&
+        (() => {
+          const card = allCards.find((c) => c.id === planCardId);
+          if (!card) return null;
+          return (
+            <Modal open onClose={() => setPlanCardId(null)} title={`Pay ${card.name} in installments`} className="max-w-lg">
+              <p className="mb-3 text-sm text-foreground-muted">
+                {card.name} is {formatCurrency(card.amount)}. Choose how you&apos;d like to pay it in parts. The seller will approve it or suggest changes. It only starts once approved.
+              </p>
+              <PlanEditor
+                cardAmount={card.amount}
+                submitLabel="Send request"
+                pending={pending}
+                noteLabel="Message to the seller (optional)"
+                onSubmit={(installments, note) =>
+                  run(async () => {
+                    await portalRequestPlan(customer.customerId, card.id, installments, note);
+                    setPlanCardId(null);
+                    setNotice("Request sent! The seller will let you know.");
+                  })
+                }
+                extra={
+                  <Button type="button" variant="outline" onClick={() => setPlanCardId(null)}>
+                    Cancel
+                  </Button>
+                }
+              />
+            </Modal>
+          );
+        })()}
     </section>
   );
 }

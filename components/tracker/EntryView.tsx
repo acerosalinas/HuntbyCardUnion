@@ -39,9 +39,11 @@ interface Props {
   payments: TrackerPayment[];
   /** Per customer, per live: cards and how much is paid (payments made for a live count there first). */
   liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
+  /** Cards on an approved installment plan that still owe money (sale id -> unpaid). Shipping one early asks first. */
+  planUnpaid: Record<string, number>;
 }
 
-export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown }: Props) {
+export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   // Editing a card in place, and editing the live's title/date.
@@ -273,6 +275,19 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     setCopiedKey(ok ? key : null);
     if (!ok) setError("Couldn't copy - your browser blocked clipboard access.");
     setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
+  };
+
+  // Ask before sending a card that's on an installment plan and still owes money. Nothing is blocked.
+  const confirmPlanGo = async (cards: TrackerSale[]): Promise<boolean> => {
+    const owing = cards.filter((c) => (planUnpaid[c.id] ?? 0) > 0);
+    if (owing.length === 0) return true;
+    const owed = owing.reduce((n, c) => n + (planUnpaid[c.id] ?? 0), 0);
+    return confirm({
+      title: "Send before the installments are paid?",
+      message: `${owing.length} of these cards ${owing.length === 1 ? "is" : "are"} on an installment plan and still owe ${formatCurrency(owed)} (${owing.map((c) => c.cardName).join(", ")}). Ship or hand over anyway?`,
+      confirmLabel: "Send anyway",
+      tone: "danger",
+    });
   };
 
   const copyAll = () =>
@@ -628,14 +643,15 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                       type="button"
                       className="px-3 py-1.5"
                       disabled={pending}
-                      onClick={() =>
+                      onClick={async () => {
+                        if (!(await confirmPlanGo(toHandOver))) return;
                         run(() =>
                           setSalesDistributed(
                             toHandOver.map((x) => x.id),
                             true,
                           ),
-                        )
-                      }
+                        );
+                      }}
                     >
                       Mark {toHandOver.length} distributed
                     </Button>
@@ -649,7 +665,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                       variant="gold"
                       type="button"
                       className="px-3 py-1.5"
-                      onClick={() => setShipping({ customerId: g.customerId, saleIds: readyToShip.map((x) => x.id) })}
+                      onClick={async () => (await confirmPlanGo(readyToShip)) && setShipping({ customerId: g.customerId, saleIds: readyToShip.map((x) => x.id) })}
                     >
                       <Truck size={13} /> Mark {readyToShip.length} shipped
                     </Button>

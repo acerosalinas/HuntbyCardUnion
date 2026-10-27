@@ -25,12 +25,14 @@ interface Props {
   shipments: TrackerShipment[];
   totalsByCustomer: Record<string, CustomerTotals>;
   settings: TrackerSettings;
+  /** Cards on an approved installment plan that still owe money (sale id -> unpaid). Sending one early asks first. */
+  planUnpaid: Record<string, number>;
 }
 
 /** A card is "done" once it's been handed over (not shipping) or put in a parcel (shipping). */
 const isDone = (s: TrackerSale) => (s.forShipping ? s.shipmentId !== null : s.distributedAt !== null);
 
-export function DistributionView({ customers, lives, sales, shipments, totalsByCustomer, settings }: Props) {
+export function DistributionView({ customers, lives, sales, shipments, totalsByCustomer, settings, planUnpaid }: Props) {
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +96,18 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
       }
       return next;
     });
+
+  const confirmPlanGo = async (cards: TrackerSale[]): Promise<boolean> => {
+    const owing = cards.filter((c) => (planUnpaid[c.id] ?? 0) > 0);
+    if (owing.length === 0) return true;
+    const owed = owing.reduce((n, c) => n + (planUnpaid[c.id] ?? 0), 0);
+    return confirm({
+      title: "Send before the installments are paid?",
+      message: `${owing.length} of these cards ${owing.length === 1 ? "is" : "are"} on an installment plan and still owe ${formatCurrency(owed)} (${owing.map((c) => c.cardName).join(", ")}). Ship or hand over anyway?`,
+      confirmLabel: "Send anyway",
+      tone: "danger",
+    });
+  };
 
   const undoParcel = async (sale: TrackerSale) => {
     if (!sale.shipmentId) return;
@@ -189,12 +203,13 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
                       type="button"
                       className="px-3 py-1.5"
                       disabled={pending}
-                      onClick={() =>
+                      onClick={async () => {
+                        if (!(await confirmPlanGo(selectedHand))) return;
                         run(async () => {
                           await setSalesDistributed(selectedHand.map((s) => s.id), true);
                           setMany(selectedHand.map((s) => s.id), false);
-                        })
-                      }
+                        });
+                      }}
                     >
                       <Package size={13} /> Mark {selectedHand.length} distributed
                     </Button>
@@ -205,7 +220,7 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
                       type="button"
                       className="px-3 py-1.5"
                       disabled={pending}
-                      onClick={() => setShipping({ customerId: g.customerId, saleIds: selectedShip.map((s) => s.id) })}
+                      onClick={async () => (await confirmPlanGo(selectedShip)) && setShipping({ customerId: g.customerId, saleIds: selectedShip.map((s) => s.id) })}
                     >
                       <Truck size={13} /> Mark {selectedShip.length} shipped
                     </Button>
