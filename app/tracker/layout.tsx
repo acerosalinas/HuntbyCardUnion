@@ -8,6 +8,7 @@ import { StickyBar } from "@/components/tracker/StickyBar";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { logout } from "@/app/admin/actions";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,13 @@ export default async function TrackerLayout({ children }: { children: React.Reac
     return <SetupNotice />;
   }
   const admin = await requireTrackerAdminOrRedirect();
+
+  // Proofs waiting for review, for the menu badge. Quietly 0 until the claims migration has been run.
+  const { count: proofCount } = await createAdminClient()
+    .from("tracker_payment_claims")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", admin.id)
+    .eq("status", "PENDING");
 
   return (
     <div className="min-h-screen">
@@ -57,7 +65,7 @@ export default async function TrackerLayout({ children }: { children: React.Reac
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
-        <TrackerNav />
+        <TrackerNav proofCount={proofCount ?? 0} />
       </div>
       </StickyBar>
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">{children}</div>

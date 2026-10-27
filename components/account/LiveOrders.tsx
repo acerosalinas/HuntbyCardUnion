@@ -1,11 +1,95 @@
-import { Truck, Package } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
-import type { PortalCustomer } from "@/lib/tracker/portal";
-import { cn, formatCurrency } from "@/lib/utils";
+"use client";
 
-/** The customer's own live orders: balance, a progress line, how to pay, and one table per live. Read-only. */
+import { FormEvent, useState, useTransition } from "react";
+import { Package, Send, Truck } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Input, Textarea } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { portalSetShipping, portalSubmitClaim } from "@/app/account/orders/actions";
+import type { PortalCustomer } from "@/lib/tracker/portal";
+import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+
+const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
+
+const cleanAmount = (v: string) => {
+  const cleaned = v.replace(/[^0-9.]/g, "");
+  const dot = cleaned.indexOf(".");
+  return dot === -1 ? cleaned : cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, "");
+};
+
+/** The customer's own live orders: balance, progress line, how to pay, tick-to-ship, and sending proof of payment. */
 export function LiveOrders({ customer }: { customer: PortalCustomer }) {
   const { view } = customer;
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Cards ticked as "I paid for these".
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [amountText, setAmountText] = useState<string | null>(null); // null = follow the ticked cards' total
+  const [method, setMethod] = useState<"GCASH" | "MARIBANK">("GCASH");
+  const [withSf, setWithSf] = useState(false);
+  const [sfText, setSfText] = useState(customer.shippingFee === null ? "" : String(customer.shippingFee));
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileKey, setFileKey] = useState(0);
+
+  const allCards = view.lives.flatMap((l) => l.cards);
+  const pickedCards = allCards.filter((c) => picked.has(c.id));
+  const pickedOwed = Math.round(pickedCards.reduce((n, c) => n + c.left, 0) * 100) / 100;
+  const cardsAmount = amountText === null ? pickedOwed : Number(amountText);
+  const sfAmount = withSf ? Number(sfText || 0) : 0;
+  const total = (Number.isFinite(cardsAmount) ? cardsAmount : 0) + (Number.isFinite(sfAmount) ? sfAmount : 0);
+
+  const togglePick = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const run = (fn: () => Promise<void>) => {
+    setError(null);
+    setNotice(null);
+    startTransition(async () => {
+      try {
+        await fn();
+      } catch (err) {
+        setError(extractErrorMessage(err) ?? "Something went wrong.");
+      }
+    });
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (pickedCards.length === 0 && !withSf) return setError("Tick the cards you paid for first.");
+    if (!Number.isFinite(cardsAmount) || cardsAmount < 0) return setError("Enter a valid amount for your cards.");
+    if (withSf && (!Number.isFinite(sfAmount) || sfAmount <= 0)) return setError("Enter the shipping fee you paid, or untick the shipping fee box.");
+    if (total <= 0) return setError("Enter the amount you paid.");
+    if (!file) return setError("Attach a screenshot of your payment.");
+
+    const body = new FormData();
+    body.set("customerId", customer.customerId);
+    body.set("saleIds", JSON.stringify(pickedCards.map((c) => c.id)));
+    body.set("cardsAmount", String(cardsAmount));
+    body.set("sfAmount", String(sfAmount));
+    body.set("method", method);
+    body.set("note", note);
+    body.set("proof", file);
+    run(async () => {
+      await portalSubmitClaim(body);
+      setPicked(new Set());
+      setAmountText(null);
+      setWithSf(false);
+      setNote("");
+      setFile(null);
+      setFileKey((k) => k + 1);
+      setNotice("Sent! The seller will check your payment. Your line moves once it's confirmed.");
+    });
+  };
+
   return (
     <section className="space-y-4">
       <div className="rounded-2xl border border-card-border bg-card p-4">
@@ -43,6 +127,9 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
         <p className="mt-2 text-xs text-foreground-muted">The line moves once the seller confirms your payment.</p>
       </div>
 
+      {error && <p className="rounded-lg border border-sold/30 bg-sold-bg px-3 py-2 text-sm text-sold">{error}</p>}
+      {notice && !error && <p className="rounded-lg border border-available/30 bg-available-bg px-3 py-2 text-sm text-available">{notice}</p>}
+
       {view.amountDue > 0 && (customer.qr.length > 0 || customer.paymentInstructions.trim()) && (
         <div className="rounded-2xl border border-card-border bg-card p-4">
           <h3 className="mb-2 font-semibold">How to pay</h3>
@@ -64,38 +151,151 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
       {view.lives.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-10 text-center text-sm text-foreground-muted">No live orders yet.</p>
       ) : (
-        view.lives.map((live) => (
-          <div key={live.id} className="overflow-hidden rounded-2xl border border-card-border bg-card">
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-foreground/5 px-4 py-2.5 text-sm">
-              <span>
-                <span className="font-semibold">{live.liveDate}</span> · {live.title}
-              </span>
-              <span className="text-xs text-foreground-muted">
-                {live.left > 0 ? <span className="font-semibold text-pending">{formatCurrency(live.left)} left</span> : <span className="font-semibold text-available">paid</span>} · {formatCurrency(live.total)}
-              </span>
+        <>
+          {view.amountDue > 0 && <p className="text-xs text-foreground-muted">Tick the cards you paid for, then send your proof of payment below. Tick &quot;Ship&quot; on the cards you want sent to you.</p>}
+          {view.lives.map((live) => (
+            <div key={live.id} className="overflow-hidden rounded-2xl border border-card-border bg-card">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-foreground/5 px-4 py-2.5 text-sm">
+                <span>
+                  <span className="font-semibold">{live.liveDate}</span> · {live.title}
+                </span>
+                <span className="text-xs text-foreground-muted">
+                  {live.left > 0 ? <span className="font-semibold text-pending">{formatCurrency(live.left)} left</span> : <span className="font-semibold text-available">paid</span>} · {formatCurrency(live.total)}
+                </span>
+              </div>
+              <ul className="divide-y divide-card-border">
+                {live.cards.map((c) => {
+                  const canPay = c.left > 0 && !c.underReview;
+                  return (
+                    <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
+                      <input
+                        type="checkbox"
+                        aria-label={`I paid for ${c.name}`}
+                        title={canPay ? "Tick if you paid for this card" : c.underReview ? "Waiting for the seller to review your proof" : "Already paid"}
+                        checked={picked.has(c.id)}
+                        disabled={!canPay}
+                        onChange={() => togglePick(c.id)}
+                        className="h-4 w-4 rounded border-card-border accent-gold disabled:opacity-30"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      <span className="font-medium">{formatCurrency(c.amount)}</span>
+                      {c.underReview ? (
+                        <Badge tone="pending">Pending review</Badge>
+                      ) : c.left <= 0 ? (
+                        <Badge tone="available">Paid</Badge>
+                      ) : c.paid > 0 ? (
+                        <Badge tone="pending">{formatCurrency(c.left)} left</Badge>
+                      ) : (
+                        <Badge tone="neutral">Unpaid</Badge>
+                      )}
+                      {c.state === "SHIPPED" && (
+                        <Badge tone="available">
+                          <Truck size={12} className="mr-1" /> Shipped {c.shippedOn}
+                        </Badge>
+                      )}
+                      {c.state === "HANDED_OVER" && (
+                        <Badge tone="available">
+                          <Package size={12} className="mr-1" /> Handed over
+                        </Badge>
+                      )}
+                      {c.state === "PENDING" && (
+                        <label className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                          <input
+                            type="checkbox"
+                            checked={c.wantsShipping}
+                            disabled={pending}
+                            onChange={(e) => run(() => portalSetShipping(customer.customerId, [c.id], e.target.checked))}
+                            className="h-3.5 w-3.5 rounded border-card-border accent-gold"
+                          />
+                          Ship
+                        </label>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-            <ul className="divide-y divide-card-border">
-              {live.cards.map((c) => (
-                <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                  <span className="font-medium">{formatCurrency(c.amount)}</span>
-                  {c.left <= 0 ? <Badge tone="available">Paid</Badge> : c.paid > 0 ? <Badge tone="pending">{formatCurrency(c.left)} left</Badge> : <Badge tone="neutral">Unpaid</Badge>}
-                  {c.state === "SHIPPED" && (
-                    <Badge tone="available">
-                      <Truck size={12} className="mr-1" /> Shipped {c.shippedOn}
-                    </Badge>
-                  )}
-                  {c.state === "HANDED_OVER" && (
-                    <Badge tone="available">
-                      <Package size={12} className="mr-1" /> Handed over
-                    </Badge>
-                  )}
-                  {c.wantsShipping && <Badge tone="gold">To be shipped</Badge>}
-                </li>
-              ))}
-            </ul>
+          ))}
+        </>
+      )}
+
+      {view.amountDue > 0 && (
+        <form onSubmit={submit} className="space-y-3 rounded-2xl border border-card-border bg-card p-4">
+          <h3 className="font-semibold">Send proof of payment</h3>
+          <p className="text-xs text-foreground-muted">
+            {pickedCards.length > 0
+              ? `${pickedCards.length} card${pickedCards.length === 1 ? "" : "s"} ticked · ${formatCurrency(pickedOwed)} unpaid`
+              : "Tick the cards you paid for above (or just the shipping fee below)."}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={label}>Amount paid for cards</label>
+              <Input inputMode="decimal" value={amountText ?? (pickedOwed > 0 ? String(pickedOwed) : "")} onChange={(e) => setAmountText(cleanAmount(e.target.value))} placeholder="0" />
+            </div>
+            <div>
+              <label className={label}>Method</label>
+              <Select value={method} onChange={(e) => setMethod(e.target.value as "GCASH" | "MARIBANK")}>
+                <option value="GCASH">GCash</option>
+                <option value="MARIBANK">Maribank</option>
+              </Select>
+            </div>
           </div>
-        ))
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={withSf} onChange={(e) => setWithSf(e.target.checked)} className="h-4 w-4 rounded border-card-border accent-gold" />
+            I included my shipping fee
+            {customer.shippingFee !== null && <span className="text-xs text-foreground-muted">({formatCurrency(customer.shippingFee)}{customer.shippingGroup ? ` · ${customer.shippingGroup}` : ""})</span>}
+          </label>
+          {withSf && (
+            <div>
+              <label className={label}>Shipping fee paid</label>
+              <Input inputMode="decimal" value={sfText} onChange={(e) => setSfText(cleanAmount(e.target.value))} placeholder="0" />
+            </div>
+          )}
+          <div>
+            <label className={label}>Screenshot of your payment</label>
+            <input
+              key={fileKey}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-card-border file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:text-foreground"
+            />
+          </div>
+          <div>
+            <label className={label}>Note (optional)</label>
+            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-foreground-muted">
+              Total sent: <span className="font-semibold text-foreground">{formatCurrency(total)}</span>
+            </span>
+            <Button type="submit" variant="gold" disabled={pending}>
+              <Send size={14} /> {pending ? "Sending..." : "Send proof"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {view.claims.length > 0 && (
+        <div className="rounded-2xl border border-card-border bg-card p-4">
+          <h3 className="mb-2 font-semibold">Your payment proofs</h3>
+          <ul className="divide-y divide-card-border text-sm">
+            {view.claims.map((c) => (
+              <li key={c.id} className="space-y-0.5 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-foreground-muted">{c.createdAt.slice(0, 10)}</span>
+                  <span className="font-medium">{formatCurrency(c.cardsAmount + c.sfAmount)}</span>
+                  {c.sfAmount > 0 && <span className="text-xs text-foreground-muted">(incl. shipping {formatCurrency(c.sfAmount)})</span>}
+                  {c.status === "PENDING" && <Badge tone="pending">Waiting for review</Badge>}
+                  {c.status === "CONFIRMED" && <Badge tone="available">Confirmed</Badge>}
+                  {c.status === "REJECTED" && <Badge tone="sold">Not accepted</Badge>}
+                </div>
+                {c.cardNames.length > 0 && <p className="truncate text-xs text-foreground-muted">{c.cardNames.join(", ")}</p>}
+                {c.status === "REJECTED" && c.rejectReason && <p className="text-xs text-sold">{c.rejectReason}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

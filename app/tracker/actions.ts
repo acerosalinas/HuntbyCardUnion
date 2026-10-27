@@ -8,6 +8,8 @@ import { islandGroupForRegion, REGIONS } from "@/lib/tracker/regions";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 import { sum } from "@/lib/tracker/money";
 import { validateImageFile } from "@/lib/imageValidation";
+import { notifyUser } from "@/lib/notify";
+import { formatCurrency } from "@/lib/utils";
 import { uploadToR2 } from "@/lib/r2";
 
 // Every action here derives the owner from the signed-in admin's session and
@@ -604,4 +606,62 @@ export async function saveSettings(input: {
     });
   if (error) throw new Error(error.message);
   refresh();
+}
+
+/**
+ * Confirms a customer's proof of payment: records the real payment(s) tied to the
+ * cards they ticked (and their shipping-fee part), atomically, then tells them.
+ * Only now does their progress line move.
+ */
+export async function confirmClaim(claimId: string, paidOn: string) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ claimId: z.string().uuid(), paidOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the payment date.") }), { claimId, paidOn });
+  const db = createAdminClient();
+  const { data: claim, error: findError } = await db
+    .from("tracker_payment_claims")
+    .select("buyer_id, cards_amount, sf_amount")
+    .eq("id", v.claimId)
+    .eq("owner_id", admin.id)
+    .maybeSingle();
+  if (findError) throw new Error(findError.message);
+  if (!claim) throw new Error("Proof not found.");
+
+  const { error } = await db.rpc("tracker_confirm_claim", { p_owner: admin.id, p_claim: v.claimId, p_paid_on: v.paidOn });
+  if (error) throw new Error(error.message);
+
+  await notifyUser(db, {
+    recipientId: claim.buyer_id as string,
+    type: "tracker_proof_confirmed",
+    title: "Payment confirmed",
+    body: `Your payment of ${formatCurrency(Number(claim.cards_amount) + Number(claim.sf_amount))} was confirmed.`,
+    link: "/account/orders",
+  });
+  refresh();
+  revalidatePath("/account/orders");
+}
+
+export async function rejectClaim(claimId: string, reason: string) {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ claimId: z.string().uuid(), reason: text(300).min(3, "Tell the customer why (a few words).") }), { claimId, reason });
+  const db = createAdminClient();
+  const { data: updated, error } = await db
+    .from("tracker_payment_claims")
+    .update({ status: "REJECTED", reject_reason: v.reason, reviewed_at: new Date().toISOString() })
+    .eq("id", v.claimId)
+    .eq("owner_id", admin.id)
+    .eq("status", "PENDING")
+    .select("buyer_id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!updated) throw new Error("This proof was already reviewed.");
+
+  await notifyUser(db, {
+    recipientId: updated.buyer_id as string,
+    type: "tracker_proof_rejected",
+    title: "Payment proof not accepted",
+    body: v.reason,
+    link: "/account/orders",
+  });
+  refresh();
+  revalidatePath("/account/orders");
 }

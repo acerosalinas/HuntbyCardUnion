@@ -20,6 +20,20 @@ export interface PortalCard {
   shippedOn: string | null;
   /** Marked for shipping (by you or by the customer) and not shipped yet. */
   wantsShipping: boolean;
+  /** Covered by a proof of payment the seller hasn't reviewed yet. */
+  underReview: boolean;
+}
+
+export type PortalClaimStatus = "PENDING" | "CONFIRMED" | "REJECTED";
+
+export interface PortalClaim {
+  id: string;
+  status: PortalClaimStatus;
+  cardsAmount: number;
+  sfAmount: number;
+  createdAt: string;
+  rejectReason: string | null;
+  cardNames: string[];
 }
 
 export interface PortalLive {
@@ -43,6 +57,8 @@ export interface PortalView {
   amountDue: number;
   /** Share of their cards that's paid, 0-100. Moves only when a payment is recorded. */
   progressPct: number;
+  /** Their proofs of payment, newest first (the last few). */
+  claims: PortalClaim[];
 }
 
 export interface PortalInput {
@@ -66,6 +82,8 @@ export interface PortalInput {
     allocations: { saleId: string; amount: number }[];
   }[];
   shipments: { id: string; fee: number; shippedOn: string }[];
+  /** Proofs of payment the customer sent. Optional so callers without the feature still work. */
+  claims?: { id: string; status: PortalClaimStatus; cardsAmount: number; sfAmount: number; createdAt: string; rejectReason: string | null; saleIds: string[] }[];
 }
 
 export function buildPortalView(input: PortalInput): PortalView {
@@ -88,6 +106,8 @@ export function buildPortalView(input: PortalInput): PortalView {
     allocations: p.allocations,
   }));
   const paidMap = allocateCardPayments(splitSales, splitPayments);
+  const claims = input.claims ?? [];
+  const underReviewIds = new Set(claims.filter((c) => c.status === "PENDING").flatMap((c) => c.saleIds));
 
   const cards = input.sales.map((s): PortalCard & { liveId: string; createdAt: string } => {
     const paid = paidMap.get(s.id) ?? 0;
@@ -102,6 +122,7 @@ export function buildPortalView(input: PortalInput): PortalView {
       state,
       shippedOn: shipment?.shippedOn ?? null,
       wantsShipping: s.forShipping && state === "PENDING",
+      underReview: underReviewIds.has(s.id),
       liveId: s.liveId,
       createdAt: s.createdAt,
     };
@@ -123,6 +144,7 @@ export function buildPortalView(input: PortalInput): PortalView {
           state: c.state,
           shippedOn: c.shippedOn,
           wantsShipping: c.wantsShipping,
+          underReview: c.underReview,
         }));
       return {
         id: l.id,
@@ -151,5 +173,17 @@ export function buildPortalView(input: PortalInput): PortalView {
     shippingUnpaid,
     amountDue: round2(cardsLeft + shippingUnpaid),
     progressPct: cardsTotal > 0 ? Math.min(100, Math.round((cardsPaid / cardsTotal) * 100)) : 0,
+    claims: [...claims]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 8)
+      .map((c) => ({
+        id: c.id,
+        status: c.status,
+        cardsAmount: c.cardsAmount,
+        sfAmount: c.sfAmount,
+        createdAt: c.createdAt,
+        rejectReason: c.rejectReason,
+        cardNames: c.saleIds.map((id) => input.sales.find((x) => x.id === id)?.cardName).filter((n): n is string => Boolean(n)),
+      })),
   };
 }

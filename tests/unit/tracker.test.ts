@@ -672,5 +672,24 @@ test("portal: the view exposes no owner tags, addresses, payment methods or othe
   for (const forbidden of ["ownerTag", "owner_tag", "customerId", "address", "method", "recipient", "payout"]) {
     assert.ok(!json.includes(forbidden), `portal view must not contain ${forbidden}`);
   }
-  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "shippedOn", "state", "wantsShipping"]);
+  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "shippedOn", "state", "underReview", "wantsShipping"]);
+});
+
+test("portal: cards under a pending proof are flagged and the claim list is newest first", () => {
+  const input = portalInput({
+    claims: [
+      { id: "k1", status: "REJECTED", cardsAmount: 100, sfAmount: 0, createdAt: "2026-10-20T00:00:00Z", rejectReason: "Blurry screenshot", saleIds: ["a"] },
+      { id: "k2", status: "PENDING", cardsAmount: 50, sfAmount: 64, createdAt: "2026-10-25T00:00:00Z", rejectReason: null, saleIds: ["bb"] },
+    ],
+  });
+  const v = buildPortalView(input);
+  const [a, bb] = v.lives[0].cards;
+  assert.equal(a.underReview, false); // its claim was rejected, so it's free to claim again
+  assert.equal(bb.underReview, true);
+  assert.deepEqual(v.claims.map((c) => c.id), ["k2", "k1"]);
+  assert.deepEqual(v.claims[1].cardNames, ["Card a"]);
+  assert.equal(v.claims[1].rejectReason, "Blurry screenshot");
+  // A pending claim does NOT move the progress line - only a confirmed payment does.
+  assert.equal(v.cardsPaid, 0);
+  assert.equal(v.progressPct, 0);
 });

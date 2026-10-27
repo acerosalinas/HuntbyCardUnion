@@ -36,7 +36,10 @@ export type NotificationType =
   | "dispute_resolved"
   | "claim_cancelled_by_buyer"
   | "review_received"
-  | "live_sale_assigned";
+  | "live_sale_assigned"
+  | "tracker_proof_submitted"
+  | "tracker_proof_confirmed"
+  | "tracker_proof_rejected";
 
 export interface CardItem {
   id: string;

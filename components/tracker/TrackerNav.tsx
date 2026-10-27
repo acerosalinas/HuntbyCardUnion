@@ -9,10 +9,11 @@ const links = [
   { href: "/tracker", label: "Enter Sales", exact: true },
   { href: "/tracker/customers", label: "Customers & Balances", exact: false },
   { href: "/tracker/distribution", label: "Distribution", exact: false },
+  { href: "/tracker/proofs", label: "Proofs", exact: false },
   { href: "/tracker/settings", label: "Settings", exact: false },
 ];
 
-export function TrackerNav({ className }: { className?: string }) {
+export function TrackerNav({ className, proofCount = 0 }: { className?: string; proofCount?: number }) {
   const pathname = usePathname();
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
@@ -28,6 +29,9 @@ export function TrackerNav({ className }: { className?: string }) {
             )}
           >
             {l.label}
+            {l.href === "/tracker/proofs" && proofCount > 0 && (
+              <span className="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-gold px-1.5 text-xs font-bold text-navy-950">{proofCount}</span>
+            )}
           </Link>
         );
       })}
