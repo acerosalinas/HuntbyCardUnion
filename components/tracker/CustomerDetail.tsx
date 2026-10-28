@@ -345,7 +345,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
               })
             )
               run(async () => {
-                await markCardUnpaid(s.id);
+                const result = await markCardUnpaid(s.id);
+                if (result.error) setError(result.error);
               });
           }}
           className="inline-flex items-center gap-1 rounded-md border border-card-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-sold/50 hover:text-sold disabled:opacity-40 disabled:hover:border-card-border disabled:hover:text-foreground-muted"
@@ -895,8 +896,9 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
               onClick={async () => {
                 if (await confirm({ title: "Delete customer?", message: `${customer.name} will be removed. This only works for customers with no cards or payments.`, confirmLabel: "Delete", tone: "danger" }))
                   run(async () => {
-                    // The server action redirects to the customers list itself once the customer is gone.
-                    await deleteCustomer(customer.id);
+                    // On success the server redirects to the customers list itself; a refusal comes back as { error }.
+                    const result = await deleteCustomer(customer.id);
+                    if (result?.error) setError(result.error);
                   });
               }}
             >

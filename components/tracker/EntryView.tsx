@@ -348,7 +348,8 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                 });
                 if (!ok) return;
                 run(async () => {
-                  await deleteLive(live.id);
+                  const result = await deleteLive(live.id);
+                  if (result?.error) return setError(result.error);
                   router.replace("/tracker");
                 });
               }}

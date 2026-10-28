@@ -18,6 +18,7 @@ set search_path = public
 as $$
 declare
   r record;
+  v_amount numeric;
   v_total numeric := 0;
 begin
   perform 1 from tracker_sales where id = p_sale and owner_id = p_owner;
@@ -31,11 +32,19 @@ begin
     where a.sale_id = p_sale and a.owner_id = p_owner
     group by a.payment_id
   loop
-    perform 1 from tracker_payments where id = r.payment_id and owner_id = p_owner for update;
+    select amount into v_amount from tracker_payments where id = r.payment_id and owner_id = p_owner for update;
+    if not found then
+      continue;
+    end if;
+
     delete from tracker_payment_allocations where payment_id = r.payment_id and sale_id = p_sale and owner_id = p_owner;
-    update tracker_payments set amount = round(amount - r.share, 2) where id = r.payment_id and owner_id = p_owner;
-    -- Nothing left of that payment: remove it (its remaining allocation rows go with it).
-    delete from tracker_payments where id = r.payment_id and owner_id = p_owner and amount <= 0;
+
+    if v_amount - r.share <= 0.004 then
+      -- That card was the whole payment. Remove the payment instead of shrinking it to 0 (payments must be > 0).
+      delete from tracker_payments where id = r.payment_id and owner_id = p_owner;
+    else
+      update tracker_payments set amount = round(v_amount - r.share, 2) where id = r.payment_id and owner_id = p_owner;
+    end if;
     v_total := v_total + r.share;
   end loop;
 

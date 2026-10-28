@@ -104,7 +104,7 @@ export async function updateLive(liveId: string, title: string, liveDate: string
 }
 
 /** Deletes a live together with every card entered in it. Customers and payments are untouched (balances simply drop by the removed cards). Blocked while any of its cards has shipped. */
-export async function deleteLive(liveId: string) {
+export async function deleteLive(liveId: string): Promise<{ error: string } | void> {
   const admin = await requireTrackerAdmin();
   const id = parse(z.string().uuid(), liveId);
   const db = createAdminClient();
@@ -124,12 +124,13 @@ export async function deleteLive(liveId: string) {
     .eq("owner_id", admin.id);
   if (payoutError && !/tracker_payouts|schema cache|does not exist/i.test(payoutError.message)) throw new Error(payoutError.message);
   if (payoutCount) {
-    throw new Error("Payments were already distributed to owners for this live. Undo those on the Dashboard first.");
+    return { error: "Payments were already distributed to owners for this live. Undo those on the Dashboard first." };
   }
   if (shipped) {
-    throw new Error(
+    return {
+      error:
       shipped + " card" + (shipped === 1 ? " in this live is" : "s in this live are") + " already marked shipped. Undo those shipments first (open the customer and press Undo under Parcels shipped).",
-    );
+    };
   }
 
   const { error: salesError } = await db.from("tracker_sales").delete().eq("live_id", id).eq("owner_id", admin.id);
@@ -338,14 +339,15 @@ export async function linkCustomerBuyer(customerId: string, buyerId: string | nu
   refresh();
 }
 
-export async function deleteCustomer(id: string) {
+/** Returns { error } when it can't be deleted - a thrown message is hidden in production (React #441), so expected refusals come back as a value. */
+export async function deleteCustomer(id: string): Promise<{ error: string } | void> {
   const admin = await requireTrackerAdmin();
   const db = createAdminClient();
   await assertOwned(db, "tracker_customers", id, admin.id, "Customer");
   for (const table of ["tracker_sales", "tracker_payments", "tracker_shipments"]) {
     const { count, error } = await db.from(table).select("id", { count: "exact", head: true }).eq("customer_id", id).eq("owner_id", admin.id);
     if (error) throw new Error(error.message);
-    if (count) throw new Error("This customer has cards or payments recorded, so they can't be deleted.");
+    if (count) return { error: "This customer has cards or payments recorded, so they can't be deleted. Remove their cards and payments first." };
   }
   const { error } = await db.from("tracker_customers").delete().eq("id", id).eq("owner_id", admin.id);
   if (error) throw new Error(error.message);
@@ -672,14 +674,14 @@ export async function rejectClaim(claimId: string, reason: string) {
 }
 
 /** Takes one card's paid status back: removes the share of payments recorded against it. Returns the amount taken back. */
-export async function markCardUnpaid(saleId: string): Promise<number> {
+export async function markCardUnpaid(saleId: string): Promise<{ error?: string; amount?: number }> {
   const admin = await requireTrackerAdmin();
   const id = parse(z.string().uuid(), saleId);
   const { data, error } = await createAdminClient().rpc("tracker_revert_card_payment", { p_owner: admin.id, p_sale: id });
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
   refresh();
   revalidatePath("/account/orders");
-  return Number(data ?? 0);
+  return { amount: Number(data ?? 0) };
 }
 
 const scheduleSchema = z
