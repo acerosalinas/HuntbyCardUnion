@@ -198,7 +198,7 @@ test("invoice text: address only when shipping applies and enabled", () => {
 });
 
 import { computeDashboard, inRange, ownerProgress } from "../../lib/tracker/dashboard";
-import { allocateCardPayments, DEFAULT_OWNER_LABELS, liveBalances, liveSplit, normalizeOwnerTag, SplitPayment, SplitSale } from "../../lib/tracker/split";
+import { allocateCardPayments, attributeCardPayments, DEFAULT_OWNER_LABELS, liveBalances, liveSplit, normalizeOwnerTag, SplitPayment, SplitSale } from "../../lib/tracker/split";
 
 test("dashboard: range-based figures follow the date range, outstanding does not", () => {
   const lives = [
@@ -853,4 +853,67 @@ test("portal: a pending request shows what was asked, and a declined one shows t
   assert.equal(requested.amountDue, 350);
   const declined = buildPortalView(portalInput({ plans: [{ saleId: "a", status: "DECLINED", declineReason: "Please pay in full", installments: [] }] }));
   assert.equal(declined.lives[0].cards[0].plan?.declineReason, "Please pay in full");
+});
+
+const paymentWith = (id: string, customerId: string, amount: number, liveId: string | null = null, allocations: { saleId: string; amount: number }[] = []) => ({
+  id,
+  customerId,
+  amount,
+  liveId,
+  purpose: "CARDS" as const,
+  allocations,
+});
+
+test("attribution: automatic payments are traced to the cards they paid, oldest first", () => {
+  const sales = [sp("a", "c1", "L1", 500, "A", "1"), sp("b", "c1", "L1", 500, "A", "2")];
+  const payments = [paymentWith("p1", "c1", 300), paymentWith("p2", "c1", 400)];
+  const attr = attributeCardPayments(sales, payments);
+  assert.deepEqual(attr.get("a"), [{ paymentId: "p1", amount: 300 }, { paymentId: "p2", amount: 200 }]);
+  assert.deepEqual(attr.get("b"), [{ paymentId: "p2", amount: 200 }]);
+});
+
+test("attribution: per-card totals always equal allocateCardPayments, across explicit, live-targeted and automatic payments", () => {
+  const sales = [
+    sp("old", "c1", "L1", 300, "A", "2026-09-01|1"),
+    sp("x", "c1", "L2", 100, "S", "2026-10-01|1"),
+    sp("y", "c1", "L2", 200, "A", "2026-10-01|2"),
+    sp("z", "c1", "L3", 150, "A", "2026-10-05|1"),
+    sp("other", "c2", "L2", 80, "A", "2026-10-01|3"),
+  ];
+  const payments = [
+    paymentWith("p1", "c1", 120, "L2", [{ saleId: "x", amount: 100 }]),
+    paymentWith("p2", "c1", 90),
+    paymentWith("p3", "c1", 250, "L2"),
+    paymentWith("p4", "c1", 70, null, [{ saleId: "z", amount: 70 }]),
+    paymentWith("p5", "c2", 80),
+  ];
+  const paid = allocateCardPayments(sales, payments);
+  const attr = attributeCardPayments(sales, payments);
+  for (const s of sales) {
+    const fromAttr = (attr.get(s.id) ?? []).reduce((n, c) => n + c.amount, 0);
+    assert.equal(Math.round(fromAttr * 100) / 100, paid.get(s.id), `card ${s.id}`);
+  }
+  // No payment is ever credited with more than it was worth.
+  for (const p of payments) {
+    const used = [...attr.values()].flat().filter((c) => c.paymentId === p.id).reduce((n, c) => n + c.amount, 0);
+    assert.ok(used <= p.amount + 0.001, `payment ${p.id} used ${used} of ${p.amount}`);
+  }
+});
+
+test("attribution: taking one card back and freezing the rest keeps every other card paid (the 'Unpaid' guarantee)", () => {
+  // Two automatic payments paid cards A (oldest) then B. Un-paying A must NOT let B's money slide back onto A.
+  const sales = [sp("a", "c1", "L", 500, "A", "1"), sp("b", "c1", "L", 500, "A", "2")];
+  const payments = [paymentWith("p1", "c1", 500), paymentWith("p2", "c1", 500)];
+  const attr = attributeCardPayments(sales, payments);
+
+  // What the action does: freeze every OTHER card's coverage as explicit allocations, then remove A's share from its payments.
+  const frozen = [...attr.entries()].filter(([saleId]) => saleId !== "a").flatMap(([saleId, list]) => list.map((c) => ({ paymentId: c.paymentId, saleId, amount: c.amount })));
+  const reductions = new Map((attr.get("a") ?? []).map((c) => [c.paymentId, c.amount]));
+  const after = payments
+    .map((p) => ({ ...p, amount: p.amount - (reductions.get(p.id) ?? 0), allocations: frozen.filter((f) => f.paymentId === p.id).map((f) => ({ saleId: f.saleId, amount: f.amount })) }))
+    .filter((p) => p.amount > 0);
+
+  const paidAfter = allocateCardPayments(sales, after);
+  assert.equal(paidAfter.get("a"), 0); // A is unpaid again
+  assert.equal(paidAfter.get("b"), 500); // B did not lose its payment, and A did not steal it
 });

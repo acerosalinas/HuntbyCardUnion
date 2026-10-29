@@ -8,6 +8,8 @@ import { requireTrackerAdmin } from "@/lib/tracker/auth";
 import { islandGroupForRegion, REGIONS } from "@/lib/tracker/regions";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 import { sum } from "@/lib/tracker/money";
+import { attributeCardPayments } from "@/lib/tracker/split";
+import { fetchAll } from "@/lib/tracker/data";
 import { validateSchedule } from "@/lib/tracker/installments";
 import { validateImageFile } from "@/lib/imageValidation";
 import { notifyUser } from "@/lib/notify";
@@ -673,11 +675,81 @@ export async function rejectClaim(claimId: string, reason: string) {
   revalidatePath("/account/orders");
 }
 
-/** Takes one card's paid status back: removes the share of payments recorded against it. Returns the amount taken back. */
+/**
+ * Takes one card's paid status back, whatever paid it (ticked cards, the Paid button, a confirmed proof, or an
+ * older automatic payment). Other cards stay exactly as paid as they were: their coverage is frozen first.
+ * Returns { error } for expected refusals - production hides the text of thrown action errors (React #441).
+ */
 export async function markCardUnpaid(saleId: string): Promise<{ error?: string; amount?: number }> {
   const admin = await requireTrackerAdmin();
   const id = parse(z.string().uuid(), saleId);
-  const { data, error } = await createAdminClient().rpc("tracker_revert_card_payment", { p_owner: admin.id, p_sale: id });
+  const db = createAdminClient();
+
+  const { data: sale, error: saleError } = await db.from("tracker_sales").select("id, customer_id").eq("id", id).eq("owner_id", admin.id).maybeSingle();
+  if (saleError) return { error: saleError.message };
+  if (!sale) return { error: "Card not found." };
+  const customerId = sale.customer_id as string;
+
+  const [sales, payments] = await Promise.all([
+    fetchAll<Record<string, unknown>>((f, t) => db.from("tracker_sales").select("id, live_id, amount, created_at").eq("customer_id", customerId).eq("owner_id", admin.id).range(f, t)),
+    fetchAll<Record<string, unknown>>((f, t) =>
+      db.from("tracker_payments").select("id, amount, purpose, live_id, paid_on, created_at").eq("customer_id", customerId).eq("owner_id", admin.id).order("paid_on").order("created_at").range(f, t),
+    ),
+  ]);
+  const liveIds = [...new Set(sales.map((r) => r.live_id as string))];
+  const { data: lives } = liveIds.length ? await db.from("tracker_lives").select("id, live_date").eq("owner_id", admin.id).in("id", liveIds) : { data: [] as Record<string, unknown>[] };
+  const liveDate = new Map((lives ?? []).map((l) => [l.id as string, l.live_date as string]));
+
+  const paymentIds = payments.map((p) => p.id as string);
+  const { data: allocRows, error: allocError } = paymentIds.length
+    ? await db.from("tracker_payment_allocations").select("payment_id, sale_id, amount").in("payment_id", paymentIds)
+    : { data: [] as Record<string, unknown>[], error: null };
+  if (allocError) return { error: allocError.message };
+
+  const explicit = new Map<string, number>(); // `${paymentId}|${saleId}` -> already-explicit amount
+  const allocationsByPayment = new Map<string, { saleId: string; amount: number }[]>();
+  for (const r of allocRows ?? []) {
+    const key = `${r.payment_id}|${r.sale_id}`;
+    explicit.set(key, (explicit.get(key) ?? 0) + Number(r.amount));
+    const list = allocationsByPayment.get(r.payment_id as string) ?? [];
+    list.push({ saleId: r.sale_id as string, amount: Number(r.amount) });
+    allocationsByPayment.set(r.payment_id as string, list);
+  }
+
+  const attribution = attributeCardPayments(
+    sales.map((r) => ({
+      id: r.id as string,
+      customerId,
+      liveId: r.live_id as string,
+      amount: Number(r.amount),
+      ownerTag: null,
+      order: `${liveDate.get(r.live_id as string) ?? ""}|${r.created_at as string}`,
+    })),
+    payments.map((r) => ({
+      id: r.id as string,
+      customerId,
+      amount: Number(r.amount),
+      liveId: (r.live_id as string | null) ?? null,
+      purpose: r.purpose as "CARDS" | "SHIPPING",
+      allocations: allocationsByPayment.get(r.id as string) ?? [],
+    })),
+  );
+
+  const mine = attribution.get(id) ?? [];
+  if (sum(mine.map((c) => c.amount)) <= 0) return { error: "This card isn't marked paid." };
+
+  // Freeze: whatever automatic money is covering the OTHER cards becomes explicit, so it can't slide onto this card.
+  const freeze: { payment_id: string; sale_id: string; amount: number }[] = [];
+  for (const [otherId, contributions] of attribution) {
+    if (otherId === id) continue;
+    for (const c of contributions) {
+      const automatic = Math.round((c.amount - (explicit.get(`${c.paymentId}|${otherId}`) ?? 0)) * 100) / 100;
+      if (automatic > 0.004) freeze.push({ payment_id: c.paymentId, sale_id: otherId, amount: automatic });
+    }
+  }
+  const reductions = mine.map((c) => ({ payment_id: c.paymentId, amount: c.amount }));
+
+  const { data, error } = await db.rpc("tracker_revert_card_full", { p_owner: admin.id, p_sale: id, p_freeze: freeze, p_reductions: reductions });
   if (error) return { error: error.message };
   refresh();
   revalidatePath("/account/orders");

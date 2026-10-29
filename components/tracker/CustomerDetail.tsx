@@ -11,7 +11,6 @@ import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { ownerColor } from "@/lib/tracker/ownerColors";
-import { explicitlyPaid } from "@/lib/tracker/split";
 import { evaluatePlan } from "@/lib/tracker/installments";
 import { PlanDialog } from "@/components/tracker/PlanDialog";
 import { Select } from "@/components/ui/Select";
@@ -327,19 +326,19 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
       left <= 0 ? <Badge tone="available">Paid</Badge> : paidOf(s.id) > 0 ? <Badge tone="pending">{formatCurrency(left)} left</Badge> : <Badge tone="neutral">Unpaid</Badge>;
     if (paidOf(s.id) <= 0) return status;
 
-    const takeBack = explicitlyPaid(s.id, payments);
+    const takeBack = paidOf(s.id);
     return (
       <span className="inline-flex items-center gap-1.5">
         {status}
         <button
           type="button"
-          disabled={pending || takeBack <= 0}
-          title={takeBack > 0 ? "Take this card's payment back - it becomes unpaid again" : "This card was covered by an older automatic payment - undo that payment in the Payments list instead"}
+          disabled={pending}
+          title="Take this card's payment back - it becomes unpaid again (other cards stay paid)"
           onClick={async () => {
             if (
               await confirm({
                 title: "Mark this card unpaid?",
-                message: `${formatCurrency(takeBack)} that was recorded for ${s.cardName} will be taken back out of its payment, and ${customer.name}'s balance goes back up.`,
+                message: `${formatCurrency(takeBack)} paid for ${s.cardName} will be taken back out of the payment(s) that covered it, and ${customer.name}'s balance goes back up. ${customer.name}'s other cards stay exactly as paid as they are now.`,
                 confirmLabel: "Mark unpaid",
                 tone: "danger",
               })
@@ -349,7 +348,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 if (result.error) setError(result.error);
               });
           }}
-          className="inline-flex items-center gap-1 rounded-md border border-card-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-sold/50 hover:text-sold disabled:opacity-40 disabled:hover:border-card-border disabled:hover:text-foreground-muted"
+          className="inline-flex items-center gap-1 rounded-md border border-card-border px-1.5 py-0.5 text-xs text-foreground-muted hover:border-sold/50 hover:text-sold disabled:opacity-40"
         >
           <Undo2 size={11} /> Unpaid
         </button>

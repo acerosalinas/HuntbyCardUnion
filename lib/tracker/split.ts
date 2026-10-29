@@ -166,3 +166,86 @@ export function explicitlyPaid(saleId: string, payments: { purpose: "CARDS" | "S
       .map((a) => a.amount),
   );
 }
+
+export interface PaymentContribution {
+  paymentId: string;
+  amount: number;
+}
+
+/**
+ * Same result as allocateCardPayments, but remembers WHICH payment paid each
+ * card. Automatic payments pay "whatever is oldest", so nothing records which
+ * payment covered which card; this reconstructs it (payments should be passed
+ * in chronological order). The per-card totals are identical to
+ * allocateCardPayments - only the bookkeeping differs - which is what lets
+ * "Mark unpaid" freeze the other cards' coverage before taking one card back.
+ */
+export function attributeCardPayments(
+  sales: SplitSale[],
+  payments: (SplitPayment & { id: string })[],
+): Map<string, PaymentContribution[]> {
+  const out = new Map<string, PaymentContribution[]>();
+  const paid = new Map<string, number>(sales.map((s) => [s.id, 0]));
+  const byCustomer = new Map<string, SplitSale[]>();
+  for (const s of sales) byCustomer.set(s.customerId, [...(byCustomer.get(s.customerId) ?? []), s]);
+
+  const add = (saleId: string, paymentId: string, amount: number) => {
+    if (amount <= 0) return;
+    paid.set(saleId, round2((paid.get(saleId) ?? 0) + amount));
+    const list = out.get(saleId) ?? [];
+    const existing = list.find((c) => c.paymentId === paymentId);
+    if (existing) existing.amount = round2(existing.amount + amount);
+    else list.push({ paymentId, amount: round2(amount) });
+    out.set(saleId, list);
+  };
+
+  // Pay `items` (oldest first) out of a queue of payment money, recording which payment each bit came from.
+  const consume = (items: SplitSale[], queue: { paymentId: string; amount: number }[]) => {
+    for (const s of items) {
+      let room = round2(s.amount - (paid.get(s.id) ?? 0));
+      while (room > 0 && queue.length > 0) {
+        const head = queue[0];
+        const take = Math.min(room, head.amount);
+        add(s.id, head.paymentId, take);
+        room = round2(room - take);
+        head.amount = round2(head.amount - take);
+        if (head.amount <= 0) queue.shift();
+      }
+    }
+  };
+
+  for (const [customerId, unsorted] of byCustomer) {
+    const items = [...unsorted].sort((a, b) => a.order.localeCompare(b.order));
+    const byId = new Map(items.map((s) => [s.id, s]));
+    const mine = payments.filter((p) => p.customerId === customerId && p.purpose === "CARDS");
+
+    // Step 0: cards a payment was ticked against.
+    const remainders: { paymentId: string; liveId: string | null; amount: number }[] = [];
+    for (const p of mine) {
+      let remaining = p.amount;
+      for (const a of p.allocations ?? []) {
+        const card = byId.get(a.saleId);
+        if (!card) continue;
+        const room = round2(card.amount - (paid.get(card.id) ?? 0));
+        const applied = Math.min(room, a.amount, remaining);
+        if (applied <= 0) continue;
+        add(card.id, p.id, applied);
+        remaining = round2(remaining - applied);
+      }
+      remainders.push({ paymentId: p.id, liveId: p.liveId, amount: remaining });
+    }
+
+    // Step 1: payments made for a live pay that live first; what's left spills into the general pool.
+    const general: { paymentId: string; amount: number }[] = remainders.filter((r) => r.liveId === null && r.amount > 0).map((r) => ({ paymentId: r.paymentId, amount: r.amount }));
+    const liveIds = [...new Set(remainders.map((r) => r.liveId).filter((id): id is string => id !== null))];
+    for (const liveId of liveIds) {
+      const queue = remainders.filter((r) => r.liveId === liveId && r.amount > 0).map((r) => ({ paymentId: r.paymentId, amount: r.amount }));
+      consume(items.filter((s) => s.liveId === liveId), queue);
+      general.push(...queue);
+    }
+
+    // Step 2: the general pool pays the oldest cards first.
+    consume(items, general);
+  }
+  return out;
+}
