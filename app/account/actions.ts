@@ -9,6 +9,9 @@ import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
 import { validateImageFile } from "@/lib/imageValidation";
 import { uploadToR2 } from "@/lib/r2";
 import { notifyUser } from "@/lib/notify";
+import { sendWishlistAdminEmail } from "@/lib/email";
+import { wishlistRecipients } from "@/lib/wishlistNotify";
+import { adminAlertText, MAX_WISHLIST_ALERTS_PER_HOUR, WishlistKind } from "@/lib/wishlistText";
 
 export async function logout() {
   const supabase = await createAuthServerClient("buyer");
@@ -163,5 +166,62 @@ export async function requestShipping(claimId: string): Promise<void> {
       body: `${buyer.handle} wants "${card.title}" shipped now.`,
       link: "/admin/logs",
     });
+  }
+}
+
+/**
+ * Tells the admin (bell + email) that this buyer just added something to their wishlist:
+ * a hearted listing ("wishlist", ref = card id) or a "can't find it" request ("wanted", ref = request id).
+ * Called by the buyer's browser right after its own insert. The entry must belong to the signed-in buyer and
+ * can alert only once (notified_at is claimed atomically), and one buyer is capped per hour, so it can't be
+ * used to spam. It never throws: a failed alert must not make the buyer's wishlist action look broken.
+ */
+export async function announceWishlistAdded(kind: WishlistKind, ref: string): Promise<void> {
+  try {
+    const buyer = await getCurrentBuyer();
+    if (!buyer) return;
+    const db = createAdminClient();
+
+    let table: "wishlists" | "wanted_cards";
+    let rowId: string;
+    let cardName: string;
+    if (kind === "wanted") {
+      const { data } = await db.from("wanted_cards").select("id, card_name, notified_at").eq("id", ref).eq("buyer_id", buyer.id).maybeSingle();
+      if (!data || data.notified_at) return;
+      table = "wanted_cards";
+      rowId = data.id as string;
+      cardName = data.card_name as string;
+    } else {
+      const { data } = await db.from("wishlists").select("id, notified_at, cards(title)").eq("card_id", ref).eq("buyer_id", buyer.id).maybeSingle();
+      if (!data || data.notified_at) return;
+      table = "wishlists";
+      rowId = data.id as string;
+      const card = data.cards as unknown as { title: string } | { title: string }[] | null;
+      cardName = (Array.isArray(card) ? card[0]?.title : card?.title) ?? "a card";
+    }
+
+    // Claim the alert first: only one caller can flip notified_at from null, so a double-click can't double-send.
+    const { data: claimed } = await db.from(table).update({ notified_at: new Date().toISOString() }).eq("id", rowId).is("notified_at", null).select("id").maybeSingle();
+    if (!claimed) return;
+
+    const { emails, adminIds } = await wishlistRecipients(db);
+    const { title, body } = adminAlertText(kind, buyer.handle, cardName);
+
+    // Rate limit per buyer: skip the alert (the entry itself is still saved) if they've already triggered plenty this hour.
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await db
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("type", "wishlist_added")
+      .ilike("title", `%@${buyer.handle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+      .gte("created_at", since);
+    if ((count ?? 0) >= MAX_WISHLIST_ALERTS_PER_HOUR * Math.max(1, adminIds.length)) return;
+
+    for (const adminId of adminIds) {
+      await notifyUser(db, { recipientId: adminId, type: "wishlist_added", title, body, link: "/admin/wanted" });
+    }
+    await sendWishlistAdminEmail({ to: emails, title, body, link: "/admin/wanted" });
+  } catch (err) {
+    console.error("Failed to announce wishlist entry:", err);
   }
 }

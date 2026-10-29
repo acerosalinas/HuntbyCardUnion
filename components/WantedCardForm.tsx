@@ -10,7 +10,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFile } from "@/lib/imageNormalize";
-import { uploadWantedCardPhoto } from "@/app/account/actions";
+import { announceWishlistAdded, uploadWantedCardPhoto } from "@/app/account/actions";
 import { WantedCard, WantedCardRow, wantedCardFromRow } from "@/types/marketplace";
 
 /**
@@ -98,6 +98,8 @@ export function WantedCardForm() {
         .single();
       if (insertError) throw insertError;
       setWanted((prev) => [wantedCardFromRow(data as WantedCardRow), ...prev]);
+      // Tell the admin about the new request (bell + email). Fire-and-forget; it never throws.
+      void announceWishlistAdded("wanted", (data as WantedCardRow).id).catch(() => {});
       setCardName("");
       setPhotoUrl("");
     } catch (err) {

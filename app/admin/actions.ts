@@ -13,6 +13,7 @@ import { canTransitionDispute } from "@/lib/disputeStatus";
 import { canTransitionCardStatus } from "@/lib/cardStatus";
 import { notifyUser } from "@/lib/notify";
 import { formatCurrency } from "@/lib/utils";
+import { buyerResultText } from "@/lib/wishlistText";
 import { FRANCHISES } from "@/lib/franchises";
 import {
   AppNotification,
@@ -1379,24 +1380,52 @@ export async function updateWantedCardStatus(id: string, status: WantedCardStatu
 
   if (!wanted?.buyer_id) return;
 
-  if (status === "FULFILLED") {
+  if (status === "FULFILLED" || status === "CLOSED") {
+    const text = buyerResultText(status, wanted.card_name);
     after(() =>
       notifyUser(supabase, {
         recipientId: wanted.buyer_id,
-        type: "wanted_card_fulfilled",
-        title: "Someone's got what you were looking for",
-        body: `"${wanted.card_name}" is now listed - check the marketplace.`,
+        type: status === "FULFILLED" ? "wanted_card_fulfilled" : "wanted_card_closed",
+        title: text.title,
+        body: text.body,
         link: "/marketplace",
       }),
     );
-  } else if (status === "CLOSED") {
+  }
+}
+
+/**
+ * A buyer's hearted listing, answered the same way as a request: Fulfilled ("it's available - message us
+ * to claim it") or Not fulfilled. Admins can answer hearts on their own listings; a super admin, any.
+ */
+export async function updateWishlistStatus(id: string, status: "OPEN" | "FULFILLED" | "CLOSED") {
+  const admin = await requireAdmin();
+  const supabase = createAdminClient();
+
+  const { data: entry, error: findError } = await supabase
+    .from("wishlists")
+    .select("buyer_id, card_id, cards(title, admin_id)")
+    .eq("id", id)
+    .maybeSingle();
+  if (findError) throw new Error(findError.message);
+  if (!entry) throw new Error("Wishlist entry not found.");
+  const card = entry.cards as unknown as { title: string; admin_id: string | null } | { title: string; admin_id: string | null }[] | null;
+  const cardRow = Array.isArray(card) ? card[0] : card;
+  assertOwnsOrSuper(admin, cardRow?.admin_id ?? null);
+
+  const { error } = await supabase.from("wishlists").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/wanted");
+
+  if (status === "FULFILLED" || status === "CLOSED") {
+    const text = buyerResultText(status, cardRow?.title ?? "your card");
     after(() =>
       notifyUser(supabase, {
-        recipientId: wanted.buyer_id,
-        type: "wanted_card_closed",
-        title: "Update on your card request",
-        body: `We couldn't find "${wanted.card_name}" for you this time. You're welcome to request it again anytime.`,
-        link: "/marketplace",
+        recipientId: entry.buyer_id as string,
+        type: status === "FULFILLED" ? "wanted_card_fulfilled" : "wanted_card_closed",
+        title: text.title,
+        body: text.body,
+        link: status === "FULFILLED" ? `/card/${entry.card_id}` : "/marketplace",
       }),
     );
   }

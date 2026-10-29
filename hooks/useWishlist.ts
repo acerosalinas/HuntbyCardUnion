@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
+import { announceWishlistAdded } from "@/app/account/actions";
 
 /**
  * A signed-in buyer's saved-for-later card ids. Loaded once per session and
@@ -63,6 +64,9 @@ export function useWishlist() {
           else next.delete(cardId);
           return next;
         });
+      } else if (!alreadyWishlisted) {
+        // Tell the admin about the new entry (bell + email). Fire-and-forget: it never throws and must not slow the heart.
+        void announceWishlistAdded("wishlist", cardId).catch(() => {});
       }
     },
     [buyer, ids],

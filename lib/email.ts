@@ -1,6 +1,7 @@
 import "server-only";
 import { Resend } from "resend";
 import { formatCurrency } from "@/lib/utils";
+import { escapeHtml } from "@/lib/wishlistText";
 
 export interface OrderConfirmedItem {
   title: string;
@@ -40,7 +41,9 @@ export async function sendOrderConfirmedEmail({
   const subject = items.length > 1 ? "Your Card Union order is confirmed" : "Your Card Union payment is confirmed";
 
   try {
-    await resend.emails.send({
+    // Resend reports API problems (bad key, unverified domain, quota, paused account) as a RETURNED error,
+    // not a thrown one - so it has to be checked or a failed send looks like a success.
+    const { error } = await resend.emails.send({
       from,
       to,
       subject,
@@ -53,6 +56,7 @@ export async function sendOrderConfirmedEmail({
         <p>Thanks for shopping with Card Union!</p>
       `,
     });
+    if (error) console.error(`Resend rejected the order confirmation email (${error.name}): ${error.message}`);
   } catch (err) {
     console.error("Failed to send order confirmation email:", err);
   }
@@ -94,7 +98,8 @@ export async function sendNotificationEmail({ to, title, body, link }: SendNotif
   const siteUrl = "https://cardunion.online";
 
   try {
-    await resend.emails.send({
+    // See sendOrderConfirmedEmail: Resend returns API errors rather than throwing them.
+    const { error } = await resend.emails.send({
       from,
       to,
       subject: title,
@@ -103,7 +108,44 @@ export async function sendNotificationEmail({ to, title, body, link }: SendNotif
         <p><a href="${siteUrl}${link}">View it on Card Union</a></p>
       `,
     });
+    if (error) console.error(`Resend rejected the notification email (${error.name}): ${error.message}`);
   } catch (err) {
     console.error("Failed to send notification email:", err);
+  }
+}
+
+interface SendWishlistAdminEmailInput {
+  to: string[];
+  title: string;
+  body: string;
+  /** Path within the app, e.g. "/admin/wanted". */
+  link: string;
+}
+
+/** Tells the admin(s) a buyer added a wishlist entry. Buyer-typed text is HTML-escaped. Never throws. */
+export async function sendWishlistAdminEmail({ to, title, body, link }: SendWishlistAdminEmailInput): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) {
+    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping wishlist alert email.");
+    return;
+  }
+  if (to.length === 0) return;
+
+  const resend = new Resend(apiKey);
+  const siteUrl = "https://cardunion.online";
+  try {
+    const { error } = await resend.emails.send({
+      from,
+      to,
+      subject: title,
+      html: `
+        <p>${escapeHtml(body)}</p>
+        <p><a href="${siteUrl}${link}">See it in the admin Wanted tab</a></p>
+      `,
+    });
+    if (error) console.error(`Resend rejected the wishlist alert email (${error.name}): ${error.message}`);
+  } catch (err) {
+    console.error("Failed to send wishlist alert email:", err);
   }
 }
