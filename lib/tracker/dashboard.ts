@@ -75,10 +75,17 @@ export function computeDashboard(input: DashboardInput, range: DateRange): Dashb
     .sort((a, b) => b.liveDate.localeCompare(a.liveDate))
     .map((l) => {
       const split = liveSplit(l.id, input.sales, paid, input.ownerLabels);
-      const rows = split.rows.map((r) => ({
-        ...r,
-        distributed: sum(input.payouts.filter((p) => p.liveId === l.id && p.recipientTag === r.code).map((p) => p.amount)),
-      }));
+      const rows = split.rows
+        .map((r) => ({
+          ...r,
+          distributed: sum(input.payouts.filter((p) => p.liveId === l.id && p.recipientTag === r.code).map((p) => p.amount)),
+        }))
+        // A switched-off owner with nothing in this live (no cards, nothing collected, nothing handed over) isn't listed at all.
+        // One who DOES have cards or money stays, so the tables still add up to the live's real total.
+        .filter((r) => {
+          const label = input.ownerLabels.find((o) => o.code === r.code);
+          return !(label?.active === false && r.expected === 0 && r.actual === 0 && r.distributed === 0);
+        });
       return { id: l.id, title: l.title, liveDate: l.liveDate, ...split, rows, distributedTotal: sum(rows.map((r) => r.distributed)) };
     });
 

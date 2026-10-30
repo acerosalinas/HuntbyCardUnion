@@ -9,7 +9,9 @@ import { islandGroupForRegion, REGIONS } from "@/lib/tracker/regions";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 import { sum } from "@/lib/tracker/money";
 import { attributeCardPayments } from "@/lib/tracker/split";
-import { fetchAll } from "@/lib/tracker/data";
+import { fetchAll, loadTrackerData } from "@/lib/tracker/data";
+import { invoiceReadyText, NoticeCandidate, planNotices } from "@/lib/tracker/notice";
+import { sendInvoiceReadyEmails } from "@/lib/email";
 import { validateSchedule } from "@/lib/tracker/installments";
 import { validateImageFile } from "@/lib/imageValidation";
 import { notifyUser } from "@/lib/notify";
@@ -164,6 +166,15 @@ export async function addSale(input: {
   );
   const db = createAdminClient();
   await assertOwned(db, "tracker_lives", v.liveId, admin.id, "Live");
+
+  // A switched-off owner can't be given new cards (the screen doesn't offer them; this is the backstop).
+  const tag = normalizeOwnerTag(v.ownerTag);
+  if (tag) {
+    const { data: st } = await db.from("tracker_settings").select("owner_labels").eq("owner_id", admin.id).maybeSingle();
+    const labels = (Array.isArray(st?.owner_labels) ? st.owner_labels : []) as { code?: string; active?: boolean }[];
+    if (labels.find((l) => normalizeOwnerTag(l.code) === tag)?.active === false) throw new Error("That owner is switched off in Settings.");
+  }
+
   const customer = await findOrCreateCustomer(db, admin.id, v.customerName);
 
   const { error } = await db.from("tracker_sales").insert({
@@ -844,4 +855,104 @@ export async function cancelPlan(planId: string) {
   if (error) throw new Error(error.message);
   refresh();
   revalidatePath("/account/orders");
+}
+
+export interface NoticeResult {
+  error?: string;
+  dryRun: boolean;
+  /** Customers who were (or, in a dry run, would be) sent a bell notification. */
+  notified: number;
+  /** Of those, how many also got an email. */
+  emailed: number;
+  /** Told before and nothing changed since. */
+  unchanged: number;
+  /** Nothing left to pay on this live. */
+  paidUp: number;
+  /** Not linked to an account: their invoice has to be copied and sent by hand. */
+  unlinked: string[];
+}
+
+/**
+ * "Your invoice is ready" - tells the LINKED customers of a live (or just one) in the app and by email.
+ * A customer already told about the same invoice isn't told again unless it changed; asking for one specific
+ * customer always sends. With dryRun it only reports who would be told, so the screen can confirm first.
+ * Refusals come back as { error } (production hides the text of thrown action errors).
+ */
+export async function notifyLiveCustomers(input: { liveId: string; customerId?: string; dryRun?: boolean }): Promise<NoticeResult> {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ liveId: z.string().uuid(), customerId: z.string().uuid().optional(), dryRun: z.boolean().optional() }), input);
+  const dryRun = Boolean(v.dryRun);
+  const empty: NoticeResult = { dryRun, notified: 0, emailed: 0, unchanged: 0, paidUp: 0, unlinked: [] };
+
+  const db = createAdminClient();
+  const data = await loadTrackerData(admin.id);
+  const live = data.lives.find((l) => l.id === v.liveId);
+  if (!live) return { ...empty, error: "Live not found." };
+
+  const liveSales = data.sales.filter((s) => s.liveId === v.liveId && (!v.customerId || s.customerId === v.customerId));
+  const customerIds = [...new Set(liveSales.map((s) => s.customerId))];
+  if (customerIds.length === 0) return { ...empty, error: "There are no cards to invoice yet." };
+
+  const candidates: NoticeCandidate[] = customerIds.map((id) => {
+    const customer = data.customers.find((c) => c.id === id);
+    const cards = liveSales.filter((s) => s.customerId === id);
+    return {
+      customerId: id,
+      name: customer?.name ?? "Customer",
+      buyerId: customer?.buyerId ?? null,
+      cardCount: cards.length,
+      total: sum(cards.map((c) => c.amount)),
+      paid: data.liveBreakdown[id]?.[v.liveId]?.paid ?? 0,
+    };
+  });
+
+  const { data: priorRows, error: priorError } = await db
+    .from("tracker_invoice_notices")
+    .select("customer_id, notified_total, notified_cards")
+    .eq("owner_id", admin.id)
+    .eq("live_id", v.liveId);
+  if (priorError) {
+    return { ...empty, error: /tracker_invoice_notices|schema cache|does not exist/i.test(priorError.message) ? "Run supabase/migration_live_tracker_invoice_notice.sql in the Supabase SQL editor first." : priorError.message };
+  }
+  const prior = new Map((priorRows ?? []).map((r) => [r.customer_id as string, { total: Number(r.notified_total), cardCount: Number(r.notified_cards) }]));
+
+  const plan = planNotices(candidates, prior, Boolean(v.customerId));
+  const result: NoticeResult = {
+    dryRun,
+    notified: plan.toNotify.length,
+    emailed: 0,
+    unchanged: plan.unchanged.length,
+    paidUp: plan.paidUp.length,
+    unlinked: plan.unlinked.map((c) => c.name),
+  };
+  if (dryRun || plan.toNotify.length === 0) return result;
+
+  // Bell notification for each, and gather who can also be emailed.
+  const emails: Parameters<typeof sendInvoiceReadyEmails>[0] = [];
+  for (const c of plan.toNotify) {
+    const text = invoiceReadyText(live.title, c);
+    await notifyUser(db, { recipientId: c.buyerId, type: "tracker_invoice_ready", title: text.title, body: text.body, link: "/account/orders" });
+
+    const { data: userData } = await db.auth.admin.getUserById(c.buyerId as string);
+    const email = userData?.user?.email;
+    if (email) {
+      emails.push({
+        to: email,
+        name: c.name,
+        liveTitle: live.title,
+        cards: liveSales.filter((s) => s.customerId === c.customerId).map((s) => ({ name: s.cardName, amount: s.amount })),
+        total: c.total,
+        paid: c.paid,
+      });
+    }
+  }
+  result.emailed = await sendInvoiceReadyEmails(emails);
+
+  // Remember what each customer was told, so pressing the button again only reaches changed invoices.
+  const { error: saveError } = await db.from("tracker_invoice_notices").upsert(
+    plan.toNotify.map((c) => ({ owner_id: admin.id, live_id: v.liveId, customer_id: c.customerId, notified_total: c.total, notified_cards: c.cardCount, notified_at: new Date().toISOString() })),
+    { onConflict: "live_id,customer_id" },
+  );
+  if (saveError) console.error("Couldn't record invoice notices:", saveError.message);
+  return result;
 }

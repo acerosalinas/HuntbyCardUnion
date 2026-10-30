@@ -149,3 +149,60 @@ export async function sendWishlistAdminEmail({ to, title, body, link }: SendWish
     console.error("Failed to send wishlist alert email:", err);
   }
 }
+
+export interface InvoiceReadyEmail {
+  to: string;
+  name: string;
+  liveTitle: string;
+  cards: { name: string; amount: number }[];
+  total: number;
+  paid: number;
+}
+
+/**
+ * "Your invoice is ready" emails, one per customer, sent through Resend's batch endpoint (up to 100 per
+ * request, so a big live doesn't hit the per-second limit). Each customer gets their own email - addresses
+ * are never shown to each other. Customer-typed text is HTML-escaped. Never throws; returns how many were sent.
+ */
+export async function sendInvoiceReadyEmails(items: InvoiceReadyEmail[]): Promise<number> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) {
+    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping invoice emails.");
+    return 0;
+  }
+  if (items.length === 0) return 0;
+
+  const resend = new Resend(apiKey);
+  const siteUrl = "https://cardunion.online";
+  const messages = items.map((i) => {
+    const left = Math.round((i.total - i.paid) * 100) / 100;
+    const shown = i.cards.slice(0, 20);
+    const more = i.cards.length - shown.length;
+    return {
+      from,
+      to: [i.to],
+      subject: `Your invoice for ${i.liveTitle} is ready`,
+      html: `
+        <p>Hi ${escapeHtml(i.name)},</p>
+        <p>Your invoice for <strong>${escapeHtml(i.liveTitle)}</strong> is ready:</p>
+        <ul>${shown.map((c) => `<li>${escapeHtml(c.name)} - ${formatCurrency(c.amount)}</li>`).join("")}${more > 0 ? `<li>and ${more} more</li>` : ""}</ul>
+        <p><strong>Total: ${formatCurrency(i.total)}</strong>${i.paid > 0 ? ` &middot; paid so far ${formatCurrency(i.paid)} &middot; <strong>${formatCurrency(left)} left</strong>` : ""}</p>
+        <p><a href="${siteUrl}/account/orders">Open My Live Orders</a> to see everything and send your payment.</p>
+      `,
+    };
+  });
+
+  let sent = 0;
+  for (let start = 0; start < messages.length; start += 100) {
+    const chunk = messages.slice(start, start + 100);
+    try {
+      const { error } = await resend.batch.send(chunk);
+      if (error) console.error(`Resend rejected the invoice emails (${error.name}): ${error.message}`);
+      else sent += chunk.length;
+    } catch (err) {
+      console.error("Failed to send invoice emails:", err);
+    }
+  }
+  return sent;
+}

@@ -917,3 +917,82 @@ test("attribution: taking one card back and freezing the rest keeps every other 
   assert.equal(paidAfter.get("a"), 0); // A is unpaid again
   assert.equal(paidAfter.get("b"), 500); // B did not lose its payment, and A did not steal it
 });
+
+test("dashboard: a switched-off owner with nothing in a live is left out; one with cards or money stays", () => {
+  const lives = [{ id: "a", title: "A live", liveDate: "2026-10-29" }];
+  const labels = [
+    { code: "A", name: "AC" },
+    { code: "S", name: "Shane", active: false }, // off, but has cards -> must stay
+    { code: "J", name: "Jay", active: false }, // off, nothing at all -> hidden
+    { code: "K", name: "Kay", active: false }, // off, no cards but money was handed over -> must stay
+    { code: "M", name: "Mia" }, // on, nothing -> still listed
+  ];
+  const sales = [
+    { id: "s1", customerId: "c1", liveId: "a", amount: 100, ownerTag: "A", order: "1" },
+    { id: "s2", customerId: "c1", liveId: "a", amount: 50, ownerTag: "S", order: "2" },
+  ];
+  const d = computeDashboard(
+    {
+      customers: [{ id: "c1", name: "Ana", islandGroup: null }],
+      lives,
+      sales,
+      payments: [],
+      ownerLabels: labels,
+      payouts: [{ liveId: "a", recipientTag: "K", amount: 20 }],
+      shipments: [],
+      totalsByCustomer: { c1: computeCustomerTotals([sale(100, "a"), sale(50, "a")], [], []) },
+    },
+    {},
+  );
+  const codes = d.splitPerLive[0].rows.map((r) => r.code);
+  assert.deepEqual(codes, ["A", "S", "K", "M"]);
+  assert.equal(d.splitPerLive[0].expectedTotal, 150); // hiding J changed nothing: the tables still add up
+});
+
+import { invoiceReadyText, planNotices, NoticeCandidate } from "../../lib/tracker/notice";
+
+const cand = (customerId: string, over: Partial<NoticeCandidate> = {}): NoticeCandidate => ({
+  customerId,
+  name: customerId,
+  buyerId: "buyer-" + customerId,
+  cardCount: 3,
+  total: 500,
+  paid: 0,
+  ...over,
+});
+
+test("notices: only linked customers with something left to pay are notified", () => {
+  const plan = planNotices(
+    [cand("linked"), cand("unlinked", { buyerId: null }), cand("paid", { paid: 500 }), cand("partly", { paid: 200 })],
+    new Map(),
+  );
+  assert.deepEqual(plan.toNotify.map((c) => c.customerId), ["linked", "partly"]);
+  assert.deepEqual(plan.unlinked.map((c) => c.customerId), ["unlinked"]);
+  assert.deepEqual(plan.paidUp.map((c) => c.customerId), ["paid"]);
+});
+
+test("notices: pressing the button again skips anyone whose invoice hasn't changed", () => {
+  const prior = new Map([
+    ["same", { total: 500, cardCount: 3 }],
+    ["moreCards", { total: 500, cardCount: 2 }],
+    ["newTotal", { total: 450, cardCount: 3 }],
+  ]);
+  const plan = planNotices([cand("same"), cand("moreCards"), cand("newTotal"), cand("never")], prior);
+  assert.deepEqual(plan.unchanged.map((c) => c.customerId), ["same"]);
+  assert.deepEqual(plan.toNotify.map((c) => c.customerId), ["moreCards", "newTotal", "never"]);
+});
+
+test("notices: asking for one specific customer again always sends", () => {
+  const plan = planNotices([cand("same")], new Map([["same", { total: 500, cardCount: 3 }]]), true);
+  assert.equal(plan.toNotify.length, 1);
+  assert.equal(plan.unchanged.length, 0);
+});
+
+test("notices: the message names the live, the cards and the total, and mentions what's already paid", () => {
+  const fresh = invoiceReadyText("10/29 Halloween Sales", { cardCount: 4, total: 640, paid: 0 });
+  assert.equal(fresh.title, "Your invoice for 10/29 Halloween Sales is ready");
+  assert.match(fresh.body, /4 cards · ₱640\./);
+  assert.match(fresh.body, /My Live Orders/);
+  assert.doesNotMatch(fresh.body, /already paid/);
+  assert.match(invoiceReadyText("L", { cardCount: 1, total: 500, paid: 200 }).body, /1 card · ₱500\. You've already paid ₱200, so ₱300 is left/);
+});

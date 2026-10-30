@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState, useTransition } from "react";
-import { Check, ClipboardCopy, Pencil, Plus, QrCode, Trash2, Truck, UserPlus, Wallet, X } from "lucide-react";
+import { Bell, Check, ClipboardCopy, Pencil, Plus, QrCode, Trash2, Truck, UserPlus, Wallet, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { addSale, createLive, deleteLive, deleteSale, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
+import { addSale, createLive, deleteLive, deleteSale, notifyLiveCustomers, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
@@ -122,6 +122,9 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   };
 
   const ownerLabels = settings.ownerLabels;
+  // Owners switched off in Settings can't be picked for a NEW card. They only stay visible where they already have cards
+  // (the owner filter, and the owner of a card that's already tagged).
+  const activeOwners = ownerLabels.filter((o) => o.active !== false);
 
   // Group the live's cards by customer, in the order each customer first appeared.
   const groupSales = (list: TrackerSale[]) => {
@@ -144,7 +147,9 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   const filteredTotal = groups.reduce((sum, g) => sum + g.subtotal, 0);
   const filterOptions = [
     { id: "ALL", label: "All", count: sales.length },
-    ...ownerLabels.map((o) => ({ id: o.code, label: o.name, count: sales.filter((s) => s.ownerTag === o.code).length })),
+    ...ownerLabels
+      .filter((o) => o.active !== false || sales.some((s) => s.ownerTag === o.code))
+      .map((o) => ({ id: o.code, label: o.name, count: sales.filter((s) => s.ownerTag === o.code).length })),
     { id: "NONE", label: "Unassigned", count: sales.filter((s) => s.ownerTag === null).length },
   ];
 
@@ -163,7 +168,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   // in the Amount field) - there is deliberately no remembered owner that could be left on the wrong one.
   const submitSale = (e: FormEvent) => {
     e.preventDefault();
-    setError("Choose who owns this card - tap " + ownerLabels.map((o) => o.name).join(" or ") + " below.");
+    setError("Choose who owns this card - tap " + activeOwners.map((o) => o.name).join(" or ") + " below.");
   };
 
   const addCard = (ownerTag: string) => {
@@ -275,6 +280,45 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     setCopiedKey(ok ? key : null);
     if (!ok) setError("Couldn't copy - your browser blocked clipboard access.");
     setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
+  };
+
+  // "Your invoice is ready": tells the LINKED customers of this live in the app and by email. A dry run first, so you
+  // can see who will be told before anything is sent.
+  const notifyLive = () => {
+    if (!liveId || !live) return;
+    run(async () => {
+      const preview = await notifyLiveCustomers({ liveId, dryRun: true });
+      if (preview.error) return setError(preview.error);
+      const extras = [
+        preview.unchanged > 0 ? `${preview.unchanged} already told, nothing changed` : null,
+        preview.paidUp > 0 ? `${preview.paidUp} fully paid` : null,
+        preview.unlinked.length > 0 ? `${preview.unlinked.length} not linked to an account (${preview.unlinked.join(", ")}) - copy their invoice instead` : null,
+      ].filter(Boolean);
+      if (preview.notified === 0) {
+        setNotice("Nobody to notify. " + (extras.length > 0 ? extras.join(" · ") + "." : ""));
+        return;
+      }
+      const ok = await confirm({
+        title: `Notify ${preview.notified} customer${preview.notified === 1 ? "" : "s"}?`,
+        message: `${preview.notified} linked customer${preview.notified === 1 ? "" : "s"} will get a notification and an email that their invoice for ${live.title} is ready.${extras.length > 0 ? " Not included: " + extras.join(" · ") + "." : ""}`,
+        confirmLabel: "Send",
+      });
+      if (!ok) return;
+      const result = await notifyLiveCustomers({ liveId });
+      if (result.error) return setError(result.error);
+      setNotice(`Notified ${result.notified} customer${result.notified === 1 ? "" : "s"} (${result.emailed} emailed).`);
+    });
+  };
+
+  const notifyOne = (customerId: string, name: string) => {
+    if (!liveId) return;
+    run(async () => {
+      const result = await notifyLiveCustomers({ liveId, customerId });
+      if (result.error) return setError(result.error);
+      if (result.notified > 0) setNotice(`Notified ${name} (${result.emailed > 0 ? "notification + email" : "notification only - no email on their account"}).`);
+      else if (result.paidUp > 0) setNotice(`${name} has nothing left to pay on this live.`);
+      else setNotice(`${name} isn't linked to an account.`);
+    });
   };
 
   // Ask before sending a card that's on an installment plan and still owes money. Nothing is blocked.
@@ -464,7 +508,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                 onKeyDown={(e) => {
                   // Typing an owner's letter (A / S) in the amount adds the card for that owner.
                   if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return;
-                  const owner = ownerLabels.find((o) => o.code.length === 1 && /[A-Z]/.test(o.code) && o.code === e.key.toUpperCase());
+                  const owner = activeOwners.find((o) => o.code.length === 1 && /[A-Z]/.test(o.code) && o.code === e.key.toUpperCase());
                   if (owner) {
                     e.preventDefault();
                     addCard(owner.code);
@@ -503,7 +547,8 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
           <div className="mt-3 border-t border-card-border pt-3">
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Add card for owner">
               <span className="text-sm text-foreground-muted">Add card for:</span>
-              {ownerLabels.map((o) => (
+              {activeOwners.length === 0 && <span className="text-sm text-pending">No owner is switched on - turn one on in Settings.</span>}
+              {activeOwners.map((o) => (
                 <button
                   key={o.code}
                   // type="button", not "submit": otherwise pressing Enter in a text field would silently click the FIRST owner's button.
@@ -520,7 +565,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
               ))}
             </div>
             <p className="mt-1.5 text-xs text-foreground-muted">
-              Tip: after typing the amount, press {ownerLabels.filter((o) => o.code.length === 1 && /[A-Z]/.test(o.code)).map((o) => o.code).join(" or ") || "an owner button"} to add it for that owner.
+              Tip: after typing the amount, press {activeOwners.filter((o) => o.code.length === 1 && /[A-Z]/.test(o.code)).map((o) => o.code).join(" or ") || "an owner button"} to add it for that owner.
             </p>
           </div>
         </form>
@@ -547,6 +592,11 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                   <QrCode size={14} /> {copiedKey === "qr-" + q.label ? "Copied!" : "Copy " + q.label + " QR"}
                 </Button>
               ))}
+              {allGroups.length > 0 && (
+                <Button variant="outline" type="button" disabled={pending} onClick={notifyLive} title="Tell linked customers their invoice is ready (notification + email)">
+                  <Bell size={14} /> Notify customers
+                </Button>
+              )}
               {allGroups.length > 0 && <ShippingFeeToggle on={includeShipping} onChange={setIncludeShipping} />}
               {allGroups.length > 0 && (
                 <Button variant="outline" type="button" onClick={copyAll}>
@@ -661,6 +711,11 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                   <Button variant="outline" type="button" className="px-3 py-1.5" onClick={() => setPayingId(g.customerId)}>
                     <Wallet size={13} /> Record payment
                   </Button>
+                  {customer?.buyerId ? (
+                    <Button variant="outline" type="button" className="px-3 py-1.5" disabled={pending} onClick={() => notifyOne(g.customerId, customer.name)} title="Tell this customer their invoice is ready (notification + email)">
+                      <Bell size={13} /> Notify
+                    </Button>
+                  ) : null}
                   {readyToShip.length > 0 ? (
                     <Button
                       variant="gold"
@@ -732,7 +787,9 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                       </span>
                       <span className="font-medium">{formatCurrency(s.amount)}</span>
                       <span className="flex items-center gap-1" role="group" aria-label={"Owner of " + s.cardName}>
-                        {ownerLabels.map((o) => {
+                        {ownerLabels
+                          .filter((o) => o.active !== false || o.code === s.ownerTag)
+                          .map((o) => {
                           const c = ownerColor(o.code, ownerLabels);
                           const active = s.ownerTag === o.code;
                           return (
