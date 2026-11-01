@@ -109,8 +109,10 @@ main {
   background: color-mix(in srgb, var(--color-background-elevated) 72%, transparent);
 }
 
-.glow-gold {
-  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 0 24px -6px rgba(212, 175, 55, 0.45);
+/* A gold hairline plus a soft, offset lift (not a zero-offset halo). Declared
+   as a utility so the hover: variant works on it. */
+@utility glow-gold {
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 12px 24px -12px rgba(212, 175, 55, 0.5);
 }
 
 .bg-dot-grid {
@@ -195,4 +197,161 @@ main {
    edge of the vault rather than a generic app toolbar. */
 .header-edge {
   box-shadow: 0 1px 0 0 var(--color-card-border), 0 1px 12px -4px color-mix(in srgb, var(--color-gold) 20%, transparent);
+}
+
+/* Native controls follow the theme: dropdown lists, date pickers, form
+   autofill, and the page scrollbar render dark in dark mode instead of
+   flashing a white OS widget. */
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+/* Default keyboard focus ring for every link, button, and custom control
+   that doesn't draw its own. :where() keeps specificity at zero so any
+   component's own focus style still wins. */
+:where(a, button, summary, [role="button"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* Money and counts line up in columns in every table and tabular readout. */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin themed scrollbars for the wide admin/tracker tables and drawers. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-gold) 40%, transparent) transparent;
+}
+
+/* Seller cards: a soft spotlight that follows the cursor, a hairline gold ring
+   that lights up around it, and a slow lift. No moving band, so there is no
+   rectangle with a hard edge sliding across the card - the light only ever
+   fades. --mx/--my are set by SellerSpotlightCard on pointer move. */
+.spotlight-card {
+  --mx: 50%;
+  --my: 0%;
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.spotlight-card::before,
+.spotlight-card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+.spotlight-card::before {
+  z-index: -1;
+  background: radial-gradient(
+    280px circle at var(--mx) var(--my),
+    color-mix(in srgb, var(--color-gold) 20%, transparent),
+    transparent 70%
+  );
+}
+
+.spotlight-card::after {
+  padding: 1px;
+  background: radial-gradient(220px circle at var(--mx) var(--my), var(--color-gold), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.spotlight-card:focus-visible::before,
+.spotlight-card:focus-visible::after {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .spotlight-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 24px 40px -26px color-mix(in srgb, var(--color-gold) 55%, transparent);
+  }
+
+  .spotlight-card:hover::before,
+  .spotlight-card:hover::after {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-card,
+  .spotlight-card:hover {
+    transform: none;
+  }
+}
+
+/* Vouch wall: rows of vouch cards drifting sideways. The track holds two
+   identical copies and slides exactly half its width, so the loop is
+   seamless. Pauses while hovered or focused; with reduced motion it becomes
+   a plain horizontally scrollable strip. */
+@keyframes vouch-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes vouch-scroll-reverse {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.vouch-marquee {
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+}
+
+.vouch-track {
+  display: flex;
+  width: max-content;
+  animation: vouch-scroll var(--vouch-duration, 60s) linear infinite;
+}
+
+.vouch-track[data-reverse] {
+  animation-name: vouch-scroll-reverse;
+}
+
+.vouch-marquee:hover .vouch-track,
+.vouch-marquee:focus-within .vouch-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vouch-marquee {
+    overflow-x: auto;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .vouch-track {
+    animation: none;
+  }
+
+  .vouch-track [data-dup] {
+    display: none;
+  }
 }

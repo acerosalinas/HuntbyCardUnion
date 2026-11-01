@@ -611,3 +611,33 @@ export function notificationFromRow(row: NotificationRow): AppNotification {
     createdAt: new Date(row.created_at).getTime(),
   };
 }
+
+/** A short member comment (plus optional 1-5 stars) left on the home page to confirm the marketplace is legit. */
+export interface Vouch {
+  id: string;
+  buyerId: string;
+  buyerHandle: string;
+  message: string;
+  rating: number | null;
+  createdAt: number;
+}
+
+export interface VouchRow {
+  id: string;
+  buyer_id: string;
+  buyer_handle: string;
+  message: string;
+  rating: number | null;
+  created_at: string;
+}
+
+export function vouchFromRow(row: VouchRow): Vouch {
+  return {
+    id: row.id,
+    buyerId: row.buyer_id,
+    buyerHandle: row.buyer_handle,
+    message: row.message,
+    rating: row.rating,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}

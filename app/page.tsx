@@ -2,10 +2,11 @@ import Link from "next/link";
 import { LayoutGrid, Store } from "lucide-react";
 import { SellerSpotlightCard } from "@/components/SellerSpotlightCard";
 import { LandingBackdrop } from "@/components/LandingBackdrop";
+import { VouchWall } from "@/components/VouchWall";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
-import { SellerProfileRow, sellerProfileFromRow } from "@/types/marketplace";
+import { SellerProfileRow, VouchRow, sellerProfileFromRow, vouchFromRow } from "@/types/marketplace";
 
 // Was force-dynamic (refetched on every request) - this page has no
 // per-user content (seller spotlight + counts are the same for everyone;
@@ -21,10 +22,13 @@ export default async function HomePage() {
   }
 
   const supabase = createServerReadClient();
-  const [{ data: profileRows }, { data: cardRows }] = await Promise.all([
+  const [{ data: profileRows }, { data: cardRows }, { data: vouchRows, error: vouchError }] = await Promise.all([
     supabase.from("seller_profiles").select("*").order("created_at", { ascending: true }),
     supabase.from("cards").select("admin_id").neq("status", "SOLD"),
+    supabase.from("vouches").select("*").order("created_at", { ascending: false }).limit(60),
   ]);
+  // The vouch wall needs supabase/migration_vouches.sql; until it has been run the query errors and the section stays hidden.
+  const vouches = vouchError ? null : ((vouchRows as VouchRow[] | null) ?? []).map(vouchFromRow);
 
   const profiles = ((profileRows as SellerProfileRow[] | null) ?? []).map(sellerProfileFromRow);
   const counts = new Map<string, number>();
@@ -39,17 +43,7 @@ export default async function HomePage() {
       <LandingBackdrop />
 
       <div className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 py-10 sm:py-12">
-        <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-gold/40 bg-navy-950 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-gold">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-gold" />
-          </span>
-          Live Marketplace
-        </span>
-
-        <span className="mb-1.5 font-display text-sm italic tracking-wide text-gold sm:text-base">
-          Card Union
-        </span>
-        <h1 className="mb-3 text-center font-display text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
+        <h1 className="mb-3 text-balance text-center font-display text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
           Meet Our Sellers
         </h1>
         <div className="mb-4 flex items-center gap-3" aria-hidden="true">
@@ -57,19 +51,22 @@ export default async function HomePage() {
           <span className="h-1.5 w-1.5 rotate-45 bg-gold" />
           <span className="h-px w-10 bg-linear-to-l from-transparent to-gold/60" />
         </div>
-        <p className="mb-5 max-w-md text-center text-sm text-foreground-muted sm:text-base">
+        <p className="mb-5 max-w-md text-balance text-center text-sm text-foreground-muted sm:text-base">
           Get to know who you&apos;re buying from, then browse their live listings, claim dibs, and make offers.
         </p>
 
         <div className="mb-8 flex items-center gap-6 rounded-full border border-card-border bg-card/60 px-6 py-2.5 text-sm">
           <span className="flex items-center gap-1.5 text-foreground-muted">
+            <span className="relative mr-0.5 flex h-1.5 w-1.5" aria-hidden="true">
+              <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-gold" />
+            </span>
             <LayoutGrid size={15} className="text-gold" />
-            <span className="font-semibold text-foreground">{totalListings}</span> listings
+            <span className="font-semibold tabular-nums text-foreground">{totalListings}</span> live listings
           </span>
           <span className="h-4 w-px bg-card-border" />
           <span className="flex items-center gap-1.5 text-foreground-muted">
             <Store size={15} className="text-gold" />
-            <span className="font-semibold text-foreground">{profiles.length}</span> sellers
+            <span className="font-semibold tabular-nums text-foreground">{profiles.length}</span> sellers
           </span>
         </div>
 
@@ -86,23 +83,25 @@ export default async function HomePage() {
           </div>
         )}
 
-        <div className="mt-10 flex flex-col items-center gap-2 text-center">
+      </div>
+
+      {vouches && <VouchWall initialVouches={vouches} />}
+
+      <div className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 pb-10 sm:pb-12">
+        <div className="mt-2 flex flex-col items-center gap-2 text-center">
           <Link
             href="/marketplace"
-            className="foil-shine overflow-hidden rounded-full border border-gold/40 bg-navy-950 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-gold transition-colors hover:bg-gold/10"
+            className="foil-shine overflow-hidden rounded-full border border-gold/40 bg-navy-950 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-gold transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
           >
             Browse All Cards
           </Link>
           <Link
             href="/how-it-works"
-            className="text-xs font-medium text-foreground-muted underline underline-offset-2 transition-colors hover:text-gold"
+            className="py-1.5 text-xs font-medium text-foreground-muted underline underline-offset-4 transition-colors hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
           >
             New here? See how buying works
           </Link>
-          <span className="mt-2 font-display text-sm italic tracking-wide text-gold">
-            Card Union
-          </span>
-          <p className="text-xs text-foreground-muted">
+          <p className="mt-2 text-xs text-foreground-muted">
             Claim it, message the seller, done — no bidding wars, no waiting rooms.
           </p>
         </div>
