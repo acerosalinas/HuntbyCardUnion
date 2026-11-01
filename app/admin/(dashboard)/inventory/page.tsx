@@ -30,7 +30,8 @@ export default async function AdminInventoryPage({ searchParams }: { searchParam
       const { count } = await q;
       return count ?? 0;
     };
-    const others = admins.filter((a) => a.id !== admin.id);
+    // Deactivated accounts aren't offered in the dropdown (their listings still show under "All listings").
+    const others = admins.filter((a) => a.id !== admin.id && a.active);
     const [{ data: profiles }, mine, all, ...otherCounts] = await Promise.all([
       supabase
         .from("seller_profiles")
@@ -46,7 +47,7 @@ export default async function AdminInventoryPage({ searchParams }: { searchParam
     const nameByAdmin = new Map((profiles ?? []).map((r) => [r.admin_id as string, r.display_name as string]));
     myCount = mine;
     allCount = all;
-    stores = others.map((a, i) => ({ id: a.id, label: nameByAdmin.get(a.id) || a.handle || a.email, count: otherCounts[i], active: a.active }));
+    stores = others.map((a, i) => ({ id: a.id, label: nameByAdmin.get(a.id) || a.handle || a.email, count: otherCounts[i] }));
   }
 
   const scope = resolveInventoryScope(

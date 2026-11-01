@@ -9,7 +9,6 @@ export interface ScopeStore {
   id: string;
   label: string;
   count: number;
-  active: boolean;
 }
 
 interface Props {
@@ -41,8 +40,7 @@ export function InventoryScopePicker({ value, myCount, stores, allCount }: Props
           <optgroup label="Other shops">
             {stores.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.label}
-                {s.active ? "" : " (inactive)"} ({s.count})
+                {s.label} ({s.count})
               </option>
             ))}
           </optgroup>
