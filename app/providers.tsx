@@ -6,6 +6,7 @@ import { MarketplaceFilterProvider } from "@/components/MarketplaceFilterProvide
 import { CartProvider } from "@/components/CartProvider";
 import { NavPendingProvider } from "@/components/NavPendingProvider";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
+import { NumberInputGuard } from "@/components/NumberInputGuard";
 
 export function Providers({
   children,
@@ -20,7 +21,10 @@ export function Providers({
         <CartProvider>
           <MarketplaceFilterProvider>
             <NavPendingProvider>
-              <ConfirmProvider>{children}</ConfirmProvider>
+              <ConfirmProvider>
+                <NumberInputGuard />
+                {children}
+              </ConfirmProvider>
             </NavPendingProvider>
           </MarketplaceFilterProvider>
         </CartProvider>

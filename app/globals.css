@@ -355,3 +355,16 @@ table,
     display: none;
   }
 }
+
+/* Number fields (prices, amounts) have no up/down spinner arrows: values are typed, and the arrows are easy to hit by accident.
+   The mouse wheel is handled by <NumberInputGuard /> in app/providers.tsx. */
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
