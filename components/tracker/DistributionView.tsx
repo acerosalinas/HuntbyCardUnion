@@ -103,8 +103,8 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
     if (owing.length === 0) return true;
     const owed = owing.reduce((n, c) => n + (planUnpaid[c.id] ?? 0), 0);
     return confirm({
-      title: "Send before the installments are paid?",
-      message: `${owing.length} of these cards ${owing.length === 1 ? "is" : "are"} on an installment plan and still owe ${formatCurrency(owed)} (${owing.map((c) => c.cardName).join(", ")}). Ship or hand over anyway?`,
+      title: "Send before it's fully paid?",
+      message: `${owing.length} of these cards ${owing.length === 1 ? "is" : "are"} only partly paid or on an installment plan and still owe ${formatCurrency(owed)} (${owing.map((c) => c.cardName).join(", ")}). Ship or hand over anyway?`,
       confirmLabel: "Send anyway",
       tone: "danger",
     });

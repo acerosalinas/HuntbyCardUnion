@@ -319,13 +319,14 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
   } catch (err) {
     if (!/tracker_installment_plans|tracker_plan_installments|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
   }
+  // Cards that still owe money AND are being paid in parts: on an approved plan, or already partly paid. Used to ask
+  // before such a card is shipped or handed over early (nothing is blocked).
   const planUnpaidBySale: Record<string, number> = {};
-  for (const plan of plans) {
-    if (plan.status !== "ACTIVE") continue;
-    const sale = sales.find((x) => x.id === plan.saleId);
-    if (!sale) continue;
-    const left = Math.round((sale.amount - (paidBySale[sale.id] ?? 0)) * 100) / 100;
-    if (left > 0) planUnpaidBySale[sale.id] = left;
+  const activePlanSales = new Set(plans.filter((p) => p.status === "ACTIVE").map((p) => p.saleId));
+  for (const sale of sales) {
+    const paid = paidBySale[sale.id] ?? 0;
+    const left = Math.round((sale.amount - paid) * 100) / 100;
+    if (left > 0 && (activePlanSales.has(sale.id) || paid > 0)) planUnpaidBySale[sale.id] = left;
   }
 
   // Payouts live in a table added later; if its migration hasn't run yet the rest of the tracker must still work.

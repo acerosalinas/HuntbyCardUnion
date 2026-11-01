@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { ReactNode, useState, useTransition } from "react";
 import { CalendarClock, Check } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -33,7 +33,8 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function PlansView({ items }: { items: PlanItem[] }) {
+/** `children` (the partially paid cards log) is shown between the requests to review and the due-date plans. */
+export function PlansView({ items, children }: { items: PlanItem[]; children?: ReactNode }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<PlanItem | null>(null);
@@ -110,13 +111,18 @@ export function PlansView({ items }: { items: PlanItem[] }) {
         )}
       </section>
 
+      {children}
+
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold">
-          Active plans <span className="text-xs font-normal text-foreground-muted">{active.length}</span>
-        </h2>
+        <div>
+          <h2 className="text-sm font-semibold">
+            Plans with due dates <span className="text-xs font-normal text-foreground-muted">{active.length}</span>
+          </h2>
+          <p className="text-xs text-foreground-muted">Optional: cards where you agreed dates for the remaining payments. Payments themselves are recorded with Add payment.</p>
+        </div>
         {active.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-card-border py-8 text-center text-sm text-foreground-muted">
-            No active installment plans. Set one up from a customer&apos;s page (the Installments button on a card).
+            No plans with due dates. To agree dates on a card, open the customer&apos;s page and tap Due dates on it.
           </p>
         ) : (
           <ul className="space-y-2">

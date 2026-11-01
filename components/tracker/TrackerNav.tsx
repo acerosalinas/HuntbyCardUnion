@@ -10,7 +10,7 @@ const links = [
   { href: "/tracker/customers", label: "Customers & Balances", exact: false },
   { href: "/tracker/distribution", label: "Distribution", exact: false },
   { href: "/tracker/proofs", label: "Proofs", exact: false },
-  { href: "/tracker/plans", label: "Plans", exact: false },
+  { href: "/tracker/plans", label: "Installments", exact: false },
   { href: "/tracker/settings", label: "Settings", exact: false },
 ];
 
