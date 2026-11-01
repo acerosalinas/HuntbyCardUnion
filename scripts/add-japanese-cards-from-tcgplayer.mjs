@@ -38,7 +38,7 @@ const TCGCSV = "https://tcgcsv.com/tcgplayer/85"; // category 85 = Pokemon Japan
 async function getJson(url, tries = 4) {
   for (let i = 1; i <= tries; i++) {
     try {
-      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+      const res = await fetch(url, { headers: { "user-agent": "HuntByCardUnion-catalog-import/1.0" } });
       if (res.ok) return await res.json();
       if (res.status !== 429 && res.status < 500) throw new Error(`${res.status} ${url}`);
     } catch (err) {
@@ -57,7 +57,13 @@ const searchText = (parts) => parts.filter(Boolean).join(" ").toLowerCase();
 
 // "Paras - 001/172 (Mirror Holofoil)" -> "Paras"
 const FINISH = /\s*\((?:[^)]*(?:holofoil|foil|mirror|reverse|ball|promo)[^)]*)\)\s*$/i;
-const cleanName = (n) => n.replace(FINISH, "").replace(/\s+-\s+[A-Za-z0-9-]*\d+(?:\/\d+)?\s*$/, "").trim();
+const cleanName = (n) =>
+  n
+    .replace(/\s*-\s*\d+\/[A-Za-z0-9-]+(?:\s*\([^)]*\))?\s*$/, "")
+    .replace(FINISH, "")
+    .replace(/\s*\(\d+\/[A-Za-z0-9-]+\)\s*$/, "")
+    .replace(/\s*-\s*[A-Za-z0-9-]*\d+(?:\/[A-Za-z0-9-]+)?\s*$/, "")
+    .trim();
 
 // ---- TCGplayer groups (one per set/product) and their cards
 const groups = (await getJson(`${TCGCSV}/groups`)).results;

@@ -33,7 +33,7 @@ const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE
 async function getText(url, tries = 4) {
   for (let i = 1; i <= tries; i++) {
     try {
-      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
+      const res = await fetch(url, { headers: { "user-agent": "HuntByCardUnion-catalog-import/1.0" } });
       if (res.ok) return await res.text();
       if (res.status === 404) return null;
     } catch {

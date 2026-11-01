@@ -25,3 +25,4 @@ jobs:
       - run: node scripts/import-pokemon-catalog.mjs --lang=ja
       - run: node scripts/fill-japanese-pictures.mjs
       - run: node scripts/add-japanese-cards-from-tcgplayer.mjs
+      - run: node scripts/add-japanese-sets-from-tcgplayer.mjs

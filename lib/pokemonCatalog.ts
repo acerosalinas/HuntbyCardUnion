@@ -11,11 +11,15 @@ export interface CatalogCard {
   lang: string;
 }
 
-/** "charizard  151" -> ["charizard", "151"]. Each word has to appear somewhere in a card's name, set or number. */
+/**
+ * "charizard  151" -> ["charizard", "151"]. Each word has to appear somewhere in a card's name, set or number.
+ * A number copied the way it is printed on the card works too: "088/071" and "#088" both become "088".
+ */
 export function searchTokens(query: string): string[] {
   return query
     .toLowerCase()
     .split(/\s+/)
+    .map((t) => t.replace(/^#/, "").replace(/^(\d+)\/\d+$/, "$1"))
     .map((t) => t.replace(/[%_\\,()]/g, ""))
     .filter((t) => t.length > 0)
     .slice(0, 5);
@@ -31,6 +35,43 @@ export function parseCatalogQuery(query: string): { tokens: string[]; lang: "en"
   const all = searchTokens(query);
   const tokens = all.filter((t) => !JAPANESE_WORDS.has(t));
   return { tokens, lang: tokens.length < all.length ? "ja" : "en" };
+}
+
+const isNumber = (t: string) => /^\d+$/.test(t);
+const stripZeros = (t: string) => (isNumber(t) ? t.replace(/^0+(?=\d)/, "") : t);
+
+/**
+ * The searches to try, in order, until one finds cards - so a slightly-off search shows the closest cards instead of an
+ * empty list:
+ *  1. exactly what was typed;
+ *  2. numbers without their leading zeros ("088" also finds a card stored as "88");
+ *  3. English-only searches also look at the Japanese cards;
+ *  4. dropping the number, so a wrong or missing number still lists that Pokemon's cards.
+ */
+export function catalogSearchAttempts(query: string): { tokens: string[]; lang: "en" | "ja" }[] {
+  const { tokens, lang } = parseCatalogQuery(query);
+  if (tokens.length === 0) return [];
+  const langs: ("en" | "ja")[] = lang === "en" ? ["en", "ja"] : ["ja"];
+  const variants: string[][] = [tokens];
+  const stripped = tokens.map(stripZeros);
+  if (stripped.join(" ") !== tokens.join(" ")) variants.push(stripped);
+  const words = tokens.filter((t) => !isNumber(t));
+  const relaxed = words.length > 0 && words.length < tokens.length ? [words] : [];
+
+  const out: { tokens: string[]; lang: "en" | "ja" }[] = [];
+  const seen = new Set<string>();
+  for (const group of [variants, relaxed]) {
+    for (const l of langs) {
+      for (const t of group) {
+        const key = `${l}:${t.join(" ")}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({ tokens: t, lang: l });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** What goes into the card-name box when a match is picked, e.g. "Charizard (Base Set 4)". */
@@ -64,12 +105,16 @@ export function catalogImageUrl(image: string | null, size: "low" | "high" = "lo
  * Best matches first: a name that starts with the first typed word, then shorter names (a plain "Pikachu"
  * before "Pikachu VMAX Rainbow"), then newer sets. `rows` arrive newest-set-first, which is kept as the tie-break.
  */
-export function rankCatalogMatches<T extends { name: string; lang?: string }>(rows: T[], query: string): T[] {
-  const first = searchTokens(query)[0] ?? "";
+export function rankCatalogMatches<T extends { name: string; lang?: string; local_id?: string }>(rows: T[], query: string): T[] {
+  const tokens = searchTokens(query);
+  const first = tokens[0] ?? "";
+  const numbers = tokens.filter(isNumber).map(stripZeros);
   const score = (r: T) => {
     const n = r.name.toLowerCase();
+    // The card whose printed number is the one typed comes first ("grimer 088" -> Grimer #088 before Grimer #188).
+    const exactNumber = numbers.length > 0 && r.local_id !== undefined && numbers.includes(stripZeros(String(r.local_id))) ? -5000 : 0;
     // English cards win a tie with an equally good Japanese one.
-    return (n === first ? 0 : n.startsWith(first) ? 1 : 2) * 1000 + Math.min(n.length, 999) + (r.lang === "ja" ? 0.5 : 0);
+    return exactNumber + (n === first ? 0 : n.startsWith(first) ? 1 : 2) * 1000 + Math.min(n.length, 999) + (r.lang === "ja" ? 0.5 : 0);
   };
   return rows.map((r, i) => ({ r, i, s: score(r) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.r);
 }

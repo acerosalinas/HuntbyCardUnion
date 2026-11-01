@@ -276,6 +276,12 @@ Worth knowing about before treating this as fully production-hardened:
   1. `node scripts/import-pokemon-catalog.mjs` and `node scripts/import-pokemon-catalog.mjs --lang=ja` (TCGdex)
   2. `node scripts/fill-japanese-pictures.mjs` (Limitless pictures for Japanese cards)
   3. `node scripts/add-japanese-cards-from-tcgplayer.mjs` (English names and pictures from TCGplayer via tcgcsv)
+  4. `node scripts/add-japanese-sets-from-tcgplayer.mjs` (Japanese sets TCGdex doesn't list - newest releases,
+     starter and battle decks, the SV-P / M-P promo sets - and each set's English name added to the search text;
+     add `--dry-run` first to see what it would do)
+
+  The TCGplayer mirror blocks generic browser user-agents, so these scripts identify themselves as
+  `HuntByCardUnion-catalog-import`.
 
   `.github/workflows/catalog-refresh.yml` runs all of these weekly; add the repository secrets
   `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to switch it on.
