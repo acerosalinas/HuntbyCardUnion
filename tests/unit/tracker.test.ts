@@ -672,7 +672,15 @@ test("portal: the view exposes no owner tags, addresses, payment methods or othe
   for (const forbidden of ["ownerTag", "owner_tag", "customerId", "address", "method", "recipient", "payout"]) {
     assert.ok(!json.includes(forbidden), `portal view must not contain ${forbidden}`);
   }
-  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "left", "name", "paid", "payNow", "plan", "shippedOn", "state", "underReview", "wantsShipping"]);
+  assert.deepEqual(Object.keys(v.lives[0].cards[0]).sort(), ["amount", "id", "image", "left", "name", "paid", "payNow", "plan", "shippedOn", "state", "underReview", "wantsShipping"]);
+});
+
+test("portal: a card keeps the picture of the catalog card it was picked from (null when none)", () => {
+  const input = portalInput();
+  input.sales[0] = { ...input.sales[0], image: "https://assets.tcgdex.net/en/base/base1/4" };
+  const cards = buildPortalView(input).lives[0].cards;
+  assert.equal(cards[0].image, "https://assets.tcgdex.net/en/base/base1/4");
+  assert.equal(cards[1].image, null);
 });
 
 test("portal: cards under a pending proof are flagged and the claim list is newest first", () => {
@@ -995,4 +1003,143 @@ test("notices: the message names the live, the cards and the total, and mentions
   assert.match(fresh.body, /My Live Orders/);
   assert.doesNotMatch(fresh.body, /already paid/);
   assert.match(invoiceReadyText("L", { cardCount: 1, total: 500, paid: 200 }).body, /1 card · ₱500\. You've already paid ₱200, so ₱300 is left/);
+});
+
+import { catalogCardLabel, catalogImageUrl, parseCatalogQuery, rankCatalogMatches, searchTokens } from "../../lib/pokemonCatalog";
+
+test("searchTokens splits words, lower-cases, and drops characters that break a search", () => {
+  assert.deepEqual(searchTokens("  Charizard   151 "), ["charizard", "151"]);
+  assert.deepEqual(searchTokens("10%_(a) b"), ["10a", "b"]);
+  assert.deepEqual(searchTokens("   "), []);
+  assert.equal(searchTokens("a b c d e f g").length, 5);
+});
+
+test("catalog label and image address", () => {
+  assert.equal(catalogCardLabel({ name: "Charizard", setName: "Base Set", number: "4" }), "Charizard (Base Set 4)");
+  assert.equal(catalogImageUrl("https://assets.tcgdex.net/en/base/base1/4"), "https://assets.tcgdex.net/en/base/base1/4/low.webp");
+  assert.equal(catalogImageUrl(null), null);
+  const lim = "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpc/M2a/M2a_223_R_JP_SM.png";
+  assert.equal(catalogImageUrl(lim), lim);
+  assert.equal(catalogImageUrl(lim, "high"), lim.replace("_SM", "_LG"));
+  const tcg = "https://tcgplayer-cdn.tcgplayer.com/product/571539_200w.jpg";
+  assert.equal(catalogImageUrl(tcg), tcg);
+  assert.equal(catalogImageUrl(tcg, "high"), "https://tcgplayer-cdn.tcgplayer.com/product/571539_in_1000x1000.jpg");
+});
+
+test("rankCatalogMatches puts exact and starting names first, then shorter names, keeping the incoming newest-first order for ties", () => {
+  const rows = [{ name: "Mega Charizard X" }, { name: "Charizard VMAX" }, { name: "Charizard" }, { name: "Charizard ex" }];
+  assert.deepEqual(rankCatalogMatches(rows, "charizard").map((r) => r.name), ["Charizard", "Charizard ex", "Charizard VMAX", "Mega Charizard X"]);
+  const ties = [{ name: "Pikachu", id: 1 }, { name: "Pikachu", id: 2 }];
+  assert.deepEqual(rankCatalogMatches(ties, "pikachu").map((r) => r.id), [1, 2]);
+});
+
+import { matchStrength, matchWanted, summarizeHistory } from "../../lib/tracker/wanted";
+
+test("matchStrength: exact, same card, maybe, and unrelated", () => {
+  assert.equal(matchStrength("Charizard ex (151 006)", "charizard ex (151 006)"), "exact");
+  assert.equal(matchStrength("Pikachu 031 (30th Celebration 031)", "Pikachu"), "same");
+  assert.equal(matchStrength("Kirlia", "Kirlia fairy 2 copies"), "maybe");
+  assert.equal(matchStrength("Gardevoir V", "Gardevoir fairy 2 copies"), null);
+  assert.equal(matchStrength("Pikachu", "Raichu"), null);
+  assert.equal(matchStrength("", "Pikachu"), null);
+});
+
+test("matchWanted keeps exact/same matches only, strongest first, one per buyer, and flags already-told buyers", () => {
+  const requests = [
+    { id: "w0", buyerId: "b0", buyerHandle: "u0", cardName: "Ralts" },
+    { id: "w1", buyerId: "b1", buyerHandle: "u1", cardName: "Ralts fairy" },
+    { id: "w2", buyerId: "b2", buyerHandle: "u2", cardName: "Ralts (Team Up 40)" },
+    { id: "w3", buyerId: "b0", buyerHandle: "u0", cardName: "ralts" },
+    { id: "w4", buyerId: "b4", buyerHandle: "u4", cardName: "Zubat" },
+  ];
+  const out = matchWanted([{ id: "s1", cardName: "Ralts (Team Up 40)" }, { id: "s2", cardName: "Mew" }], requests, new Set(["w0:s1"]));
+  assert.equal(out["s2"], undefined);
+  assert.deepEqual(out["s1"].map((m) => m.wantedId), ["w2", "w0"]);
+  assert.equal(out["s1"].find((m) => m.wantedId === "w0")?.notified, true);
+});
+
+test("summarizeHistory", () => {
+  assert.equal(summarizeHistory([]), null);
+  const h = summarizeHistory([{ amount: 200, date: "2026-10-29" }, { amount: 100, date: "2026-10-01" }, { amount: 150, date: "2026-09-01" }])!;
+  assert.deepEqual({ count: h.count, avg: h.average, min: h.min, max: h.max, last: h.last?.amount }, { count: 3, avg: 150, min: 100, max: 200, last: 200 });
+});
+
+test("parseCatalogQuery: JP anywhere in the search means Japanese cards, otherwise English", () => {
+  assert.deepEqual(parseCatalogQuery("Charizard JP"), { tokens: ["charizard"], lang: "ja" });
+  assert.deepEqual(parseCatalogQuery("jp charizard 006"), { tokens: ["charizard", "006"], lang: "ja" });
+  assert.deepEqual(parseCatalogQuery("charizard japanese"), { tokens: ["charizard"], lang: "ja" });
+  assert.deepEqual(parseCatalogQuery("charizard 151"), { tokens: ["charizard", "151"], lang: "en" });
+  assert.deepEqual(parseCatalogQuery("jp"), { tokens: [], lang: "ja" });
+});
+
+test("allocateCardPayments strict mode: a live's payment never spills onto other lives' cards", () => {
+  const sales = [
+    { id: "a", customerId: "c", liveId: "L1", amount: 100, ownerTag: null, order: "1" },
+    { id: "b", customerId: "c", liveId: "L2", amount: 100, ownerTag: null, order: "2" },
+  ];
+  const payments = [{ customerId: "c", amount: 150, liveId: "L1", purpose: "CARDS" as const }];
+  const loose = allocateCardPayments(sales, payments);
+  assert.equal(loose.get("a"), 100);
+  assert.equal(loose.get("b"), 50);
+  const strict = allocateCardPayments(sales, payments, { strict: true });
+  assert.equal(strict.get("a"), 100);
+  assert.equal(strict.get("b"), 0);
+  // A payment not tied to any live still joins the pool in strict mode.
+  const pool = allocateCardPayments(sales, [{ customerId: "c", amount: 150, liveId: null, purpose: "CARDS" as const }], { strict: true });
+  assert.equal(pool.get("b"), 50);
+});
+
+import { isApproved, normalizeEmail } from "../../lib/accessGate";
+
+test("isApproved: buyers need the approved flag, admins are always in", () => {
+  assert.equal(isApproved(undefined), false);
+  assert.equal(isApproved({}), false);
+  assert.equal(isApproved({ approved: false }), false);
+  assert.equal(isApproved({ approved: "true" }), false);
+  assert.equal(isApproved({ approved: true }), true);
+  assert.equal(isApproved({ role: "ADMIN" }), true);
+  assert.equal(isApproved({ role: "SUPER_ADMIN" }), true);
+  assert.equal(isApproved({ role: "SOMETHING_ELSE" }), false);
+  assert.equal(normalizeEmail("  Someone@Example.COM "), "someone@example.com");
+});
+
+import { handedPerSale, handoverCandidates, handoverStatement } from "../../lib/tracker/handover";
+
+test("handoverCandidates: an owner's paid cards in one live, grouped for who paid, minus what was already handed over", () => {
+  const sales = [
+    { id: "a", customerId: "c1", liveId: "L1", cardName: "Pikachu", ownerTag: "S" },
+    { id: "b", customerId: "c2", liveId: "L1", cardName: "Charizard", ownerTag: "S" },
+    { id: "c", customerId: "c1", liveId: "L1", cardName: "Sleeve", ownerTag: "A" },
+    { id: "d", customerId: "c1", liveId: "L2", cardName: "Other live", ownerTag: "S" },
+    { id: "e", customerId: "c2", liveId: "L1", cardName: "Unpaid", ownerTag: "S" },
+  ];
+  const paid = { a: 150, b: 300, c: 75, d: 50, e: 0 };
+  const names = new Map([["c1", "Ana"], ["c2", "Ben"]]);
+  const first = handoverCandidates(sales, paid, {}, "L1", "S", names);
+  assert.deepEqual(first.map((c) => [c.cardName, c.customerName, c.available]), [["Pikachu", "Ana", 150], ["Charizard", "Ben", 300]]);
+  // Pikachu fully handed over, Charizard partly: only the rest of Charizard remains.
+  const later = handoverCandidates(sales, paid, { a: 150, b: 100 }, "L1", "S", names);
+  assert.deepEqual(later.map((c) => [c.cardName, c.available]), [["Charizard", 200]]);
+  assert.deepEqual(handoverCandidates(sales, paid, {}, "L1", "A", names).map((c) => c.cardName), ["Sleeve"]);
+  assert.deepEqual(handedPerSale([{ saleId: "a", amount: 100 }, { saleId: "a", amount: 50 }, { saleId: null, amount: 9 }]), { a: 150 });
+});
+
+test("handoverStatement lists the date, total and each card under who paid for it", () => {
+  const text = handoverStatement({
+    recipientName: "Shane",
+    liveTitle: "Friday live",
+    liveDate: "2026-11-01",
+    paidOn: "2026-11-03",
+    amount: 450,
+    note: "cash",
+    lines: [
+      { saleId: "a", cardName: "Pikachu", customerName: "Ana", amount: 150 },
+      { saleId: "b", cardName: "Charizard", customerName: "Ben", amount: 300 },
+    ],
+  });
+  assert.match(text, /Handover to Shane - 2026-11-03/);
+  assert.match(text, /Total: ₱450/);
+  assert.match(text, /Ana - ₱150\n {2}Pikachu - ₱150/);
+  assert.match(text, /Note: cash/);
+  assert.match(handoverStatement({ recipientName: "A", liveTitle: "L", liveDate: "d", paidOn: "p", amount: 5, note: null, lines: [] }), /no card list/);
 });

@@ -27,7 +27,7 @@ function r2Client() {
   });
 }
 
-/** Uploads bytes to the card-images R2 bucket at `path` and returns its public URL. Mirrors the old Supabase upload+getPublicUrl pair used throughout app/admin/actions.ts and app/account/actions.ts. */
+/** Uploads bytes to the card-images R2 bucket at `path` and returns its public URL. Mirrors the old Supabase upload+getPublicUrl pair used throughout app/admin/*Actions.ts and app/account/actions.ts. */
 export async function uploadToR2(path: string, bytes: Uint8Array, contentType: string): Promise<string> {
   const bucket = process.env.R2_BUCKET_NAME;
   const publicUrl = process.env.R2_PUBLIC_URL;

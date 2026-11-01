@@ -5,7 +5,7 @@ import { LayoutGrid, LogOut } from "lucide-react";
 import { Drawer } from "@/components/ui/Drawer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AdminSession } from "@/hooks/useAdminSession";
-import { logout } from "@/app/admin/actions";
+import { logout } from "@/app/admin/accountActions";
 
 const ROLE_LABEL: Record<NonNullable<AdminSession["role"]>, string> = {
   ADMIN: "Admin",

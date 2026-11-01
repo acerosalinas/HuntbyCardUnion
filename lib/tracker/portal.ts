@@ -56,6 +56,9 @@ export async function loadPortalInternal(buyerId: string): Promise<PortalCustome
         .maybeSingle(),
     ]);
 
+    const { data: strictRow } = await db.from("tracker_settings").select("strict_payments").eq("owner_id", ownerId).maybeSingle();
+    const strictPayments = strictRow?.strict_payments === true;
+
     const liveIds = [...new Set(sales.map((s) => s.live_id as string))];
     const lives = liveIds.length
       ? ((await db.from("tracker_lives").select("id, title, live_date").eq("owner_id", ownerId).in("id", liveIds)).data ?? [])
@@ -138,7 +141,16 @@ export async function loadPortalInternal(buyerId: string): Promise<PortalCustome
       }
     }
 
+    // Pictures of the catalog cards these were picked from (best-effort: no picture is shown if this can't be read).
+    const catalogIds = [...new Set(sales.map((r) => r.catalog_card_id as string | null | undefined).filter((id): id is string => Boolean(id)))];
+    const imageByCatalogId = new Map<string, string>();
+    if (catalogIds.length > 0) {
+      const { data: pics } = await db.from("pokemon_catalog_cards").select("id, image_url").in("id", catalogIds);
+      for (const pic of pics ?? []) if (pic.image_url) imageByCatalogId.set(pic.id as string, pic.image_url as string);
+    }
+
     const view = buildPortalView({
+      strictPayments,
       sales: sales.map((r) => ({
         id: r.id as string,
         customerId,
@@ -149,6 +161,7 @@ export async function loadPortalInternal(buyerId: string): Promise<PortalCustome
         shipmentId: (r.shipment_id as string | null) ?? null,
         distributedAt: (r.distributed_at as string | null | undefined) ?? null,
         createdAt: r.created_at as string,
+        image: imageByCatalogId.get(r.catalog_card_id as string) ?? null,
       })),
       lives: lives.map((l) => ({ id: l.id as string, title: l.title as string, liveDate: l.live_date as string })),
       payments: payments.map((r) => ({

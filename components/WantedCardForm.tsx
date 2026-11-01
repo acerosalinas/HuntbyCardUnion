@@ -2,7 +2,9 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ImagePlus, Search, Trash2, X } from "lucide-react";
-import { Input } from "@/components/ui/Input";
+import { CatalogPicker } from "@/components/CatalogPicker";
+import { searchPokemonCards } from "@/app/catalog/actions";
+import { catalogCardLabel, catalogImageUrl } from "@/lib/pokemonCatalog";
 import { Button } from "@/components/ui/Button";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +25,8 @@ export function WantedCardForm() {
   const { buyer } = useBuyerIdentity();
   const [cardName, setCardName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  // True while the photo is the catalog picture of the picked card (replaced if another card is picked; never overwrites an upload).
+  const [photoFromCatalog, setPhotoFromCatalog] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +72,7 @@ export function WantedCardForm() {
       const formData = new FormData();
       formData.append("file", file);
       setPhotoUrl(await uploadWantedCardPhoto(formData));
+      setPhotoFromCatalog(false);
     } catch (err) {
       setError(extractErrorMessage(err) ?? "Failed to upload photo");
     } finally {
@@ -102,6 +107,7 @@ export function WantedCardForm() {
       void announceWishlistAdded("wanted", (data as WantedCardRow).id).catch(() => {});
       setCardName("");
       setPhotoUrl("");
+      setPhotoFromCatalog(false);
     } catch (err) {
       setError(extractErrorMessage(err) ?? "Failed to submit request");
     } finally {
@@ -130,12 +136,22 @@ export function WantedCardForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        <Input
-          placeholder="Card name (e.g. Charizard ex Base Set)"
-          value={cardName}
-          onChange={(e) => setCardName(e.target.value)}
-          className="flex-1"
-        />
+        <div className="flex-1">
+          <CatalogPicker
+            value={cardName}
+            onValueChange={setCardName}
+            onPick={(c) => {
+              setCardName(catalogCardLabel(c));
+              const picture = catalogImageUrl(c.image, "high");
+              if (picture && (!photoUrl || photoFromCatalog)) {
+                setPhotoUrl(picture);
+                setPhotoFromCatalog(true);
+              }
+            }}
+            search={searchPokemonCards}
+            placeholder="Card name (e.g. Charizard ex Base Set)"
+          />
+        </div>
         <div className="flex items-center gap-2">
           {photoUrl ? (
             <div className="group relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-gold/40">
@@ -143,7 +159,10 @@ export function WantedCardForm() {
               <img src={photoUrl} alt="" className="h-full w-full object-cover" />
               <button
                 type="button"
-                onClick={() => setPhotoUrl("")}
+                onClick={() => {
+                  setPhotoUrl("");
+                  setPhotoFromCatalog(false);
+                }}
                 aria-label="Remove photo"
                 className="absolute inset-0 flex items-center justify-center bg-navy-950/70 text-ivory opacity-0 transition-opacity group-hover:opacity-100"
               >

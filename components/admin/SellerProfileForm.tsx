@@ -10,12 +10,13 @@ import { extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFile } from "@/lib/imageNormalize";
 import { weekdayLabel } from "@/lib/codSchedule";
-import { updateSellerProfile, uploadAvatarImage, uploadPaymentQrImage, SellerProfileInput } from "@/app/admin/actions";
+import { updateSellerProfile, SellerProfileInput } from "@/app/admin/sellerActions";
+import { uploadAvatarImage, uploadPaymentQrImage } from "@/app/admin/cardActions";
 import { SellerProfile } from "@/types/marketplace";
 
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
 
-// Mirrors HANDLE_PATTERN in app/admin/actions.ts - validated here too so a
+// Mirrors HANDLE_PATTERN in app/admin/*Actions.ts - validated here too so a
 // bad handle is caught before ever calling the server action. Server
 // Actions invoked directly (not through useActionState) have their thrown
 // error messages redacted in production - the client only ever sees a

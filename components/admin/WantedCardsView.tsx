@@ -5,7 +5,7 @@ import { CheckCircle2, ImageOff, Search, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { extractErrorMessage } from "@/lib/utils";
-import { updateWantedCardStatus } from "@/app/admin/actions";
+import { updateWantedCardStatus } from "@/app/admin/sellerActions";
 import { ImageLightbox } from "@/components/admin/ImageLightbox";
 import { ViewToggle } from "@/components/admin/ViewToggle";
 import { useViewMode } from "@/hooks/useViewMode";

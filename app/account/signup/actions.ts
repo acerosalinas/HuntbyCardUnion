@@ -5,8 +5,11 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
 import { resolveOrigin } from "@/lib/origin";
+import { allowRequest, clientIp, TOO_MANY } from "@/lib/rateLimit";
+import { isEmailRemoved } from "@/lib/removedUsers";
+import { REMOVED_MESSAGE } from "@/lib/accessGate";
 
-export async function signup(_prevState: { error: string | null }, formData: FormData) {
+export async function signup(_prevState: { error: string | null; removed?: boolean }, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("fullName") ?? "").trim();
@@ -21,6 +24,15 @@ export async function signup(_prevState: { error: string | null }, formData: For
   }
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." };
+  }
+
+  if (!(await allowRequest("signup-ip", await clientIp(), 5, 3600))) {
+    return { error: TOO_MANY };
+  }
+
+  // Someone an admin removed does not get a fresh account; they are told to message us.
+  if (await isEmailRemoved(email)) {
+    return { error: REMOVED_MESSAGE, removed: true };
   }
 
   // Pre-check via the service-role client, since `profiles` RLS is

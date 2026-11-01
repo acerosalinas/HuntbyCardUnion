@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { canUseTracker } from "@/lib/tracker/accessList";
+import { isApproved } from "@/lib/accessGate";
 import { ADMIN_AUTH_COOKIE_NAME, BUYER_AUTH_COOKIE_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 // Routes reachable without a session - everything needed to create one.
@@ -74,6 +75,23 @@ export async function proxy(request: NextRequest) {
       loginUrl.searchParams.set("from", pathname);
       return NextResponse.redirect(loginUrl);
     }
+    // The site is approval-only: a signed-in buyer an admin has not approved yet can only see /account/pending
+    // (the approval flag travels in the session token, so this check needs no database call).
+    if (!isApproved(data.claims.app_metadata)) {
+      if (!pathname.startsWith("/account/pending")) {
+        return NextResponse.redirect(new URL("/account/pending", request.url));
+      }
+      // On the waiting page: if they were approved after this token was issued, take a fresh token and let them in.
+      const {
+        data: { user: fresh },
+      } = await supabase.auth.getUser();
+      if (fresh && isApproved(fresh.app_metadata)) {
+        await supabase.auth.refreshSession();
+        const inside = NextResponse.redirect(new URL("/", request.url));
+        response.cookies.getAll().forEach((c) => inside.cookies.set(c));
+        return inside;
+      }
+    }
     return response;
   }
 
@@ -114,5 +132,5 @@ export const config = {
   // their own auth (a shared secret header) rather than a buyer/admin login.
   // Redirecting those to /account/login instead of ever reaching the route
   // is exactly what broke the notifications webhook.
-  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|robots.txt|icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

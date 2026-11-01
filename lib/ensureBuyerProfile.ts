@@ -8,7 +8,7 @@ function sanitizeHandleBase(raw: string): string {
 
 /**
  * Admin/seller accounts (created via supabase.auth.admin.createUser, see
- * createAdminAccount in app/admin/actions.ts) have no `profiles` row -
+ * createAdminAccount in app/admin/*Actions.ts) have no `profiles` row -
  * buyer features (My Dibs, checkout, wishlist, ...) need one. Called from
  * the login action's admin branch so an admin/seller can browse and buy
  * under their own login instead of needing a second buyer account. Reuses

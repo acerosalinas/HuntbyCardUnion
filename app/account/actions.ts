@@ -11,6 +11,7 @@ import { uploadToR2 } from "@/lib/r2";
 import { notifyUser } from "@/lib/notify";
 import { sendWishlistAdminEmail } from "@/lib/email";
 import { wishlistRecipients } from "@/lib/wishlistNotify";
+import { allowRequest, TOO_MANY } from "@/lib/rateLimit";
 import { adminAlertText, MAX_WISHLIST_ALERTS_PER_HOUR, WishlistKind } from "@/lib/wishlistText";
 
 export async function logout() {
@@ -113,6 +114,7 @@ export async function updateBuyerProfile(input: UpdateBuyerProfileInput): Promis
 export async function uploadWantedCardPhoto(formData: FormData): Promise<string> {
   const buyer = await getCurrentBuyer();
   if (!buyer) throw new Error("Not signed in.");
+  if (!(await allowRequest("wanted-photo", buyer.id, 20, 3600))) throw new Error(TOO_MANY);
 
   const file = formData.get("file");
   if (!(file instanceof File)) throw new Error("No file provided.");
@@ -130,7 +132,7 @@ export async function uploadWantedCardPhoto(formData: FormData): Promise<string>
  * previously there was no way to ask for that once a card was stashed with
  * the seller. One-time per claim (ship_requested_at is set, not toggled),
  * notifies the owning admin, who marks it shipped the same way as any
- * other order (setShipped in app/admin/actions.ts, from the Sales Log).
+ * other order (setShipped in app/admin/*Actions.ts, from the Sales Log).
  */
 export async function requestShipping(claimId: string): Promise<void> {
   const buyer = await getCurrentBuyer();

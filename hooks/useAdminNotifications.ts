@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/admin/actions";
+import { getMyNotifications, markAllNotificationsRead, markNotificationRead } from "@/app/admin/notificationActions";
 import { AppNotification } from "@/types/marketplace";
 
 const POLL_INTERVAL_MS = 15_000;

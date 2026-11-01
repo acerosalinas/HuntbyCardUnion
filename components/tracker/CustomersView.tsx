@@ -108,13 +108,13 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
           <table className="w-full min-w-[40rem] text-sm">
             <thead>
               <tr className="border-b border-card-border text-left text-xs uppercase tracking-wide text-foreground-muted">
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Paid</th>
-                <th className="px-4 py-3 text-right">Balance</th>
-                <th className="px-4 py-3">Paid progress</th>
-                <th className="px-4 py-3">Last payment</th>
-                <th className="px-4 py-3">Shipping</th>
+                <th scope="col" className="px-4 py-3">Customer</th>
+                <th scope="col" className="px-4 py-3 text-right">Total</th>
+                <th scope="col" className="px-4 py-3 text-right">Paid</th>
+                <th scope="col" className="px-4 py-3 text-right">Balance</th>
+                <th scope="col" className="px-4 py-3">Paid progress</th>
+                <th scope="col" className="px-4 py-3">Last payment</th>
+                <th scope="col" className="px-4 py-3">Shipping</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-card-border">

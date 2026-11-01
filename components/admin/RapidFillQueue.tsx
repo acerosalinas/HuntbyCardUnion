@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { CatalogPicker } from "@/components/CatalogPicker";
+import { searchPokemonCards } from "@/app/catalog/actions";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +14,7 @@ import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { CONDITION_LABELS, ConditionCode, parseConditionGrade } from "@/lib/conditionGrade";
-import { deleteCard, publishDrafts, updateCard } from "@/app/admin/actions";
+import { deleteCard, publishDrafts, updateCard } from "@/app/admin/cardActions";
 import { CardItem } from "@/types/marketplace";
 
 type CardType = "RAW" | "GRADED";
@@ -344,14 +346,28 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
               Card Name *
             </label>
-            <Input
-              ref={titleRef}
-              autoFocus
-              value={form.title}
-              onChange={(e) => set("title", e.target.value)}
-              onFocus={(e) => e.target.select()}
-              required
-            />
+            {form.franchise === "pokemon" ? (
+              <CatalogPicker
+                inputRef={titleRef}
+                autoFocus
+                value={form.title}
+                onValueChange={(v) => set("title", v)}
+                onPick={(c) => setForm((f) => ({ ...f, title: `${c.name} ${c.number}`, setName: c.setName }))}
+                search={searchPokemonCards}
+                onFocus={(e) => e.target.select()}
+                placeholder="Type to search Pokémon cards"
+                required
+              />
+            ) : (
+              <Input
+                ref={titleRef}
+                autoFocus
+                value={form.title}
+                onChange={(e) => set("title", e.target.value)}
+                onFocus={(e) => e.target.select()}
+                required
+              />
+            )}
           </div>
           <div className="sm:col-span-2">
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { downloadXlsx } from "@/lib/excelExport";
-import { setShipped } from "@/app/admin/actions";
+import { setShipped } from "@/app/admin/orderActions";
 
 type View = "list" | "tiles";
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -224,7 +224,7 @@ export function SalesLogTable({
       c.shipped ? "Yes" : "No",
     ]);
     const today = new Date().toISOString().slice(0, 10);
-    downloadXlsx(`card-union-sales-week-${today}.xlsx`, "Sales", headers, rows);
+    void downloadXlsx(`card-union-sales-week-${today}.xlsx`, "Sales", headers, rows);
   };
 
   if (claims.length === 0) {
@@ -371,14 +371,14 @@ export function SalesLogTable({
                   <table className="w-full min-w-180 text-left text-sm">
                     <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
                       <tr>
-                        <th className="px-4 py-3">Time</th>
-                        <th className="px-4 py-3">Card</th>
-                        {isSuperAdmin && <th className="px-4 py-3">Seller</th>}
-                        <th className="px-4 py-3">Order</th>
-                        <th className="px-4 py-3">Sold To</th>
-                        <th className="px-4 py-3">Qty</th>
-                        <th className="px-4 py-3">Price</th>
-                        <th className="px-4 py-3">Shipped / Delivered</th>
+                        <th scope="col" className="px-4 py-3">Time</th>
+                        <th scope="col" className="px-4 py-3">Card</th>
+                        {isSuperAdmin && <th scope="col" className="px-4 py-3">Seller</th>}
+                        <th scope="col" className="px-4 py-3">Order</th>
+                        <th scope="col" className="px-4 py-3">Sold To</th>
+                        <th scope="col" className="px-4 py-3">Qty</th>
+                        <th scope="col" className="px-4 py-3">Price</th>
+                        <th scope="col" className="px-4 py-3">Shipped / Delivered</th>
                       </tr>
                     </thead>
                     <tbody>

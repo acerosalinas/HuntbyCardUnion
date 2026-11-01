@@ -40,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright
+/test-results/
+/playwright-report/
+
+# Impeccable design tool: the 20 MB engine program is downloaded by `npx impeccable install`, never committed.
+/.claude/skills/impeccable/scripts/bin/
+# Local-only Claude Code settings (the Impeccable hooks live here).
+/.claude/settings.local.json

@@ -22,7 +22,7 @@ export default async function AdminDisputeDetailPage({ params }: { params: Promi
   const { data: card } = await supabase.from("cards").select("title").eq("id", dispute.cardId).maybeSingle();
   // Drives the "restock decision needed" prompt below - only relevant once
   // resolved as a refund, and only until the seller has actually decided
-  // (see resolveDisputeRestock in app/admin/actions.ts).
+  // (see resolveDisputeRestock in app/admin/*Actions.ts).
   const claimStatus = dispute.claimId
     ? (await supabase.from("card_claims").select("status").eq("id", dispute.claimId).maybeSingle()).data?.status ?? null
     : null;

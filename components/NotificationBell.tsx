@@ -92,7 +92,7 @@ export function NotificationBell({ notifications, onOpen, onMarkRead, onMarkAllR
                     {n.title}
                   </p>
                   {n.body && <p className="mt-0.5 text-xs text-foreground-muted">{n.body}</p>}
-                  <p className="mt-1 text-[10px] uppercase tracking-wide text-foreground-muted/70">
+                  <p suppressHydrationWarning className="mt-1 text-[10px] uppercase tracking-wide text-foreground-muted/70">
                     {formatRelativeTime(n.createdAt)}
                   </p>
                 </Link>

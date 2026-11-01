@@ -34,7 +34,7 @@ export function SellerReviews({ reviews }: { reviews: Review[] }) {
                   <StarRating value={review.rating} readOnly size={14} />
                   <span className="text-sm font-medium text-foreground">{review.buyerHandle}</span>
                 </div>
-                <span className="text-xs text-foreground-muted">{formatRelativeTime(review.createdAt)}</span>
+                <span suppressHydrationWarning className="text-xs text-foreground-muted">{formatRelativeTime(review.createdAt)}</span>
               </div>
               {review.comment && <p className="mt-1.5 text-sm text-foreground-muted">{review.comment}</p>}
             </div>

@@ -7,7 +7,7 @@ import { sendNotificationEmail } from "@/lib/email";
  * bell - not everyone is watching the dashboard when this happens. Covers
  * both directions of the offer negotiation (each type fires for whichever
  * side needs to act or just hear the outcome - see acceptOffer/counterOffer/
- * declineOffer in app/admin/actions.ts for the admin-acts-on-buyer's-offer
+ * declineOffer in app/admin/*Actions.ts for the admin-acts-on-buyer's-offer
  * direction, and respond_to_offer/expire_stale_offers in supabase/schema.sql
  * for the buyer-acts-on-a-counter and 24h-no-response directions) - the
  * webhook doesn't care which table code path inserted the row, only that it
@@ -23,7 +23,7 @@ const EMAIL_WORTHY_TYPES = new Set([
   "offer_declined",
   "offer_expired",
   // A buyer assigned a card during a live stream (see assignLiveSale in
-  // app/admin/actions.ts) needs to know to go pay for it - as time-
+  // app/admin/*Actions.ts) needs to know to go pay for it - as time-
   // sensitive as any of the offer outcomes above.
   "live_sale_assigned",
 ]);

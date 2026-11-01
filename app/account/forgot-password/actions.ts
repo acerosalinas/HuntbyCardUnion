@@ -2,6 +2,7 @@
 
 import { createServerReadClient } from "@/lib/supabase/server";
 import { resolveOrigin } from "@/lib/origin";
+import { allowRequest, clientIp, TOO_MANY } from "@/lib/rateLimit";
 
 /**
  * Shared by both buyers and admins - they're both plain Supabase Auth users
@@ -14,6 +15,10 @@ export async function requestPasswordReset(_prevState: { sent: boolean; error: s
   const email = String(formData.get("email") ?? "").trim();
   if (!email) {
     return { sent: false, error: "Enter your email address." };
+  }
+
+  if (!(await allowRequest("reset-ip", await clientIp(), 10, 3600)) || !(await allowRequest("reset-email", email, 3, 3600))) {
+    return { sent: false, error: TOO_MANY };
   }
 
   const supabase = createServerReadClient();

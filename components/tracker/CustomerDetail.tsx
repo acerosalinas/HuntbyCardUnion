@@ -14,21 +14,10 @@ import { ownerColor } from "@/lib/tracker/ownerColors";
 import { evaluatePlan } from "@/lib/tracker/installments";
 import { PlanDialog } from "@/components/tracker/PlanDialog";
 import { Select } from "@/components/ui/Select";
-import {
-  deleteCustomer,
-  deletePayment,
-  deleteSale,
-  recordPayment,
-  recordPayments,
-  setPaymentLive,
-  setSalesDistributed,
-  findBuyers,
-  linkCustomerBuyer,
-  markCardUnpaid,
-  saveCustomer,
-  setSalesForShipping,
-  undoShipment,
-} from "@/app/tracker/actions";
+import { deleteCustomer, findBuyers, linkCustomerBuyer, saveCustomer } from "@/app/tracker/customerActions";
+import { deletePayment, recordPayment, recordPayments, setPaymentLive, markCardUnpaid } from "@/app/tracker/paymentActions";
+import { deleteSale, setSalesDistributed, setSalesForShipping } from "@/app/tracker/salesActions";
+import { undoShipment } from "@/app/tracker/shippingActions";
 import { copyText } from "@/lib/tracker/clipboard";
 import { buildStatementText, computeStatement } from "@/lib/tracker/statement";
 import { CustomerTotals } from "@/lib/tracker/money";
@@ -603,7 +592,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                             onChange={() => toggle(s.id)}
                             className="h-4 w-4 rounded border-card-border accent-gold"
                           />
-                          <span className="min-w-0 flex-1">
+                          <span className="min-w-0 basis-[calc(100%-2rem)] flex-1 sm:min-w-40 sm:basis-0">
                             <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
                           </span>
                           <span className="font-medium">{formatCurrency(s.amount)}</span>
@@ -777,7 +766,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         {linkedBuyer ? (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>
-              Linked to <span className="font-semibold">@{linkedBuyer.handle}</span> <span className="text-foreground-muted">({linkedBuyer.fullName})</span>
+              Linked to <span className="font-semibold">@{linkedBuyer.handle.replace(/^@/, "")}</span> <span className="text-foreground-muted">({linkedBuyer.fullName})</span>
             </span>
             <Button
               variant="outline"
@@ -811,7 +800,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 {buyerResults.map((b) => (
                   <li key={b.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <span>
-                      @{b.handle} <span className="text-foreground-muted">({b.fullName})</span>
+                      @{b.handle.replace(/^@/, "")} <span className="text-foreground-muted">({b.fullName})</span>
                     </span>
                     <Button
                       variant="gold"

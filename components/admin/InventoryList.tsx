@@ -13,7 +13,7 @@ import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardItem } from "@/types/marketplace";
-import { deleteCard } from "@/app/admin/actions";
+import { deleteCard } from "@/app/admin/cardActions";
 
 export function InventoryList({
   cards,
@@ -63,18 +63,18 @@ export function InventoryList({
         <table className="w-full min-w-180 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
-              <th className="w-10 px-4 py-3">
+              <th scope="col" className="w-10 px-4 py-3">
                 <span className="sr-only">Select</span>
               </th>
-              <th className="px-4 py-3">Title</th>
-              <th className="px-4 py-3">Franchise</th>
-              <th className="px-4 py-3">Set</th>
-              <th className="px-4 py-3">Grade</th>
-              <th className="px-4 py-3">Price</th>
-              <th className="px-4 py-3">Stock</th>
-              <th className="px-4 py-3">Seller</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th scope="col" className="px-4 py-3">Title</th>
+              <th scope="col" className="px-4 py-3">Franchise</th>
+              <th scope="col" className="px-4 py-3">Set</th>
+              <th scope="col" className="px-4 py-3">Grade</th>
+              <th scope="col" className="px-4 py-3">Price</th>
+              <th scope="col" className="px-4 py-3">Stock</th>
+              <th scope="col" className="px-4 py-3">Seller</th>
+              <th scope="col" className="px-4 py-3">Status</th>
+              <th scope="col" className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>

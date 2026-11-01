@@ -27,7 +27,7 @@ export default async function MyLiveOrdersPage() {
         <div className="rounded-2xl border border-dashed border-card-border p-8 text-center text-sm text-foreground-muted">
           <p className="mb-1">Your live orders aren&apos;t linked to this account yet.</p>
           <p>
-            Send the seller your handle <span className="font-semibold text-foreground">@{buyer.handle}</span> and they&apos;ll link it, then your cards and balance will show up here.
+            Send the seller your handle <span className="font-semibold text-foreground">{buyer.handle}</span> and they&apos;ll link it, then your cards and balance will show up here.
           </p>
         </div>
       ) : (

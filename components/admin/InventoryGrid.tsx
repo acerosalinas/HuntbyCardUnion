@@ -13,7 +13,7 @@ import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { getFranchiseBySlug } from "@/lib/franchises";
 import { CardItem } from "@/types/marketplace";
-import { deleteCard } from "@/app/admin/actions";
+import { deleteCard } from "@/app/admin/cardActions";
 
 /** Tile view of InventoryList - same data and actions (edit/remove), laid out as image-first cards instead of a text table. */
 export function InventoryGrid({

@@ -12,12 +12,14 @@ export default async function TrackerEntryPage({ searchParams }: { searchParams:
   // Default to the most recent live (lives are loaded newest-first).
   const liveId = data.lives.some((l) => l.id === live) ? live! : (data.lives[0]?.id ?? null);
 
+  const liveSales = data.sales.filter((s) => s.liveId === liveId);
+
   return (
     <EntryView
       liveId={liveId}
       lives={data.lives}
       customers={data.customers}
-      sales={data.sales.filter((s) => s.liveId === liveId)}
+      sales={liveSales}
       totalsByCustomer={data.totalsByCustomer}
       settings={data.settings}
       payments={data.payments}

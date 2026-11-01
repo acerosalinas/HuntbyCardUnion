@@ -39,6 +39,8 @@ export interface PortalCard {
   payNow: number;
   /** The card's installment plan or pending request, if any. */
   plan: PortalPlan | null;
+  /** Base picture address of the catalog card it was picked from (add "/low.webp"), or null. */
+  image: string | null;
 }
 
 export type PortalClaimStatus = "PENDING" | "CONFIRMED" | "REJECTED";
@@ -89,6 +91,7 @@ export interface PortalInput {
     shipmentId: string | null;
     distributedAt: string | null;
     createdAt: string;
+    image?: string | null;
   }[];
   lives: { id: string; title: string; liveDate: string }[];
   payments: {
@@ -101,6 +104,8 @@ export interface PortalInput {
   shipments: { id: string; fee: number; shippedOn: string }[];
   /** Proofs of payment the customer sent. Optional so callers without the feature still work. */
   plans?: { saleId: string; status: "REQUESTED" | "ACTIVE" | "DECLINED"; declineReason: string | null; installments: Installment[] }[];
+  /** The seller's strict-payments setting, so the customer sees the same paid amounts the seller does. */
+  strictPayments?: boolean;
   /** Today as YYYY-MM-DD (Philippine time by default); injectable so tests are stable. */
   today?: string;
   claims?: { id: string; status: PortalClaimStatus; cardsAmount: number; sfAmount: number; createdAt: string; rejectReason: string | null; saleIds: string[] }[];
@@ -125,7 +130,7 @@ export function buildPortalView(input: PortalInput): PortalView {
     purpose: p.purpose,
     allocations: p.allocations,
   }));
-  const paidMap = allocateCardPayments(splitSales, splitPayments);
+  const paidMap = allocateCardPayments(splitSales, splitPayments, { strict: input.strictPayments });
   const claims = input.claims ?? [];
   const today = input.today ?? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
   const planBySale = new Map((input.plans ?? []).map((pl) => [pl.saleId, pl]));
@@ -147,6 +152,7 @@ export function buildPortalView(input: PortalInput): PortalView {
       underReview: underReviewIds.has(s.id),
       payNow: 0,
       plan: null,
+      image: s.image ?? null,
       liveId: s.liveId,
       createdAt: s.createdAt,
     };
@@ -202,6 +208,7 @@ export function buildPortalView(input: PortalInput): PortalView {
           underReview: c.underReview,
           payNow: c.payNow,
           plan: c.plan,
+          image: c.image,
         }));
       return {
         id: l.id,

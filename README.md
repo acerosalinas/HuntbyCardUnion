@@ -124,7 +124,7 @@ Next.js (App Router), Tailwind CSS, and Supabase (Postgres + Realtime).
   `proxy.ts`); the cart itself doesn't, since checkout is where sign-in is
   actually needed.
 - **Payment-confirmation emails.** When admin clicks **Confirm Paid**, if the
-  card has a linked buyer account, `app/admin/actions.ts` emails them via
+  card has a linked buyer account, `app/admin/orderActions.ts` emails them via
   Resend (`lib/email.ts`). A cart order confirmed one card at a time only
   sends a single consolidated email once every card in the order is
   accounted for — see `try_claim_order_confirmation` in `supabase/schema.sql`
@@ -145,7 +145,7 @@ Next.js (App Router), Tailwind CSS, and Supabase (Postgres + Realtime).
   are all filtered by `admin_id`. `SUPER_ADMIN` accounts see and manage
   everything, and are the only ones who can reach `/admin/manage` to create
   new admin accounts. Ownership is also enforced server-side in every
-  mutation (`app/admin/actions.ts`), not just hidden in the UI.
+  mutation (the admin action files in `app/admin/`), not just hidden in the UI.
 - **Sales Log** (`/admin/logs`): every card marked SOLD shows up with the
   sale date/time, which order it was part of, buyer, price, and a
   Shipped/Delivered checkbox admins can toggle.
@@ -262,3 +262,55 @@ Worth knowing about before treating this as fully production-hardened:
   publication, seed data.
 - `tests/` — see **Testing** above.
 "# HuntbyCardUnion" 
+
+## Live Tracker and the shared Pokémon catalog
+
+- `/tracker` is the private live-selling workspace (sales, customers, payments, installments, shipping, proofs of
+  payment, the customer portal under `/account/orders`). Its server actions live in `app/tracker/*Actions.ts`
+  (sales, customers, payments, shipping, settings, plans, notices) with shared helpers in `trackerHelpers.ts`; the
+  admin actions are split the same way in `app/admin/*Actions.ts` and `actionHelpers.ts`. Pure logic (payment
+  allocation, matching, ranking) is in `lib/tracker/` and is unit tested.
+- The shared card catalog (`pokemon_catalog_cards`) feeds the card pickers in the tracker, the inventory form and
+  wanted cards. Fill and refresh it with the scripts in `scripts/` (they read `.env.local`, or the same variables from
+  the environment):
+  1. `node scripts/import-pokemon-catalog.mjs` and `node scripts/import-pokemon-catalog.mjs --lang=ja` (TCGdex)
+  2. `node scripts/fill-japanese-pictures.mjs` (Limitless pictures for Japanese cards)
+  3. `node scripts/add-japanese-cards-from-tcgplayer.mjs` (English names and pictures from TCGplayer via tcgcsv)
+
+  `.github/workflows/catalog-refresh.yml` runs all of these weekly; add the repository secrets
+  `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to switch it on.
+- `node scripts/backup.mjs <project folder> <output folder>` takes a full read-only backup (tables, auth users,
+  Supabase storage). Photos live on Cloudflare R2 and are not part of it.
+
+## Migrations
+
+Run in the Supabase SQL editor, once each, in this order after `schema.sql` (all `migration_live_tracker*.sql` files
+first, in the order they were added). The newest ones, none of which break the app if they have not been run yet:
+
+1. `migration_pokemon_catalog.sql`, then `migration_pokemon_catalog_alerts.sql`
+2. `migration_card_catalog_link.sql` (marketplace price in the tracker's card history)
+3. `migration_live_tracker_strict_payments.sql` (the "Strict payments" setting)
+4. `migration_rate_limits.sql` (rate limiting for sign-in, sign-up, password reset, catalog search and uploads)
+5. `migration_removed_users.sql` (remembers removed accounts, so they are told to message you if they come back)
+6. `migration_row_level_security.sql` (**security - run this first in practice**: closes public read of `orders` and `offers`, and locks the admin-only database functions to the server key)
+7. `migration_hide_deactivated_stores.sql` (a deactivated admin's store and listings are hidden from the marketplace; run after the row level security one)
+8. `migration_live_tracker_payout_cards.sql` (handovers record which cards they cover and who paid for them)
+
+## Operations
+
+- **Error alerts**: set `ERROR_WEBHOOK_URL` to a Discord or Slack incoming-webhook address and server errors are posted
+  there (`instrumentation.ts`). They are always written to the host's logs.
+- **CI**: `.github/workflows/ci.yml` runs type-check, lint, unit tests and a build on every push and pull request.
+- **Browser tests**: `npm run test:e2e` (Playwright; first run `npx playwright install chromium`). They check the
+  invite-only redirects, the sign-in page and `robots.txt`. Set `E2E_BASE_URL` to test an already-running server.
+- **Site access**: the whole site is invite-only (`proxy.ts`), so `robots.txt` disallows everything.
+- **Approval-only sign-ups**: anyone can register, but a buyer sees nothing until a super admin approves them on
+  `/admin/manage` ("Waiting for approval"). Approval is the flag `approved: true` in the account's `app_metadata`
+  (`lib/accessGate.ts`); admins are always allowed. Until then they only see `/account/pending`. The same page has
+  **Delete** for removing a buyer permanently: their orders and offers stay in your records, and their email goes on a
+  removed list so that signing in or up again shows a pop-up telling them to message TikTok @cardunion or Facebook
+  Card Union. Before turning this on for an existing project, run `node scripts/approve-existing-users.mjs` once so
+  current accounts are not locked out (use `--dry-run` first).
+- **Backups**: turn on daily backups (and point-in-time recovery if your plan has it) in the Supabase dashboard under
+  Database > Backups; use `scripts/backup.mjs` for an extra copy you keep yourself.
+

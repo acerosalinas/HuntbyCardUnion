@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFiles } from "@/lib/imageNormalize";
-import { uploadCardImages, createDraftCards } from "@/app/admin/actions";
+import { uploadCardImages, createDraftCards } from "@/app/admin/cardActions";
 import { CardItem } from "@/types/marketplace";
 
 const MAX_FILES = 30;

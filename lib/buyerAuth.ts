@@ -1,5 +1,6 @@
 import "server-only";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
+import { isApproved } from "@/lib/accessGate";
 
 export interface CurrentBuyer {
   id: string;
@@ -21,6 +22,8 @@ export async function getCurrentBuyer(): Promise<CurrentBuyer | null> {
   } = await supabase.auth.getUser();
 
   if (!user || !user.email) return null;
+  // Waiting for approval: counts as not signed in, so no buyer action works yet.
+  if (!isApproved(user.app_metadata)) return null;
 
   const { data: profile } = await supabase
     .from("profiles")

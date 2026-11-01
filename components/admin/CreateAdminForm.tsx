@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
-import { createAdminAccount } from "@/app/admin/actions";
+import { createAdminAccount } from "@/app/admin/accountActions";
 import { AdminRole } from "@/lib/adminAuth";
 import { extractErrorMessage } from "@/lib/utils";
 

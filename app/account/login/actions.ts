@@ -3,6 +3,9 @@
 import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { ensureBuyerProfileForAdmin } from "@/lib/ensureBuyerProfile";
+import { allowRequest, clientIp, TOO_MANY } from "@/lib/rateLimit";
+import { isEmailRemoved } from "@/lib/removedUsers";
+import { isApproved, REMOVED_MESSAGE } from "@/lib/accessGate";
 
 /**
  * Single sign-in entry point for both buyers and admins - the whole app now
@@ -20,7 +23,7 @@ import { ensureBuyerProfileForAdmin } from "@/lib/ensureBuyerProfile";
  * ensureBuyerProfileForAdmin backfills the profiles row that action needs
  * (admin accounts don't get one at creation).
  */
-export async function login(_prevState: { error: string | null }, formData: FormData) {
+export async function login(_prevState: { error: string | null; removed?: boolean }, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const from = String(formData.get("from") ?? "/");
@@ -29,10 +32,18 @@ export async function login(_prevState: { error: string | null }, formData: Form
     return { error: "Enter your email and password." };
   }
 
+  // Slow down password guessing: per address, and per account so a spread-out attack on one email is caught too.
+  const ip = await clientIp();
+  if (!(await allowRequest("login-ip", ip, 20, 600)) || !(await allowRequest("login-email", email, 10, 600))) {
+    return { error: TOO_MANY };
+  }
+
   const buyerClient = await createAuthServerClient("buyer");
   const { data, error } = await buyerClient.auth.signInWithPassword({ email, password });
 
   if (error || !data.user) {
+    // A deleted account can never sign in; say why instead of "incorrect password" (the page shows a pop-up).
+    if (await isEmailRemoved(email)) return { error: REMOVED_MESSAGE, removed: true };
     return { error: "Incorrect email or password." };
   }
 
@@ -40,6 +51,8 @@ export async function login(_prevState: { error: string | null }, formData: Form
   const isAdmin = metaRole === "SUPER_ADMIN" || metaRole === "ADMIN";
 
   if (!isAdmin) {
+    // Not approved yet: straight to the waiting page (the proxy would send them there anyway).
+    if (!isApproved(data.user.app_metadata)) redirect("/account/pending");
     redirect(from.startsWith("/admin") ? "/" : from || "/");
   }
 

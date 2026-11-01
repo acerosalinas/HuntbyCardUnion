@@ -9,7 +9,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
-import { setSalesDistributed, undoShipment } from "@/app/tracker/actions";
+import { setSalesDistributed } from "@/app/tracker/salesActions";
+import { undoShipment } from "@/app/tracker/shippingActions";
 import { CustomerTotals } from "@/lib/tracker/money";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { ISLAND_GROUP_LABELS } from "@/lib/tracker/regions";
@@ -245,7 +246,7 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
                           className="h-4 w-4 rounded border-card-border accent-gold"
                         />
                       )}
-                      <span className="min-w-0 flex-1">
+                      <span className="min-w-0 basis-[calc(100%-2rem)] flex-1 sm:min-w-40 sm:basis-0">
                         <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
                         <span className="ml-2 text-xs text-foreground-muted">{liveById.get(s.liveId)?.title}</span>
                       </span>

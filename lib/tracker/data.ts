@@ -10,6 +10,8 @@ export interface TrackerSettings {
   visayasMindanaoFee: number;
   paymentInstructions: string;
   showAddressOnInvoice: boolean;
+  /** A payment made for a live only pays that live's cards (see allocateCardPayments). */
+  strictPayments: boolean;
   /** Owner tags for cards, e.g. A = AC, S = Shane. */
   ownerLabels: OwnerLabel[];
   /** Public URLs of the uploaded payment QR images, or null. */
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: TrackerSettings = {
   visayasMindanaoFee: 94,
   paymentInstructions: "",
   showAddressOnInvoice: true,
+  strictPayments: false,
   ownerLabels: DEFAULT_OWNER_LABELS,
   gcashQrUrl: null,
   maribankQrUrl: null,
@@ -103,6 +106,8 @@ export interface TrackerPayout {
   amount: number;
   paidOn: string;
   note: string | null;
+  /** The cards this handover covers, and who paid for them (empty for older handovers recorded as just an amount). */
+  cards: { saleId: string | null; cardName: string; customerName: string; amount: number }[];
 }
 
 export interface TrackerData {
@@ -194,6 +199,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
         visayasMindanaoFee: Number(s.visayas_mindanao_fee),
         paymentInstructions: s.payment_instructions ?? "",
         showAddressOnInvoice: s.show_address_on_invoice,
+        strictPayments: s.strict_payments === true,
         ownerLabels: parseOwnerLabels(s.owner_labels),
         gcashQrUrl: s.gcash_qr_url ?? null,
         maribankQrUrl: s.maribank_qr_url ?? null,
@@ -280,7 +286,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     if (!/tracker_payment_allocations|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
   }
 
-  const paidMap = allocateCardPayments(splitSales, payments);
+  const paidMap = allocateCardPayments(splitSales, payments, { strict: settings.strictPayments });
   const liveBreakdown = liveBalances(splitSales, paidMap);
   const paidBySale = Object.fromEntries(paidMap);
 
@@ -335,9 +341,28 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
       amount: Number(r.amount),
       paidOn: r.paid_on as string,
       note: (r.note as string | null) ?? null,
+      cards: [],
     }));
   } catch (err) {
     if (!/tracker_payouts|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+  }
+
+  // Which cards each handover covers (table added later; handovers still work as plain amounts without it).
+  if (payouts.length > 0) {
+    try {
+      const lineRows = await fetchAll<Record<string, unknown>>((f, t) =>
+        supabase.from("tracker_payout_cards").select("payout_id, sale_id, card_name, customer_name, amount").eq("owner_id", ownerId).range(f, t),
+      );
+      const byPayout = new Map<string, TrackerPayout["cards"]>();
+      for (const r of lineRows) {
+        const list = byPayout.get(r.payout_id as string) ?? [];
+        list.push({ saleId: (r.sale_id as string | null) ?? null, cardName: r.card_name as string, customerName: r.customer_name as string, amount: Number(r.amount) });
+        byPayout.set(r.payout_id as string, list);
+      }
+      for (const p of payouts) p.cards = byPayout.get(p.id) ?? [];
+    } catch (err) {
+      if (!/tracker_payout_cards|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+    }
   }
 
   return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts, plans, planUnpaidBySale };

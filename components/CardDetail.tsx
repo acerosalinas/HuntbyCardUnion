@@ -288,6 +288,7 @@ export function CardDetail({
               )}
             >
               <span
+                suppressHydrationWarning
                 className={cn(
                   "flex items-center gap-1.5 text-sm font-medium",
                   offerAccepted ? "text-available" : "text-pending",
@@ -317,7 +318,7 @@ export function CardDetail({
           {heldByOther && (
             <div className="flex items-center gap-1.5 rounded-xl bg-pending-bg px-4 py-3 text-sm font-medium text-pending">
               <Lock size={14} className="shrink-0" />
-              <span>
+              <span suppressHydrationWarning>
                 This card is on hold — another buyer is negotiating on it.
                 {holdCountdownLabel
                   ? ` It'll be available again in ${holdCountdownLabel} if the seller doesn't accept.`
@@ -398,10 +399,10 @@ export function CardDetail({
 
           {inStock && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
+              <span id="fulfillment-label" className="text-xs font-medium uppercase tracking-wide text-foreground-muted">
                 Fulfillment
-              </label>
-              <div className="flex gap-2">
+              </span>
+              <div className="flex gap-2" role="group" aria-labelledby="fulfillment-label">
                 {(
                   [
                     { key: "SHIP" as const, label: "Ship Out", icon: Truck },
@@ -411,6 +412,7 @@ export function CardDetail({
                   <button
                     key={key}
                     type="button"
+                    aria-pressed={fulfillmentMethod === key}
                     onClick={() => {
                       setFulfillmentMethod(key);
                       // Cash on Delivery implies a courier delivering the item - doesn't
@@ -422,7 +424,7 @@ export function CardDetail({
                     className={cn(
                       "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                       fulfillmentMethod === key
-                        ? "border-gold bg-gold text-navy-950"
+                        ? "border-gold bg-gold/15 text-foreground ring-1 ring-gold"
                         : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
                     )}
                   >
@@ -447,11 +449,12 @@ export function CardDetail({
                   <button
                     key={key}
                     type="button"
+                    aria-pressed={paymentMethod === key}
                     onClick={() => setPaymentMethod(key)}
                     className={cn(
                       "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                       paymentMethod === key
-                        ? "border-gold bg-gold text-navy-950"
+                        ? "border-gold bg-gold/15 text-foreground ring-1 ring-gold"
                         : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
                     )}
                   >
@@ -503,7 +506,6 @@ export function CardDetail({
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gold">Sold by</p>
                   <p className="truncate text-lg font-bold text-ivory">{initialSellerProfile.displayName}</p>
                   {initialSellerProfile.bio && (
                     <p className="line-clamp-2 text-sm text-ivory/70">{initialSellerProfile.bio}</p>
@@ -523,7 +525,7 @@ export function CardDetail({
                 </div>
                 <ArrowRight
                   size={18}
-                  className="shrink-0 text-gold opacity-0 transition-opacity group-hover:opacity-100"
+                  className="shrink-0 text-gold/60 transition-colors group-hover:text-gold"
                 />
               </div>
             </Link>

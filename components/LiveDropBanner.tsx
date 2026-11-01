@@ -16,7 +16,7 @@ export function LiveDropBanner({ nextDropAt }: { nextDropAt: number | null }) {
           <Sparkles size={18} className="text-gold" />
           <span className="font-semibold tracking-wide">Next Group Drop</span>
         </div>
-        <span className="font-mono text-xl font-bold text-gold">{formatCountdown(remaining)}</span>
+        <span suppressHydrationWarning className="font-mono text-xl font-bold text-gold">{formatCountdown(remaining)}</span>
       </div>
     </div>
   );

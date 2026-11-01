@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,19 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog when it opens and hand it back to whatever
+  // opened it when it closes, so keyboard and screen-reader users aren't left
+  // behind on the page underneath.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => opener?.focus?.();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -34,20 +47,23 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "glass w-full max-w-md rounded-2xl border border-card-border p-6 shadow-2xl",
+          "glass w-full max-w-md rounded-2xl border border-card-border p-6 shadow-2xl outline-none",
           className,
         )}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          <h2 id={titleId} className="text-lg font-semibold text-foreground">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="rounded-full p-1 text-foreground-muted transition-colors hover:bg-foreground/10 hover:text-foreground"
+            className="rounded-full p-2 text-foreground-muted transition-colors hover:bg-foreground/10 hover:text-foreground"
           >
             <X size={18} />
           </button>

@@ -6,7 +6,7 @@ import { CalendarClock, Check } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PlanDialog } from "@/components/tracker/PlanDialog";
-import { savePlan } from "@/app/tracker/actions";
+import { savePlan } from "@/app/tracker/planActions";
 import { evaluatePlan, Installment } from "@/lib/tracker/installments";
 import type { TrackerPlan } from "@/lib/tracker/data";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";

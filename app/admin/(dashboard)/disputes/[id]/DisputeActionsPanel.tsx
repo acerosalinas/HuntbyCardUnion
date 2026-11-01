@@ -10,7 +10,7 @@ import { extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFile } from "@/lib/imageNormalize";
 import { ClaimStatus, Dispute, DisputeEvidenceItem } from "@/types/marketplace";
-import { markDisputeUnderReview, resolveDispute, resolveDisputeRestock, respondToDispute } from "@/app/admin/actions";
+import { markDisputeUnderReview, resolveDispute, resolveDisputeRestock, respondToDispute } from "@/app/admin/disputeActions";
 
 export function DisputeActionsPanel({
   dispute,

@@ -154,7 +154,8 @@ export interface InvoiceReadyEmail {
   to: string;
   name: string;
   liveTitle: string;
-  cards: { name: string; amount: number }[];
+  /** `image` is a ready-to-show address of the card's catalog picture, when it was picked from the catalog. */
+  cards: { name: string; amount: number; image?: string | null }[];
   total: number;
   paid: number;
 }
@@ -186,7 +187,12 @@ export async function sendInvoiceReadyEmails(items: InvoiceReadyEmail[]): Promis
       html: `
         <p>Hi ${escapeHtml(i.name)},</p>
         <p>Your invoice for <strong>${escapeHtml(i.liveTitle)}</strong> is ready:</p>
-        <ul>${shown.map((c) => `<li>${escapeHtml(c.name)} - ${formatCurrency(c.amount)}</li>`).join("")}${more > 0 ? `<li>and ${more} more</li>` : ""}</ul>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">${shown
+          .map(
+            (c) =>
+              `<tr><td style="padding:4px 10px 4px 0;width:44px">${c.image ? `<img src="${escapeHtml(c.image)}" alt="" width="40" style="border-radius:4px;display:block" />` : ""}</td><td style="padding:4px 0">${escapeHtml(c.name)} - ${formatCurrency(c.amount)}</td></tr>`,
+          )
+          .join("")}${more > 0 ? `<tr><td></td><td style="padding:4px 0">and ${more} more</td></tr>` : ""}</table>
         <p><strong>Total: ${formatCurrency(i.total)}</strong>${i.paid > 0 ? ` &middot; paid so far ${formatCurrency(i.paid)} &middot; <strong>${formatCurrency(left)} left</strong>` : ""}</p>
         <p><a href="${siteUrl}/account/orders">Open My Live Orders</a> to see everything and send your payment.</p>
       `,

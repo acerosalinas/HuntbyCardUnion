@@ -9,7 +9,7 @@ export interface CurrentAdmin {
   role: AdminRole;
 }
 
-/** Null for a buyer account (no admin role in app_metadata), not just an invalid value - see listAdmins()/listBuyers() in app/admin/actions.ts, which use this to tell the two apart. */
+/** Null for a buyer account (no admin role in app_metadata), not just an invalid value - see listAdmins()/listBuyers() in app/admin/*Actions.ts, which use this to tell the two apart. */
 export function roleFromMetadata(appMetadata: Record<string, unknown> | undefined): AdminRole | null {
   const role = appMetadata?.role;
   return role === "SUPER_ADMIN" || role === "ADMIN" ? role : null;

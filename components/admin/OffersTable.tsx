@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { HoldCountdown } from "@/components/HoldCountdown";
 import { cn, extractErrorMessage, formatCurrency, formatRelativeTime } from "@/lib/utils";
-import { acceptOffer, counterOffer, declineOffer } from "@/app/admin/actions";
+import { acceptOffer, counterOffer, declineOffer } from "@/app/admin/offerActions";
 
 type View = "list" | "tiles";
 
@@ -75,7 +75,7 @@ function BuyerGroupSection({
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm font-bold text-foreground">{formatCurrency(group.totalAmount)}</span>
-          <span className="text-xs text-foreground-muted">{formatRelativeTime(group.latestCreatedAt)}</span>
+          <span suppressHydrationWarning className="text-xs text-foreground-muted">{formatRelativeTime(group.latestCreatedAt)}</span>
         </div>
       </div>
       {view === "tiles" ? (

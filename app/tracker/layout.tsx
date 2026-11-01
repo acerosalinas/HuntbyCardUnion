@@ -7,7 +7,7 @@ import { TrackerNav } from "@/components/tracker/TrackerNav";
 import { StickyBar } from "@/components/tracker/StickyBar";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { logout } from "@/app/admin/actions";
+import { logout } from "@/app/admin/accountActions";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -51,19 +51,21 @@ export default async function TrackerLayout({ children }: { children: React.Reac
             <span className="hidden text-xs text-foreground-muted sm:inline">{admin.email}</span>
             <Link
               href="/admin"
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={14} aria-hidden="true" />
               <span className="hidden sm:inline">Admin</span>
+              <span className="sr-only sm:hidden">Back to Admin</span>
             </Link>
             <ThemeToggle />
             <form action={logout}>
               <button
                 type="submit"
-                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground"
               >
-                <LogOut size={14} />
+                <LogOut size={14} aria-hidden="true" />
                 <span className="hidden sm:inline">Sign Out</span>
+                <span className="sr-only sm:hidden">Sign Out</span>
               </button>
             </form>
           </div>

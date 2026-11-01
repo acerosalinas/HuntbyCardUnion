@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { loadTrackerData } from "@/lib/tracker/data";
-import { computeDashboard, DateRange, ownerProgress } from "@/lib/tracker/dashboard";
+import { computeDashboard, DateRange, inRange as inRangeDate, ownerProgress } from "@/lib/tracker/dashboard";
 import { ISLAND_GROUP_LABELS } from "@/lib/tracker/regions";
 import { Badge } from "@/components/ui/Badge";
-import { PayoutCell } from "@/components/tracker/PayoutCell";
+import { HandoverDetails, PayoutCell } from "@/components/tracker/PayoutCell";
+import { handedPerSale, handoverCandidates } from "@/lib/tracker/handover";
 import { OwnerProgressBars } from "@/components/tracker/OwnerProgress";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -38,6 +39,7 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
   const d = computeDashboard(
     {
       customers: data.customers,
+      strictPayments: data.settings.strictPayments,
       lives: data.lives,
       // "order" = live date then entry time, so a customer's payments settle their oldest cards first.
       sales: data.sales.map((x) => ({
@@ -72,6 +74,12 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
     },
   ];
 
+  const customerNameById = new Map(data.customers.map((c) => [c.id, c.name]));
+  const handedBySale = handedPerSale(data.payouts.flatMap((p) => p.cards));
+  const ownerName = (code: string | null) => (code === null ? "Unassigned" : (data.settings.ownerLabels.find((o) => o.code === code)?.name ?? code));
+  const liveById = new Map(data.lives.map((l) => [l.id, l]));
+  // Every handover in range, newest first (the data is already ordered by date).
+  const handovers = data.payouts.filter((p) => inRangeDate(p.paidOn, range));
   const maxLive = Math.max(1, ...d.perLive.map((l) => l.total));
   const methodTotal = d.byMethod.GCASH + d.byMethod.MARIBANK;
   const rangeLabel = !range.from && !range.to ? "all time" : `${range.from ?? "start"} to ${range.to ?? "today"}`;
@@ -203,6 +211,8 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
                           <PayoutCell
                             liveId={live.id}
                             liveTitle={live.title}
+                            liveDate={live.liveDate}
+                            cards={handoverCandidates(data.sales, data.paidBySale, handedBySale, live.id, r.code, customerNameById)}
                             recipientTag={r.code}
                             recipientName={r.name}
                             actual={r.actual}
@@ -221,6 +231,40 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
               </div>
             </details>
           ))
+        )}
+      </section>
+
+      <section className={panel}>
+        <h2 className={heading}>Handover history</h2>
+        <p className="mb-3 text-xs text-foreground-muted">
+          Each time money was handed to an owner: the distribution date, the total, and the cards it covered with who paid for them. Open one to see the cards or copy a statement.
+        </p>
+        {handovers.length === 0 ? (
+          <p className="py-6 text-center text-sm text-foreground-muted">No handovers in this range.</p>
+        ) : (
+          <ul className="divide-y divide-card-border">
+            {handovers.map((p) => {
+              const live = liveById.get(p.liveId);
+              return (
+                <li key={p.id}>
+                  <details className="group py-2">
+                    <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-0.5 text-sm">
+                      <span className="w-24 shrink-0 text-xs text-foreground-muted">{p.paidOn}</span>
+                      <span className="font-semibold">{ownerName(p.recipientTag)}</span>
+                      <span className="font-medium">{formatCurrency(p.amount)}</span>
+                      <span className="text-xs text-foreground-muted">
+                        {live ? `${live.title} · ` : ""}
+                        {p.cards.length > 0 ? `${p.cards.length} card${p.cards.length === 1 ? "" : "s"}` : "no card list"}
+                      </span>
+                    </summary>
+                    <div className="mt-2">
+                      <HandoverDetails payout={p} recipientName={ownerName(p.recipientTag)} liveTitle={live?.title ?? "Live"} liveDate={live?.liveDate ?? ""} />
+                    </div>
+                  </details>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </section>
 

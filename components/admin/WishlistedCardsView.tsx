@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { CheckCircle2, Heart, ImageOff, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { updateWishlistStatus } from "@/app/admin/actions";
+import { updateWishlistStatus } from "@/app/admin/sellerActions";
 import { ImageLightbox } from "@/components/admin/ImageLightbox";
 import { ViewToggle } from "@/components/admin/ViewToggle";
 import { useViewMode } from "@/hooks/useViewMode";
@@ -99,7 +99,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">
-                    @{w.buyerHandle} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
+                    @{w.buyerHandle.replace(/^@/, "")} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -149,7 +149,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">
-                    @{w.buyerHandle} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
+                    @{w.buyerHandle.replace(/^@/, "")} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
                   </p>
                   {w.status === "OPEN" ? (
                     <div className="mt-auto flex gap-1.5">
@@ -178,7 +178,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
           title={viewing.cardTitle}
           subtitle={
             <>
-              Wishlisted by <span className="font-medium text-foreground">@{viewing.buyerHandle}</span> · {viewing.createdAt.slice(0, 10)} · {formatCurrency(viewing.price)} ·{" "}
+              Wishlisted by <span className="font-medium text-foreground">@{viewing.buyerHandle.replace(/^@/, "")}</span> · {viewing.createdAt.slice(0, 10)} · {formatCurrency(viewing.price)} ·{" "}
               <span className="capitalize">{viewing.cardStatus.toLowerCase()}</span> ·{" "}
               <Link href={`/card/${viewing.cardId}`} className="underline hover:text-gold">
                 open listing

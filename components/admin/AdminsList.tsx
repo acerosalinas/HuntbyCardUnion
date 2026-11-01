@@ -2,7 +2,7 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { KeyRound, Power } from "lucide-react";
-import { AdminAccount, resetAdminPassword, setAdminActive } from "@/app/admin/actions";
+import { AdminAccount, resetAdminPassword, setAdminActive } from "@/app/admin/accountActions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
@@ -74,12 +74,12 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
         <table className="w-full min-w-180 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Handle</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th scope="col" className="px-4 py-3">Email</th>
+              <th scope="col" className="px-4 py-3">Handle</th>
+              <th scope="col" className="px-4 py-3">Role</th>
+              <th scope="col" className="px-4 py-3">Status</th>
+              <th scope="col" className="px-4 py-3">Created</th>
+              <th scope="col" className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -98,7 +98,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <Badge tone={admin.active ? "available" : "sold"}>
-                        {admin.active ? "Active" : "Inactive"}
+                        {admin.active ? "Active" : "Inactive · store hidden"}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-foreground-muted">

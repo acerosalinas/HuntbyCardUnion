@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useTransition } from "react";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { markPricesReviewed } from "@/app/admin/actions";
+import { markPricesReviewed } from "@/app/admin/sellerActions";
 
 export function PriceReviewBanner({ hasProfile }: { hasProfile: boolean }) {
   const [pending, startTransition] = useTransition();

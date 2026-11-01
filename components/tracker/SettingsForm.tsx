@@ -3,7 +3,7 @@
 import { FormEvent, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
-import { saveSettings, uploadTrackerQr } from "@/app/tracker/actions";
+import { saveSettings, uploadTrackerQr } from "@/app/tracker/settingsActions";
 import type { TrackerSettings } from "@/lib/tracker/data";
 import { cn, extractErrorMessage } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
   const [vm, setVm] = useState(String(settings.visayasMindanaoFee));
   const [instructions, setInstructions] = useState(settings.paymentInstructions);
   const [showAddress, setShowAddress] = useState(settings.showAddressOnInvoice);
+  const [strict, setStrict] = useState(settings.strictPayments);
   const [gcashQr, setGcashQr] = useState<string | null>(settings.gcashQrUrl);
   const [maribankQr, setMaribankQr] = useState<string | null>(settings.maribankQrUrl);
   const [uploading, setUploading] = useState<"gcash" | "maribank" | null>(null);
@@ -56,6 +57,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
           visayasMindanaoFee,
           paymentInstructions: instructions,
           showAddressOnInvoice: showAddress,
+          strictPayments: strict,
           gcashQrUrl: gcashQr,
           maribankQrUrl: maribankQr,
           ownerLabels: owners.map((o) => ({ code: o.code.trim(), name: o.name.trim(), active: o.active !== false })).filter((o) => o.code || o.name),
@@ -198,6 +200,13 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={showAddress} onChange={(e) => setShowAddress(e.target.checked)} className="h-4 w-4 rounded border-card-border accent-gold" />
         Show the customer&apos;s ship-to address on invoices (only when they have cards to ship)
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-card-border accent-gold" />
+        <span>
+          Strict payments: money paid for a live only pays that live&apos;s cards. Extra money is never carried over to the customer&apos;s other cards, so a card is only marked paid
+          when it was paid for.
+        </span>
       </label>
       {error && <p className="text-sm text-sold">{error}</p>}
       {saved && !error && <p className="text-sm text-available">Saved.</p>}

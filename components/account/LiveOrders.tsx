@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PlanEditor } from "@/components/tracker/PlanEditor";
 import { portalRequestPlan, portalSetShipping, portalSubmitClaim, portalWithdrawPlan } from "@/app/account/orders/actions";
 import type { PortalCustomer } from "@/lib/tracker/portal";
+import { catalogImageUrl } from "@/lib/pokemonCatalog";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
@@ -26,6 +27,8 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A card picture opened large.
+  const [viewing, setViewing] = useState<{ name: string; image: string } | null>(null);
 
   // Cards ticked as "I paid for these".
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -182,6 +185,12 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
                         onChange={() => togglePick(c.id)}
                         className="h-4 w-4 rounded border-card-border accent-gold disabled:opacity-30"
                       />
+                      {c.image && (
+                        <button type="button" onClick={() => setViewing({ name: c.name, image: catalogImageUrl(c.image, "high") ?? "" })} aria-label={`View ${c.name} larger`} className="shrink-0 cursor-zoom-in overflow-hidden rounded border border-card-border">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- small catalog picture from the TCGdex image host */}
+                          <img src={catalogImageUrl(c.image) ?? ""} alt="" loading="lazy" className="h-14 w-10 object-cover" />
+                        </button>
+                      )}
                       <span className="min-w-0 flex-1 truncate">{c.name}</span>
                       <span className="font-medium">{formatCurrency(c.amount)}</span>
                       {c.underReview ? (
@@ -388,6 +397,12 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
             </Modal>
           );
         })()}
+      {viewing && (
+        <Modal open onClose={() => setViewing(null)} title={viewing.name} className="max-w-md">
+          {/* eslint-disable-next-line @next/next/no-img-element -- catalog picture from the TCGdex image host */}
+          <img src={viewing.image} alt={viewing.name} className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain" />
+        </Modal>
+      )}
     </section>
   );
 }

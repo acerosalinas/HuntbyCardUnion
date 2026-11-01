@@ -20,6 +20,8 @@ export interface Buyer {
 interface BuyerIdentityContextValue {
   buyer: Buyer | null;
   loading: boolean;
+  /** True once the first session check has finished. Until then `buyer` is null only because nothing has been checked yet - not because nobody is signed in. */
+  resolved: boolean;
 }
 
 const BuyerIdentityContext = createContext<BuyerIdentityContextValue | null>(null);
@@ -55,6 +57,7 @@ export function BuyerIdentityProvider({
   // instead of trusting a subscription that was never told anything changed.
   const [buyer, setBuyer] = useState<Buyer | null>(initialBuyer);
   const [loading] = useState(false);
+  const [resolved, setResolved] = useState(false);
   const pathname = usePathname();
   // Guards against an older, slower check resolving after a newer one (e.g.
   // fast back-to-back navigations) and clobbering the fresher result.
@@ -72,6 +75,7 @@ export function BuyerIdentityProvider({
 
     if (!user || !user.email) {
       setBuyer(null);
+      setResolved(true);
       return;
     }
     const { data: profile } = await supabase
@@ -96,6 +100,7 @@ export function BuyerIdentityProvider({
           }
         : null,
     );
+    setResolved(true);
   }, []);
 
   useEffect(() => {
@@ -114,7 +119,7 @@ export function BuyerIdentityProvider({
     return () => subscription.unsubscribe();
   }, [loadBuyer]);
 
-  return <BuyerIdentityContext.Provider value={{ buyer, loading }}>{children}</BuyerIdentityContext.Provider>;
+  return <BuyerIdentityContext.Provider value={{ buyer, loading, resolved }}>{children}</BuyerIdentityContext.Provider>;
 }
 
 export function useBuyerIdentity(): BuyerIdentityContextValue {

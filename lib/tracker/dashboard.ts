@@ -15,6 +15,8 @@ export interface DashboardInput {
   sales: SplitSale[];
   payments: { customerId: string; amount: number; method: "GCASH" | "MARIBANK"; purpose: "CARDS" | "SHIPPING"; paidOn: string; liveId: string | null; allocations?: { saleId: string; amount: number }[] }[];
   ownerLabels: OwnerLabel[];
+  /** See allocateCardPayments. */
+  strictPayments?: boolean;
   /** Money handed to card owners, per live. */
   payouts: { liveId: string; recipientTag: string | null; amount: number }[];
   shipments: { fee: number; shippedOn: string }[];
@@ -70,7 +72,7 @@ export function computeDashboard(input: DashboardInput, range: DateRange): Dashb
     })
     .sort((a, b) => a.liveDate.localeCompare(b.liveDate));
 
-  const paid = allocateCardPayments(input.sales, input.payments);
+  const paid = allocateCardPayments(input.sales, input.payments, { strict: input.strictPayments });
   const splitPerLive = [...livesInRange]
     .sort((a, b) => b.liveDate.localeCompare(a.liveDate))
     .map((l) => {

@@ -14,7 +14,7 @@ export function HoldCountdown({ heldUntil, className }: { heldUntil: number | nu
   const remainingMs = useCountdown(heldUntil);
   if (!heldUntil) return null;
   return (
-    <span className={className ?? "flex items-center gap-1 text-pending"}>
+    <span suppressHydrationWarning className={className ?? "flex items-center gap-1 text-pending"}>
       <Clock size={12} />
       {remainingMs > 0 ? `${formatCountdown(remainingMs)} left` : "Expiring any moment"}
     </span>

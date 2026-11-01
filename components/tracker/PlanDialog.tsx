@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PlanEditor } from "@/components/tracker/PlanEditor";
-import { cancelPlan, declinePlan, savePlan } from "@/app/tracker/actions";
+import { cancelPlan, declinePlan, savePlan } from "@/app/tracker/planActions";
 import { evaluatePlan } from "@/lib/tracker/installments";
 import type { TrackerPlan } from "@/lib/tracker/data";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";

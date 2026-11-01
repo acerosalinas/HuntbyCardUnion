@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { cn, extractErrorMessage, formatCurrency, formatRelativeTime } from "@/lib/utils";
-import { assignLiveSale, findBuyerByHandle, removeLiveSale } from "@/app/admin/actions";
+import { assignLiveSale, findBuyerByHandle, removeLiveSale } from "@/app/admin/orderActions";
 import { FulfillmentMethod, PaymentMethod } from "@/types/marketplace";
 
 export interface AssignableCard {
@@ -259,12 +259,12 @@ export function LiveSalesPanel({ cards, liveSales }: { cards: AssignableCard[]; 
             <table className="w-full min-w-160 text-left text-sm">
               <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
                 <tr>
-                  <th className="px-4 py-3">Card</th>
-                  <th className="px-4 py-3">Buyer</th>
-                  <th className="px-4 py-3">Price</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Assigned</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th scope="col" className="px-4 py-3">Card</th>
+                  <th scope="col" className="px-4 py-3">Buyer</th>
+                  <th scope="col" className="px-4 py-3">Price</th>
+                  <th scope="col" className="px-4 py-3">Status</th>
+                  <th scope="col" className="px-4 py-3">Assigned</th>
+                  <th scope="col" className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -290,7 +290,7 @@ export function LiveSalesPanel({ cards, liveSales }: { cards: AssignableCard[]; 
                         {claim.status === "SOLD" ? "Paid" : "Awaiting Payment"}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-foreground-muted">{formatRelativeTime(claim.claimedAt)}</td>
+                    <td suppressHydrationWarning className="px-4 py-3 text-foreground-muted">{formatRelativeTime(claim.claimedAt)}</td>
                     <td className="px-4 py-3 text-right">
                       {claim.status === "SOLD" && (
                         <Button

@@ -3,6 +3,9 @@
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Camera, ImagePlus, Minus, Package, Plus, Sparkles, X } from "lucide-react";
+import { CatalogPicker } from "@/components/CatalogPicker";
+import { searchPokemonCards } from "@/app/catalog/actions";
+import { catalogImageUrl, isCatalogImage } from "@/lib/pokemonCatalog";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -13,7 +16,7 @@ import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { SEALED_TYPES, SEALED_TYPE_LABELS, SEALED_CONDITION_GRADE, SEALED_RARITY, SealedType } from "@/lib/sealedType";
-import { createCard, updateCard, uploadCardImages } from "@/app/admin/actions";
+import { createCard, updateCard, uploadCardImages } from "@/app/admin/cardActions";
 import { CardItem, ProductType, SellerProfile } from "@/types/marketplace";
 
 type CardType = "RAW" | "GRADED";
@@ -147,6 +150,8 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       : { ...emptyForm, sellerHandle: sellerProfile ? `@${sellerProfile.handle}` : "" },
   );
   const [images, setImages] = useState<string[]>(card?.images ?? []);
+  // The catalog card picked for this listing, so the Live Tracker can show its marketplace price.
+  const [catalogId, setCatalogId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +175,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   };
 
   // Buttons only, no free-typing - also how 0 (an explicit "mark this sold
-  // out" - see updateCard in app/admin/actions.ts) is reached deliberately
+  // out" - see updateCard in app/admin/*Actions.ts) is reached deliberately
   // rather than by accident while typing. Can't go below however many units
   // are already claimed, same floor the server itself enforces.
   const minQuantity = card ? card.quantity - card.quantityAvailable : 0;
@@ -272,6 +277,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       // change this value, so there's no stray/invalid typed input to guard
       // against the way a free-text field would need.
       quantity: Math.max(minQuantity, Math.round(Number(form.quantity)) || 0),
+      catalogCardId: catalogId,
     };
 
     startTransition(async () => {
@@ -280,6 +286,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           await updateCard(card.id, input);
         } else {
           await createCard(input);
+          setCatalogId(null);
           // Re-derive sellerHandle from the seller profile, same as the
           // initial mount - a bare emptyForm would blank it back to "" and
           // incorrectly show the "set up your Seller Profile" message even
@@ -298,7 +305,27 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 rounded-2xl border border-card-border bg-card p-4 sm:grid-cols-2">
       <Field label="Title *">
-        <Input value={form.title} onChange={(e) => set("title", e.target.value)} required />
+        {form.franchise === "pokemon" && form.productType === "CARD" ? (
+          <CatalogPicker
+            value={form.title}
+            onValueChange={(v) => {
+              set("title", v);
+              setCatalogId(null);
+            }}
+            onPick={(c) => {
+              setCatalogId(c.id);
+              setForm((f) => ({ ...f, title: `${c.name} ${c.number}`, setName: c.setName }));
+              // Use the catalog picture until real photos are added (replaced by a re-pick, kept out of the way of uploads).
+              const picture = catalogImageUrl(c.image, "high");
+              if (picture) setImages((prev) => (prev.every(isCatalogImage) ? [picture] : prev));
+            }}
+            search={searchPokemonCards}
+            placeholder="Type to search Pokémon cards"
+            required
+          />
+        ) : (
+          <Input value={form.title} onChange={(e) => set("title", e.target.value)} required />
+        )}
       </Field>
       <Field label="Set Name *">
         <Input value={form.setName} onChange={(e) => set("setName", e.target.value)} required />

@@ -21,10 +21,10 @@ export function DisputesTable({ disputes }: { disputes: DisputeRowView[] }) {
       <table className="w-full min-w-150 text-left text-sm">
         <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
           <tr>
-            <th className="px-4 py-3">Card</th>
-            <th className="px-4 py-3">Reason</th>
-            <th className="px-4 py-3">Opened</th>
-            <th className="px-4 py-3">Status</th>
+            <th scope="col" className="px-4 py-3">Card</th>
+            <th scope="col" className="px-4 py-3">Reason</th>
+            <th scope="col" className="px-4 py-3">Opened</th>
+            <th scope="col" className="px-4 py-3">Status</th>
           </tr>
         </thead>
         <tbody>

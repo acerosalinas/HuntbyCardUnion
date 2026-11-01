@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { SellerProfileForm } from "@/components/admin/SellerProfileForm";
-import { getMySellerProfile } from "@/app/admin/actions";
+import { getMySellerProfile } from "@/app/admin/sellerActions";
 
 export default async function AdminProfilePage() {
   const profile = await getMySellerProfile();

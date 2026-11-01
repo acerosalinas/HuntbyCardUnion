@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/actions";
+import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/orderActions";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
 /** One PENDING card_claims row joined to its card - a card can now have several of these at once, one per buyer. */
@@ -156,6 +156,7 @@ export function PendingPaymentsTable({
                 )}
                 <span className="text-sm font-bold text-foreground">{formatCurrency(group.totalAmount)}</span>
                 <span
+                  suppressHydrationWarning
                   className={cn(
                     "inline-flex items-center gap-1 text-xs",
                     isStalePending(group.latestClaimedAt) ? "font-medium text-pending" : "text-foreground-muted",
@@ -250,12 +251,12 @@ export function PendingPaymentsTable({
                 <table className="w-full min-w-180 text-left text-sm">
                   <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
                     <tr>
-                      <th className="px-4 py-3">Card</th>
-                      <th className="px-4 py-3">Order</th>
-                      <th className="px-4 py-3">Qty</th>
-                      <th className="px-4 py-3">Price</th>
-                      <th className="px-4 py-3">Queue</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                      <th scope="col" className="px-4 py-3">Card</th>
+                      <th scope="col" className="px-4 py-3">Order</th>
+                      <th scope="col" className="px-4 py-3">Qty</th>
+                      <th scope="col" className="px-4 py-3">Price</th>
+                      <th scope="col" className="px-4 py-3">Queue</th>
+                      <th scope="col" className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>

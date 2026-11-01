@@ -8,12 +8,16 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { addSale, createLive, deleteLive, deleteSale, notifyLiveCustomers, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/actions";
+import { addSale, createLive, deleteLive, deleteSale, cardHistory, searchCatalog, setSalesDistributed, setSalesForShipping, setSalesOwner, updateLive, updateSale } from "@/app/tracker/salesActions";
+import { notifyLiveCustomers } from "@/app/tracker/noticeActions";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { buildInvoiceText } from "@/lib/tracker/invoice";
+import { CatalogPicker } from "@/components/CatalogPicker";
+import { CatalogCard, catalogCardLabel } from "@/lib/pokemonCatalog";
+import type { CardInsight } from "@/lib/tracker/wanted";
 import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
 import { shippingFeeFor } from "@/lib/tracker/regions";
 import { ownerColor } from "@/lib/tracker/ownerColors";
@@ -41,6 +45,7 @@ interface Props {
   liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
   /** Cards on an approved installment plan that still owe money (sale id -> unpaid). Shipping one early asks first. */
   planUnpaid: Record<string, number>;
+  /** Open buyer requests that may be this live's cards (sale id -> matches). */
 }
 
 export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid }: Props) {
@@ -69,6 +74,11 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
   // "ALL" | "NONE" (untagged) | an owner code
   const [ownerFilter, setOwnerFilter] = useState<string>("ALL");
   const cardRef = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
+  // Pokemon catalog suggestions for the card box. catalogId is set only while the box still holds a picked match.
+  const [catalogId, setCatalogId] = useState<string | null>(null);
+  // What the picked catalog card has sold for before (null = never / nothing picked).
+  const [history, setHistory] = useState<CardInsight | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
 
@@ -102,6 +112,14 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     setCustomerName(c.name);
     setSuggestOpen(false);
     cardRef.current?.focus();
+  };
+
+  const pickCard = (c: CatalogCard) => {
+    setCardName(catalogCardLabel(c));
+    setCatalogId(c.id);
+    setHistory(null);
+    cardHistory(c.id).then(setHistory).catch(() => {});
+    amountRef.current?.focus();
   };
 
   const onCustomerKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -178,9 +196,11 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     if (!cardName.trim()) return setError("Enter the card name.");
     if (amount.trim() === "" || !Number.isFinite(value) || value < 0) return setError("Enter a valid amount.");
     run(async () => {
-      const result = await addSale({ liveId, customerName, cardName, amount: value, forShipping, ownerTag });
+      const result = await addSale({ liveId, customerName, cardName, amount: value, forShipping, ownerTag, catalogCardId: catalogId });
       setNotice(result.newCustomer ? `Added new customer ${customerName.trim()}.` : null);
       setCardName("");
+      setCatalogId(null);
+      setHistory(null);
       setAmount("");
       cardRef.current?.focus();
     });
@@ -492,11 +512,37 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">Card</label>
-              <Input ref={cardRef} value={cardName} onChange={(e) => setCardName(e.target.value)} placeholder="Card name" maxLength={200} />
+              <CatalogPicker
+                inputRef={cardRef}
+                value={cardName}
+                onValueChange={(v) => {
+                  setCardName(v);
+                  setCatalogId(null);
+                  setHistory(null);
+                }}
+                onPick={pickCard}
+                search={searchCatalog}
+                placeholder="Card name - search Pokémon cards (add JP for Japanese)"
+              />
+              {catalogId && history && (
+                <p className="mt-1 text-xs text-foreground-muted">
+                  {history.sales ? (
+                    <>
+                      Sold {history.sales.count}× in your lives
+                      {history.sales.last && <> · last {formatCurrency(history.sales.last.amount)} ({history.sales.last.date.slice(0, 10)})</>}
+                      {history.sales.count > 1 && <> · avg {formatCurrency(history.sales.average)} · {formatCurrency(history.sales.min)}–{formatCurrency(history.sales.max)}</>}
+                    </>
+                  ) : (
+                    "Not sold in your lives yet"
+                  )}
+                  {history.listed && <> · on the marketplace from {formatCurrency(history.listed.lowest)}{history.listed.count > 1 ? ` (${history.listed.count} listed)` : ""}</>}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">Amount (PHP)</label>
               <Input
+                ref={amountRef}
                 inputMode="decimal"
                 value={amount}
                 onChange={(e) => {
@@ -781,7 +827,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                     }
                     return (
                     <li key={s.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 text-sm", color?.row)}>
-                      <span className="min-w-0 flex-1">
+                      <span className="min-w-0 basis-full flex-1 sm:min-w-40 sm:basis-0">
                         <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name ?? "text-foreground")}>{s.cardName}</span>
                         {!s.ownerTag && <span className="ml-2 text-xs text-pending">no owner</span>}
                       </span>

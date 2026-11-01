@@ -50,8 +50,12 @@ export interface SplitPayment {
  *     lives are cleared before newer ones.
  * Only CARDS payments count here; shipping-fee payments only ever pay shipping.
  * Money beyond the customer's card total is simply not allocated to any card.
+ *
+ * Strict mode (`options.strict`): a payment made for a live only ever pays that live's cards. What is left
+ * after them is NOT carried to the customer's other cards, so no card is marked paid unless it was paid for.
+ * Payments not tied to a live still join the general pool.
  */
-export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[]): Map<string, number> {
+export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[], options: { strict?: boolean } = {}): Map<string, number> {
   const paid = new Map<string, number>(sales.map((s) => [s.id, 0]));
   const byCustomer = new Map<string, SplitSale[]>();
   for (const s of sales) byCustomer.set(s.customerId, [...(byCustomer.get(s.customerId) ?? []), s]);
@@ -92,7 +96,8 @@ export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[
     const liveIds = [...new Set(remainders.map((r) => r.liveId).filter((id): id is string => id !== null))];
     for (const liveId of liveIds) {
       const forLive = sum(remainders.filter((r) => r.liveId === liveId).map((r) => r.amount));
-      pool = round2(pool + apply(items.filter((s) => s.liveId === liveId), forLive));
+      const left = apply(items.filter((s) => s.liveId === liveId), forLive);
+      if (!options.strict) pool = round2(pool + left);
     }
     apply(items, pool);
   }
@@ -183,6 +188,7 @@ export interface PaymentContribution {
 export function attributeCardPayments(
   sales: SplitSale[],
   payments: (SplitPayment & { id: string })[],
+  options: { strict?: boolean } = {},
 ): Map<string, PaymentContribution[]> {
   const out = new Map<string, PaymentContribution[]>();
   const paid = new Map<string, number>(sales.map((s) => [s.id, 0]));
@@ -241,7 +247,7 @@ export function attributeCardPayments(
     for (const liveId of liveIds) {
       const queue = remainders.filter((r) => r.liveId === liveId && r.amount > 0).map((r) => ({ paymentId: r.paymentId, amount: r.amount }));
       consume(items.filter((s) => s.liveId === liveId), queue);
-      general.push(...queue);
+      if (!options.strict) general.push(...queue);
     }
 
     // Step 2: the general pool pays the oldest cards first.

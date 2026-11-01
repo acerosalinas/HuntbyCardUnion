@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { sortSoldLast } from "@/lib/cardFilter";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
-import { deleteCards } from "@/app/admin/actions";
+import { deleteCards } from "@/app/admin/cardActions";
 
 type View = "list" | "tiles";
 

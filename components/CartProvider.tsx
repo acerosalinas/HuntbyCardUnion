@@ -24,10 +24,13 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { buyer } = useBuyerIdentity();
+  const { buyer, resolved } = useBuyerIdentity();
   const [items, setItems] = useState<StoredCartItem[]>([]);
 
   useEffect(() => {
+    // On a full page load `buyer` is null until the first session check finishes. Judging the stored cart against
+    // that placeholder would wipe it on every refresh or new tab, so wait for the real answer.
+    if (!resolved) return;
     // The cart is buyer-scoped but localStorage isn't - without this check a
     // cart survives logout (signOut only clears the auth cookie) and would
     // leak into whichever buyer signs in next on the same browser. Whenever
@@ -42,7 +45,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setItems(getStoredCartItems());
-  }, [buyer?.id]);
+  }, [buyer?.id, resolved]);
 
   const addToCart = (
     cardId: string,

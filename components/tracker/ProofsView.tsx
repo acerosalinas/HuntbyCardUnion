@@ -6,7 +6,7 @@ import { Check, ExternalLink, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { confirmClaim, rejectClaim } from "@/app/tracker/actions";
+import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 export interface ProofItem {
@@ -111,7 +111,7 @@ function ProofCard({ item }: { item: ProofItem }) {
             <Link href={`/tracker/customers/${item.customerId}`} className="text-base font-semibold hover:text-gold">
               {item.customerName}
             </Link>
-            {item.buyerHandle && <span className="text-xs text-foreground-muted">@{item.buyerHandle}</span>}
+            {item.buyerHandle && <span className="text-xs text-foreground-muted">@{item.buyerHandle.replace(/^@/, "")}</span>}
             {item.status === "CONFIRMED" && <Badge tone="available">Confirmed</Badge>}
             {item.status === "REJECTED" && <Badge tone="sold">Rejected</Badge>}
             <span className="ml-auto text-xs text-foreground-muted">{item.createdAt.slice(0, 16).replace("T", " ")}</span>

@@ -1,21 +1,24 @@
 "use client";
 
-import { Suspense, useActionState } from "react";
+import { Suspense, useActionState, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
+import { RemovedAccessModal } from "@/components/RemovedAccessModal";
 // import { GoogleSignInButton } from "@/components/GoogleSignInButton"; // temporarily disabled
 import { login } from "./actions";
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? "/";
-  const [state, formAction, pending] = useActionState<{ error: string | null }, FormData>(login, {
+  const [state, formAction, pending] = useActionState<{ error: string | null; removed?: boolean }, FormData>(login, {
     error: null,
   });
+  // Closing the pop-up is remembered per answer, so the next attempt can show it again.
+  const [closedFor, setClosedFor] = useState<object | null>(null);
 
   return (
     <div className="w-full space-y-3">
@@ -40,6 +43,7 @@ function LoginForm() {
             Forgot password?
           </Link>
         </div>
+        <RemovedAccessModal open={Boolean(state.removed) && closedFor !== state} onClose={() => setClosedFor(state)} />
         {state.error && <p className="text-sm text-sold">{state.error}</p>}
         <Button type="submit" variant="gold" className="w-full" disabled={pending}>
           {pending ? "Signing in..." : "Sign In"}

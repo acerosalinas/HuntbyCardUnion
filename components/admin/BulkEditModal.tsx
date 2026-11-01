@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { extractErrorMessage } from "@/lib/utils";
-import { BulkCardChanges, updateCardsBulk } from "@/app/admin/actions";
+import { BulkCardChanges, updateCardsBulk } from "@/app/admin/cardActions";
 
 type PriceMode = "none" | "set" | "increase" | "decrease";
 type Toggle = "none" | "on" | "off";

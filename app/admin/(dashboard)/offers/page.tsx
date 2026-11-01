@@ -20,7 +20,7 @@ export default async function AdminOffersPage() {
 
   // ACCEPTED alongside PENDING - an admin can still retract an offer
   // they already accepted, as long as the buyer hasn't spent it via
-  // place_order yet (see declineOffer's guard in app/admin/actions.ts).
+  // place_order yet (see declineOffer's guard in app/admin/*Actions.ts).
   let query = supabase
     .from("offers")
     // cards!offers_card_id_fkey, not plain cards!inner - cards.holding_offer_id

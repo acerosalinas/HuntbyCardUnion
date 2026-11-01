@@ -1,0 +1,27 @@
+name: Refresh Pokemon catalog
+
+# Pulls new sets and pictures into the shared card catalog once a week. Needs two repository secrets:
+# NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (Settings > Secrets and variables > Actions).
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/import-pokemon-catalog.mjs
+      - run: node scripts/import-pokemon-catalog.mjs --lang=ja
+      - run: node scripts/fill-japanese-pictures.mjs
+      - run: node scripts/add-japanese-cards-from-tcgplayer.mjs

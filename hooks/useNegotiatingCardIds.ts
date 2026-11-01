@@ -28,22 +28,21 @@ export function useNegotiatingCardIds(): Set<string> {
     if (!supabase) return;
     let active = true;
 
+    // Offers are private (row level security), so this asks a database function that returns card ids only.
     const refresh = () => {
-      supabase
-        .from("offers")
-        .select("card_id")
-        .eq("status", "PENDING")
-        .then(({ data }) => {
-          if (!active) return;
-          setIds(new Set((data ?? []).map((r) => r.card_id as string)));
-        });
+      supabase.rpc("negotiating_card_ids").then(({ data }) => {
+        if (!active) return;
+        setIds(new Set(((data as string[] | null) ?? []).map((id) => String(id))));
+      });
     };
 
     refresh();
 
+    // Other people's offer changes are not delivered to this browser any more, but placing, accepting or
+    // declining an offer always updates the card's hold fields, and card changes are public - so re-check on those.
     const channel = supabase
       .channel("negotiating-offers")
-      .on("postgres_changes", { event: "*", schema: "public", table: "offers" }, refresh)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cards" }, refresh)
       .subscribe();
 
     return () => {
