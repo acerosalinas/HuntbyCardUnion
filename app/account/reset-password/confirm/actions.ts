@@ -15,6 +15,16 @@ export async function confirmPasswordReset(_prevState: { error: string | null },
   }
 
   const supabase = await createAuthServerClient("buyer");
+
+  // New-style link: the one-time token is checked now, here, so the link works from any browser or email app.
+  const tokenHash = String(formData.get("tokenHash") ?? "");
+  if (tokenHash) {
+    const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+    if (verifyError) {
+      return { error: "This reset link has expired or was already used. Request a new one from the Forgot password page." };
+    }
+  }
+
   const { error } = await supabase.auth.updateUser({ password });
   if (error) {
     return { error: "Couldn't update your password - your reset link may have expired. Request a new one." };

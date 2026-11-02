@@ -13,6 +13,16 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
+
+  // New-style link ({{ .RedirectTo }}?token_hash=...&type=recovery in the Supabase email template). It works in any
+  // browser or app, so it is NOT checked here: the token is checked when the new password is submitted, which also
+  // stops email scanners and link previews from using it up just by opening the link.
+  const tokenHash = searchParams.get("token_hash");
+  if (tokenHash && searchParams.get("type") === "recovery") {
+    return NextResponse.redirect(new URL(`/account/reset-password/confirm?token_hash=${encodeURIComponent(tokenHash)}`, origin));
+  }
+
+  // Older-style link: a one-time code that only works in the browser that asked for the reset.
   const code = searchParams.get("code");
 
   if (!code) {

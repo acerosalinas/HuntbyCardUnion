@@ -1,13 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { confirmPasswordReset } from "./actions";
 
-export default function ResetPasswordConfirmPage() {
+function ResetPasswordForm() {
+  const tokenHash = useSearchParams().get("token_hash") ?? "";
   const [state, formAction, pending] = useActionState<{ error: string | null }, FormData>(confirmPasswordReset, {
     error: null,
   });
@@ -20,6 +22,7 @@ export default function ResetPasswordConfirmPage() {
       </div>
       <h1 className="text-xl font-semibold">Set a New Password</h1>
       <form action={formAction} className="w-full space-y-3">
+        <input type="hidden" name="tokenHash" value={tokenHash} />
         <PasswordInput
           name="password"
           placeholder="New password"
@@ -39,5 +42,13 @@ export default function ResetPasswordConfirmPage() {
         </Button>
       </form>
     </div>
+  );
+}
+
+export default function ResetPasswordConfirmPage() {
+  return (
+    <Suspense>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }
