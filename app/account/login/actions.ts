@@ -5,7 +5,7 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { ensureBuyerProfileForAdmin } from "@/lib/ensureBuyerProfile";
 import { allowRequest, clientIp, TOO_MANY } from "@/lib/rateLimit";
 import { isEmailRemoved } from "@/lib/removedUsers";
-import { isApproved, REMOVED_MESSAGE } from "@/lib/accessGate";
+import { isAllowedIn, REMOVED_MESSAGE } from "@/lib/accessGate";
 
 /**
  * Single sign-in entry point for both buyers and admins - the whole app now
@@ -51,8 +51,8 @@ export async function login(_prevState: { error: string | null; removed?: boolea
   const isAdmin = metaRole === "SUPER_ADMIN" || metaRole === "ADMIN";
 
   if (!isAdmin) {
-    // Not approved yet: straight to the waiting page (the proxy would send them there anyway).
-    if (!isApproved(data.user.app_metadata)) redirect("/account/pending");
+    // On hold: straight to the hold page (the proxy would send them there anyway).
+    if (!isAllowedIn(data.user.app_metadata)) redirect("/account/on-hold");
     redirect(from.startsWith("/admin") ? "/" : from || "/");
   }
 

@@ -5,14 +5,14 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { isEmailRemoved } from "@/lib/removedUsers";
 import { logout } from "@/app/account/actions";
 
-export const metadata = { title: "Waiting for approval — Card Union" };
+export const metadata = { title: "Account on hold — Card Union" };
 export const dynamic = "force-dynamic";
 
 /**
- * Where a signed-in buyer lands until an admin approves them (see proxy.ts). Approved people never see this page:
- * the proxy refreshes their session and sends them straight into the site.
+ * Where a signed-in buyer lands while an admin has their account on hold (see proxy.ts). Everyone else never sees this
+ * page: once a hold is lifted the proxy refreshes the session and sends them straight into the site.
  */
-export default async function PendingApprovalPage() {
+export default async function AccountOnHoldPage() {
   const supabase = await createAuthServerClient("buyer");
   const {
     data: { user },
@@ -32,12 +32,11 @@ export default async function PendingApprovalPage() {
         </>
       ) : (
         <>
-          <h1 className="text-xl font-semibold">Waiting for approval</h1>
+          <h1 className="text-xl font-semibold">Your account is on hold</h1>
           <p className="text-sm text-foreground-muted">
-            Thanks for signing up{user?.email ? ` with ${user.email}` : ""}! Hunt by Card Union is invite-only, so an admin needs to approve your account before you can
-            browse. This page will let you in as soon as that happens - check back in a little while.
+            {user?.email ? `The account ${user.email}` : "This account"} has been put on hold, so you can&apos;t browse or buy for now. If you think this is a mistake, or you&apos;d like
+            it looked at, please message us:
           </p>
-          <p className="text-sm text-foreground-muted">Want to be approved faster? Message us:</p>
           <div className="w-full text-left">
             <ContactUs />
           </div>

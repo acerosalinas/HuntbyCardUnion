@@ -7,22 +7,11 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminManagePage() {
   const [admins, buyers] = await Promise.all([listAdmins(), listBuyers()]);
-  const waiting = buyers.filter((b) => !b.approved);
-  const approved = buyers.filter((b) => b.approved);
+  const active = buyers.filter((b) => !b.blocked);
+  const onHold = buyers.filter((b) => b.blocked);
 
   return (
     <div className="space-y-8">
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">
-          Waiting for approval ({waiting.length})
-        </h2>
-        {waiting.length > 0 && (
-          <p className="text-sm text-foreground-muted">
-            These people signed up but can&apos;t see anything until you approve them. Delete removes them for good.
-          </p>
-        )}
-        <BuyersList buyers={waiting} waiting />
-      </div>
       <CreateAdminForm />
       <div className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">
@@ -32,10 +21,20 @@ export default async function AdminManagePage() {
       </div>
       <div className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">
-          Buyers ({approved.length})
+          Buyers ({active.length})
         </h2>
-        <BuyersList buyers={approved} />
+        <p className="text-sm text-foreground-muted">
+          Anyone can sign up and start right away. Newest first, with a <strong>New</strong> tag for the first week. <strong>Hold</strong> stops an account from browsing or buying
+          (you can release it later); <strong>Delete</strong> removes it for good.
+        </p>
+        <BuyersList buyers={active} />
       </div>
+      {onHold.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground-muted">On hold ({onHold.length})</h2>
+          <BuyersList buyers={onHold} onHold />
+        </div>
+      )}
     </div>
   );
 }

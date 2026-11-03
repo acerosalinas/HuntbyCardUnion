@@ -5,8 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { roleFromMetadata, AdminRole } from "@/lib/adminAuth";
 import { revalidatePath } from "next/cache";
-import { isApproved, normalizeEmail } from "@/lib/accessGate";
-import { sendNotificationEmail } from "@/lib/email";
+import { isAllowedIn, normalizeEmail } from "@/lib/accessGate";
 import { requireSuperAdmin, revalidateAdmin } from "./actionHelpers";
 
 export async function logout() {
@@ -39,10 +38,12 @@ export interface BuyerAccountSummary {
   /** profiles.full_name - null only if signup was interrupted before the profile row was created. */
   fullName: string | null;
   createdAt: number;
-  /** An admin has let them in (see lib/accessGate.ts). False = waiting at /account/pending. */
-  approved: boolean;
-  /** An admin removed an account with this email before, so approving it is a deliberate second chance. */
+  /** An admin has put this account on hold (see lib/accessGate.ts): it can't browse or buy until released. */
+  blocked: boolean;
+  /** An admin removed an account with this email before. */
   removedBefore: boolean;
+  /** Signed up within the last 7 days - worked out on the server so every viewer sees the same thing. */
+  isNew: boolean;
 }
 
 /**
@@ -111,8 +112,9 @@ export async function listBuyers(): Promise<BuyerAccountSummary[]> {
       handle: profileById.get(u.id)?.handle ?? null,
       fullName: profileById.get(u.id)?.fullName ?? null,
       createdAt: new Date(u.created_at).getTime(),
-      approved: isApproved(u.app_metadata),
+      blocked: !isAllowedIn(u.app_metadata),
       removedBefore: u.email ? removed.has(normalizeEmail(u.email)) : false,
+      isNew: Date.now() - new Date(u.created_at).getTime() < 7 * 24 * 60 * 60 * 1000,
     }))
     .sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -170,11 +172,12 @@ export async function resetAdminPassword(adminId: string, newPassword: string) {
 }
 
 /**
- * Lets a waiting buyer in. Sets `approved: true` in their app_metadata (only the server can write that), clears any
- * earlier removal of the same email, and emails them. Returns { error } for expected refusals - production hides the
- * text of thrown action errors.
+ * Puts a buyer's account on hold, or releases it. On hold = `approved: false` in their app_metadata (only the server
+ * can write that): they see a "your account is on hold" page and every buyer action refuses, but nothing is deleted, so
+ * it is fully reversible. Their session token can keep showing pages for up to an hour, but anything that changes data
+ * stops at once. Returns { error } for expected refusals - production hides the text of thrown action errors.
  */
-export async function approveBuyer(userId: string): Promise<{ error?: string }> {
+export async function setBuyerBlocked(userId: string, blocked: boolean): Promise<{ error?: string }> {
   await requireSuperAdmin();
   const supabase = createAdminClient();
   const { data, error } = await supabase.auth.admin.getUserById(userId);
@@ -182,18 +185,8 @@ export async function approveBuyer(userId: string): Promise<{ error?: string }> 
   const user = data.user;
   if (roleFromMetadata(user.app_metadata) !== null) return { error: "That is an admin account." };
 
-  const { error: updateError } = await supabase.auth.admin.updateUserById(userId, { app_metadata: { ...user.app_metadata, approved: true } });
+  const { error: updateError } = await supabase.auth.admin.updateUserById(userId, { app_metadata: { ...user.app_metadata, approved: !blocked } });
   if (updateError) return { error: updateError.message };
-
-  if (user.email) {
-    await supabase.from("removed_users").delete().eq("email", normalizeEmail(user.email));
-    await sendNotificationEmail({
-      to: user.email,
-      title: "You're approved - welcome to Hunt by Card Union",
-      body: "Your account has been approved. You can now sign in and browse the marketplace.",
-      link: "/marketplace",
-    });
-  }
   revalidatePath("/admin/manage");
   return {};
 }

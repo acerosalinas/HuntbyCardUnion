@@ -1089,17 +1089,16 @@ test("allocateCardPayments strict mode: a live's payment never spills onto other
   assert.equal(pool.get("b"), 50);
 });
 
-import { isApproved, normalizeEmail } from "../../lib/accessGate";
+import { isAllowedIn, normalizeEmail } from "../../lib/accessGate";
 
-test("isApproved: buyers need the approved flag, admins are always in", () => {
-  assert.equal(isApproved(undefined), false);
-  assert.equal(isApproved({}), false);
-  assert.equal(isApproved({ approved: false }), false);
-  assert.equal(isApproved({ approved: "true" }), false);
-  assert.equal(isApproved({ approved: true }), true);
-  assert.equal(isApproved({ role: "ADMIN" }), true);
-  assert.equal(isApproved({ role: "SUPER_ADMIN" }), true);
-  assert.equal(isApproved({ role: "SOMETHING_ELSE" }), false);
+test("isAllowedIn: everyone is let in unless an admin put the account on hold; admins always are", () => {
+  assert.equal(isAllowedIn(undefined), true);
+  assert.equal(isAllowedIn(null), true);
+  assert.equal(isAllowedIn({}), true);
+  assert.equal(isAllowedIn({ approved: true }), true);
+  assert.equal(isAllowedIn({ approved: false }), false);
+  assert.equal(isAllowedIn({ role: "ADMIN" }), true);
+  assert.equal(isAllowedIn({ role: "SUPER_ADMIN", approved: false }), true);
   assert.equal(normalizeEmail("  Someone@Example.COM "), "someone@example.com");
 });
 

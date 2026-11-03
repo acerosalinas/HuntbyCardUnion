@@ -301,6 +301,7 @@ first, in the order they were added). The newest ones, none of which break the a
 6. `migration_row_level_security.sql` (**security - run this first in practice**: closes public read of `orders` and `offers`, and locks the admin-only database functions to the server key)
 7. `migration_hide_deactivated_stores.sql` (a deactivated admin's store and listings are hidden from the marketplace; run after the row level security one)
 8. `migration_live_tracker_payout_cards.sql` (handovers record which cards they cover and who paid for them)
+9. `migration_open_signups.sql` (sign-ups are open again; adds the Hold safeguard and a cap on unpaid orders for brand-new accounts - run it before deploying the matching code)
 
 ## Operations
 
@@ -310,13 +311,14 @@ first, in the order they were added). The newest ones, none of which break the a
 - **Browser tests**: `npm run test:e2e` (Playwright; first run `npx playwright install chromium`). They check the
   invite-only redirects, the sign-in page and `robots.txt`. Set `E2E_BASE_URL` to test an already-running server.
 - **Site access**: the whole site is invite-only (`proxy.ts`), so `robots.txt` disallows everything.
-- **Approval-only sign-ups**: anyone can register, but a buyer sees nothing until a super admin approves them on
-  `/admin/manage` ("Waiting for approval"). Approval is the flag `approved: true` in the account's `app_metadata`
-  (`lib/accessGate.ts`); admins are always allowed. Until then they only see `/account/pending`. The same page has
-  **Delete** for removing a buyer permanently: their orders and offers stay in your records, and their email goes on a
-  removed list so that signing in or up again shows a pop-up telling them to message TikTok @cardunion or Facebook
-  Card Union. Before turning this on for an existing project, run `node scripts/approve-existing-users.mjs` once so
-  current accounts are not locked out (use `--dry-run` first).
+- **Open sign-ups, with safeguards.** Anyone can sign up and use the site straight away (the email must be confirmed
+  before they can order or make offers). Instead of approving people first, admins moderate afterwards from
+  `/admin/manage` (super admins): **Hold** puts an account on hold (`approved: false` on the account, see
+  `lib/accessGate.ts`) - it only sees `/account/on-hold`, every buyer action refuses, and the database refuses new
+  claims, offers and dibs from it - and **Release** undoes it; **Delete** removes an account for good (its orders stay
+  in your records; the email is remembered so a returning person is told to message TikTok @cardunion or Facebook Card
+  Union). New accounts (first 7 days) carry a "New" tag, and while an account is under 3 days old it can hold at most
+  10 unpaid orders at once (40 after that) - see `supabase/migration_open_signups.sql`.
 - **Backups**: turn on daily backups (and point-in-time recovery if your plan has it) in the Supabase dashboard under
   Database > Backups; use `scripts/backup.mjs` for an extra copy you keep yourself.
 

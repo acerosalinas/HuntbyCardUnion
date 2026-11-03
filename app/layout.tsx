@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -31,6 +31,13 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   title: "Hunt by Card Union",
   description: "Private card-collecting marketplace with live dibs claiming.",
+  // iPhone "Add to Home Screen": open as its own app window instead of a new browser tab each time.
+  appleWebApp: { capable: true, title: "Hunt", statusBarStyle: "black" },
+};
+
+export const viewport: Viewport = {
+  // The phone's top bar takes the site's navy.
+  themeColor: "#0b132b",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

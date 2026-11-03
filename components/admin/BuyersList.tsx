@@ -1,25 +1,25 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Trash2 } from "lucide-react";
-import { approveBuyer, BuyerAccountSummary, deleteBuyer } from "@/app/admin/accountActions";
+import { Ban, Check, Trash2 } from "lucide-react";
+import { BuyerAccountSummary, deleteBuyer, setBuyerBlocked } from "@/app/admin/accountActions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { extractErrorMessage } from "@/lib/utils";
 
 /**
- * Buyer roster for the Manage page. `waiting` shows the people who signed up and are waiting for approval (Approve /
- * Delete); otherwise it shows everyone already let in (Delete only).
+ * Buyer roster for the Manage page. Normally it lists everyone using the site (Hold / Delete); with `onHold` it lists
+ * the accounts you put on hold (Release / Delete).
  */
-export function BuyersList({ buyers, waiting = false }: { buyers: BuyerAccountSummary[]; waiting?: boolean }) {
+export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSummary[]; onHold?: boolean }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const confirm = useConfirm();
 
   if (buyers.length === 0) {
-    return <p className="py-10 text-center text-sm text-foreground-muted">{waiting ? "Nobody is waiting for approval." : "No approved buyers yet."}</p>;
+    return <p className="py-10 text-center text-sm text-foreground-muted">{onHold ? "Nobody is on hold." : "No buyers yet."}</p>;
   }
 
   const run = (buyer: BuyerAccountSummary, action: (id: string) => Promise<{ error?: string }>, fallback: string) => {
@@ -37,7 +37,26 @@ export function BuyersList({ buyers, waiting = false }: { buyers: BuyerAccountSu
     });
   };
 
-  const handleApprove = (buyer: BuyerAccountSummary) => run(buyer, approveBuyer, "Couldn't approve this account.");
+  const handleHold = async (buyer: BuyerAccountSummary) => {
+    const confirmed = await confirm({
+      title: "Put this account on hold?",
+      message: (
+        <div className="space-y-2">
+          <p>
+            <strong>{buyer.email}</strong>
+            {buyer.handle ? ` (${buyer.handle})` : ""} won&apos;t be able to browse, make offers or buy until you release them.
+          </p>
+          <p>Nothing is deleted - their orders and details stay as they are, and you can release the account at any time.</p>
+        </div>
+      ),
+      confirmLabel: "Put on hold",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    run(buyer, (id) => setBuyerBlocked(id, true), "Couldn't put this account on hold.");
+  };
+
+  const handleRelease = (buyer: BuyerAccountSummary) => run(buyer, (id) => setBuyerBlocked(id, false), "Couldn't release this account.");
 
   const handleDelete = async (buyer: BuyerAccountSummary) => {
     const confirmed = await confirm({
@@ -68,7 +87,7 @@ export function BuyersList({ buyers, waiting = false }: { buyers: BuyerAccountSu
               <th scope="col" className="px-4 py-3">Email</th>
               <th scope="col" className="px-4 py-3">Name</th>
               <th scope="col" className="px-4 py-3">Handle</th>
-              <th scope="col" className="px-4 py-3">{waiting ? "Signed up" : "Joined"}</th>
+              <th scope="col" className="px-4 py-3">Joined</th>
               <th scope="col" className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -84,16 +103,26 @@ export function BuyersList({ buyers, waiting = false }: { buyers: BuyerAccountSu
                         Removed before
                       </Badge>
                     )}
+                    {buyer.isNew && (
+                      <Badge tone="gold" className="ml-2">
+                        New
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-foreground-muted">{buyer.fullName ?? "—"}</td>
                   <td className="px-4 py-3 text-foreground-muted">{buyer.handle ?? "—"}</td>
                   <td className="px-4 py-3 text-foreground-muted">{new Date(buyer.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
-                      {waiting && (
-                        <Button variant="primary" disabled={busy} onClick={() => handleApprove(buyer)}>
+                      {onHold ? (
+                        <Button variant="primary" disabled={busy} onClick={() => handleRelease(buyer)}>
                           <Check size={14} />
-                          Approve
+                          Release
+                        </Button>
+                      ) : (
+                        <Button variant="outline" disabled={busy} onClick={() => handleHold(buyer)}>
+                          <Ban size={14} />
+                          Hold
                         </Button>
                       )}
                       <Button variant="danger" disabled={busy} onClick={() => handleDelete(buyer)}>
