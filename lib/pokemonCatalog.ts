@@ -9,7 +9,12 @@ export interface CatalogCard {
   image: string | null;
   /** "en" or "ja". */
   lang: string;
+  /** Release year of the card's set, when known - helps tell a vintage printing from a modern one at a glance. */
+  year: number | null;
 }
+
+/** The most cards one search shows. Common names (Pikachu) have hundreds of printings, so this is a window, not the full list. */
+export const CATALOG_MAX_RESULTS = 60;
 
 /**
  * "charizard  151" -> ["charizard", "151"]. Each word has to appear somewhere in a card's name, set or number.

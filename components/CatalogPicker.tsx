@@ -1,8 +1,8 @@
 "use client";
 
-import { FocusEvent, KeyboardEvent, Ref, useRef, useState } from "react";
+import { FocusEvent, KeyboardEvent, Ref, useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui/Input";
-import { CatalogCard, catalogImageUrl } from "@/lib/pokemonCatalog";
+import { CATALOG_MAX_RESULTS, CatalogCard, catalogImageUrl } from "@/lib/pokemonCatalog";
 
 interface Props {
   value: string;
@@ -29,6 +29,12 @@ export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, 
   const [highlight, setHighlight] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seq = useRef(0);
+  const listId = useId();
+
+  // With dozens of matches the highlighted one (arrow keys) has to stay in view.
+  useEffect(() => {
+    if (open) document.getElementById(`${listId}-${highlight}`)?.scrollIntoView({ block: "nearest" });
+  }, [highlight, open, listId]);
 
   const change = (next: string) => {
     onValueChange(next);
@@ -97,12 +103,13 @@ export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, 
         autoFocus={autoFocus}
       />
       {open && matches.length > 0 && (
-        <ul role="listbox" className="absolute left-0 right-0 top-full z-20 mt-1 max-h-96 overflow-auto rounded-lg border border-card-border bg-background-elevated shadow-xl">
+        <ul role="listbox" className="absolute left-0 right-0 top-full z-20 mt-1 max-h-128 overflow-auto rounded-lg border border-card-border bg-background-elevated shadow-xl">
           {matches.map((c, i) => {
             const img = catalogImageUrl(c.image);
             return (
               <li
                 key={c.id}
+                id={`${listId}-${i}`}
                 role="option"
                 aria-selected={i === highlight}
                 // mousedown (not click) so it fires before the input's blur closes the list.
@@ -115,9 +122,9 @@ export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, 
               >
                 {img ? (
                   // eslint-disable-next-line @next/next/no-img-element -- small catalog picture from the TCGdex image host
-                  <img src={img} alt="" loading="lazy" className="h-14 w-10 shrink-0 rounded object-cover" />
+                  <img src={img} alt="" loading="lazy" className="h-20 w-14 shrink-0 rounded object-cover" />
                 ) : (
-                  <span className="h-14 w-10 shrink-0 rounded bg-foreground/5" />
+                  <span className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-foreground/5 px-1 text-center text-[10px] leading-tight text-foreground-muted">no picture</span>
                 )}
                 <span className="min-w-0">
                   <span className="block truncate font-medium">
@@ -126,11 +133,17 @@ export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, 
                   </span>
                   <span className="block truncate text-xs text-foreground-muted">
                     {c.setName} · #{c.number}
+                    {c.year ? ` · ${c.year}` : ""}
                   </span>
                 </span>
               </li>
             );
           })}
+          {matches.length >= CATALOG_MAX_RESULTS && (
+            <li role="presentation" className="px-3 py-2 text-xs text-foreground-muted">
+              Showing the first {CATALOG_MAX_RESULTS} matches. Add a set name or number to narrow it - the oldest printings are at the bottom.
+            </li>
+          )}
         </ul>
       )}
     </div>

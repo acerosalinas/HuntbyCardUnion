@@ -3,6 +3,13 @@
 // other Japanese scripts can't match because TCGplayer names them without a set code). It also adds each set's
 // English name to the search text of cards already in the catalog, so "151 jp" finds Pokemon Card 151.
 //
+// A TCGplayer set that is the same product as one already in the catalog (the e-Card, PCG and original Pokemon Card sets
+// TCGdex has) is MERGED into it, not added twice: numbered sets are matched by card number and name, original unnumbered
+// sets (Expansion Pack, Jungle, Fossil, Neo...) by release day and card names. Cards the existing set lacks (trainers,
+// energy) are added to it. Copies that an earlier run of this script added as separate "tcgp<id>" sets are then removed
+// (only "tcgp" sets are ever deleted, and any listing or tracker card pointing at one is re-pointed first). The dry run
+// prints exactly what would merge and how many cards would be removed.
+//
 // Order: scripts/import-pokemon-catalog.mjs --lang=ja, then scripts/add-japanese-cards-from-tcgplayer.mjs, then this.
 // Safe to re-run: existing cards are never overwritten (only their search text is widened), new ones are added.
 //
@@ -93,6 +100,30 @@ for (let from = 0; ; from += 1000) {
 }
 console.log(`${have.size} Japanese cards in the catalog${dryRun ? " (dry run)" : ""}; ${groups.length} TCGplayer Japanese sets.`);
 
+// ---- The sets already here (not TCGplayer-id sets), indexed by printed number, so a TCGplayer set that is the same product
+// as one of them (the e-Card and PCG sets TCGdex has, but without its trainers and energy) is merged into it instead of
+// being added a second time.
+const numIndex = new Map(); // number -> [{ setId, name, id }]
+const setInfo = new Map(); // set id -> { set_name, set_release, numbers }
+const rowsBySet = new Map(); // set id -> rows
+for (const r of have.values()) {
+  if (!rowsBySet.has(r.set_id)) rowsBySet.set(r.set_id, []);
+  rowsBySet.get(r.set_id).push(r);
+  if (r.set_id.startsWith("tcgp") || r.local_id === "-") continue;
+  const k = stripZeros(r.local_id);
+  if (!numIndex.has(k)) numIndex.set(k, []);
+  numIndex.get(k).push({ setId: r.set_id, name: r.name.toLowerCase(), id: r.id });
+  let info = setInfo.get(r.set_id);
+  if (!info) setInfo.set(r.set_id, (info = { set_name: r.set_name, set_release: r.set_release, numbers: new Set(), names: new Set() }));
+  info.numbers.add(k);
+}
+for (const [sid, list] of rowsBySet) {
+  const info = setInfo.get(sid);
+  if (info) for (const r of list) info.names.add(r.name.toLowerCase());
+}
+// Same card = same printed number and a compatible name ("Oddish" vs "Erika's Oddish").
+const sameName = (a, b) => a === b || a.includes(b) || b.includes(a);
+
 const cache = new Map();
 async function cardsOf(group) {
   if (cache.has(group.groupId)) return cache.get(group.groupId);
@@ -131,6 +162,11 @@ for (const p of todo) if (p.code) codeCount.set(letters(p.code), (codeCount.get(
 const upserts = [];
 let added = 0;
 let setsAdded = 0;
+let mergedSets = 0;
+let mergedAdded = 0;
+const mergeLog = [];
+const toDelete = []; // { rows, mergeInto }: copies an earlier run added that turned out to be an existing set
+const englishFor = new Map(); // set id -> { rest, size }: the English name of the TCGplayer set merged into it
 const sample = [];
 const odd = new Set();
 async function flush(force = false) {
@@ -152,6 +188,92 @@ for (let i = 0; i < todo.length; i += 6) {
     const setId = unique ? p.code : `tcgp${p.g.groupId}`;
     const setName = unique ? p.code : p.rest.length > 60 ? `${p.rest.slice(0, 57)}...` : p.rest;
     const release = day(p.g.publishedOn);
+
+    // Is this the same product as a set already in the catalog? (at least 60% of its numbered cards, and 5, are the same card)
+    let mergeInto = null;
+    if (numbered.size >= 3) {
+      const tally = new Map();
+      for (const [k, entry] of numbered) {
+        for (const o of numIndex.get(k) ?? []) {
+          if (o.setId !== setId && sameName(entry.name.toLowerCase(), o.name)) tally.set(o.setId, (tally.get(o.setId) ?? 0) + 1);
+        }
+      }
+      let best = null;
+      for (const [sid, c] of tally) if (!best || c > best.c) best = { sid, c };
+      if (best && best.c >= Math.max(5, numbered.size * 0.6)) mergeInto = best.sid;
+    }
+    // Original Japanese sets (Expansion Pack, Jungle, Fossil, Neo...) have no printed numbers on TCGplayer, so match them by
+    // release day and card names instead. A small deck that reprints cards from a big set is not the same product, so the
+    // existing set may be at most twice the size of this one.
+    if (!mergeInto && numbered.size < 3 && unnumbered.size >= 8 && release) {
+      let best = null;
+      for (const [sid, info] of setInfo) {
+        if (sid === setId || info.set_release !== release) continue;
+        let same = 0;
+        for (const e of unnumbered.values()) {
+          const lower = e.name.toLowerCase();
+          if ([...info.names].some((nm) => sameName(lower, nm))) same++;
+        }
+        if (!best || same > best.same) best = { sid, same, size: info.names.size };
+      }
+      if (best && best.same >= Math.max(8, unnumbered.size * 0.6) && best.size <= unnumbered.size * 2) mergeInto = best.sid;
+    }
+    if (mergeInto) {
+      // Keep the existing set; only add the cards it lacks (trainers, energy, ...) and note the English set name.
+      const info = setInfo.get(mergeInto);
+      let m = 0;
+      for (const [k, entry] of numbered) {
+        if (info.numbers.has(k)) continue;
+        const id = `ja:${mergeInto}-${entry.raw}`;
+        info.numbers.add(k);
+        if (have.has(id)) continue;
+        upserts.push({
+          id,
+          lang: "ja",
+          name: entry.name,
+          set_id: mergeInto,
+          set_name: info.set_name,
+          local_id: entry.raw,
+          image_url: entry.image,
+          set_release: info.set_release,
+          search: searchText([entry.name, info.set_name, p.rest, entry.raw]),
+        });
+        info.names.add(entry.name.toLowerCase());
+        m++;
+      }
+      // Old sets list some cards without a printed number on TCGplayer: keep those whose name the set doesn't have yet,
+      // so removing the separate copy never loses a card.
+      for (const [, entry] of unnumbered) {
+        const lower = entry.name.toLowerCase();
+        if ([...info.names].some((nm) => sameName(lower, nm))) continue;
+        const id = `ja:${mergeInto}-p${entry.productId}`;
+        info.names.add(lower);
+        if (have.has(id)) continue;
+        upserts.push({
+          id,
+          lang: "ja",
+          name: entry.name,
+          set_id: mergeInto,
+          set_name: info.set_name,
+          local_id: "-",
+          image_url: entry.image,
+          set_release: info.set_release,
+          search: searchText([entry.name, info.set_name, p.rest]),
+        });
+        m++;
+      }
+      mergedSets++;
+      mergedAdded += m;
+      mergeLog.push(`${p.g.name.slice(0, 42)} -> ${mergeInto} (+${m} missing)`);
+      const prev = englishFor.get(mergeInto);
+      if (!prev || numbered.size > prev.size) englishFor.set(mergeInto, { rest: p.rest, size: numbered.size });
+      // Only ever delete TCGplayer-id copies (never a TCGdex set).
+      const copy = (rowsBySet.get(setId) ?? []).filter((r) => r.set_id.startsWith("tcgp"));
+      if (copy.length > 0) toDelete.push({ rows: copy, mergeInto });
+      await flush();
+      continue;
+    }
+
     const mk = (id, entry, localId) => ({
       id,
       lang: "ja",
@@ -192,6 +314,49 @@ console.log(`\nPhase 1: ${added} cards ${dryRun ? "would be " : ""}added from ${
 if (sample.length > 0) console.log(`Examples:\n  ${sample.join("\n  ")}`);
 if (odd.size > 0) console.log(`Names that still look odd (check these):\n  ${[...odd].join("\n  ")}`);
 
+console.log(`Merged: ${mergedSets} TCGplayer sets are the same product as a set already here; ${mergedAdded} missing cards ${dryRun ? "would be " : ""}added to those sets.`);
+if (mergeLog.length > 0) console.log(`  ${mergeLog.slice(0, 40).join("\n  ")}${mergeLog.length > 40 ? `\n  ...and ${mergeLog.length - 40} more` : ""}`);
+
+// ---- Clean up: copies of those sets that an earlier run added as separate sets
+const deletedIds = new Set();
+{
+  const ids = toDelete.flatMap((d) => d.rows.map((r) => r.id));
+  console.log(`Duplicate copies from an earlier run: ${ids.length} cards in ${toDelete.length} sets ${dryRun ? "would be " : ""}removed.`);
+  if (!dryRun && ids.length > 0) {
+    // Where a listing or tracker card points at a copy, point it at the same card in the merged set first.
+    const targetOf = new Map();
+    for (const { rows, mergeInto } of toDelete) {
+      for (const r of rows) {
+        if (r.local_id === "-") continue;
+        const hit = (numIndex.get(stripZeros(r.local_id)) ?? []).find((o) => o.setId === mergeInto);
+        targetOf.set(r.id, hit ? hit.id : `ja:${mergeInto}-${r.local_id}`);
+      }
+    }
+    let repointed = 0;
+    for (let j = 0; j < ids.length; j += 200) {
+      const chunk = ids.slice(j, j + 200);
+      for (const table of ["cards", "tracker_sales"]) {
+        const { data, error } = await supabase.from(table).select("id, catalog_card_id").in("catalog_card_id", chunk);
+        if (error) throw new Error(error.message);
+        for (const ref of data ?? []) {
+          const target = targetOf.get(ref.catalog_card_id);
+          const { error: upErr } = await supabase.from(table).update({ catalog_card_id: target ?? null }).eq("id", ref.id);
+          if (upErr) throw new Error(upErr.message);
+          repointed++;
+        }
+      }
+    }
+    for (let j = 0; j < ids.length; j += 200) {
+      const { error } = await supabase.from("pokemon_catalog_cards").delete().in("id", ids.slice(j, j + 200));
+      if (error) throw new Error(error.message);
+    }
+    for (const id of ids) deletedIds.add(id);
+    console.log(`  removed ${ids.length} cards${repointed > 0 ? `; ${repointed} listing/tracker reference(s) re-pointed first` : ""}.`);
+  } else {
+    for (const id of ids) deletedIds.add(id);
+  }
+}
+
 // ---- Phase 2: widen the search text of existing cards with their set's English name ("151 jp" -> Pokemon Card 151)
 if (enrich) {
   const byCode = new Map();
@@ -199,9 +364,12 @@ if (enrich) {
   let widened = 0;
   const changes = [];
   for (const row of have.values()) {
+    if (deletedIds.has(row.id)) continue;
     const matches = byCode.get(letters(row.set_id)) ?? [];
-    if (matches.length !== 1) continue; // no English name, or several sets share the code: don't guess
-    const english = matches[0].rest.toLowerCase();
+    // The English name comes from the set's own code, or from the TCGplayer set that was merged into it.
+    const merged = englishFor.get(row.set_id)?.rest;
+    if (matches.length !== 1 && !merged) continue; // no English name, or several sets share the code: don't guess
+    const english = (matches.length === 1 ? matches[0].rest : merged).toLowerCase();
     if ((row.search ?? "").includes(english)) continue;
     changes.push({ ...row, search: `${row.search} ${english}`.trim() });
     widened++;
