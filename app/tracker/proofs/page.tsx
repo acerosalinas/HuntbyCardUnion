@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { ProofsView, ProofItem } from "@/components/tracker/ProofsView";
+import { parseOwnerLabels } from "@/lib/tracker/data";
+import { normalizeOwnerTag } from "@/lib/tracker/split";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,8 @@ export default async function TrackerProofsPage() {
   const customerIds = [...new Set(rows.map((c) => c.customer_id as string))];
   const buyerIds = [...new Set(rows.map((c) => c.buyer_id as string))];
 
-  const [cardRes, customerRes, buyerRes, urlRes] = await Promise.all([
+  const [settingsRes, cardRes, customerRes, buyerRes, urlRes] = await Promise.all([
+    db.from("tracker_settings").select("owner_labels").eq("owner_id", admin.id).maybeSingle(),
     claimIds.length ? db.from("tracker_claim_cards").select("claim_id, sale_id, amount").in("claim_id", claimIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     customerIds.length ? db.from("tracker_customers").select("id, name").eq("owner_id", admin.id).in("id", customerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     buyerIds.length ? db.from("profiles").select("id, handle").in("id", buyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -42,7 +45,7 @@ export default async function TrackerProofsPage() {
 
   const saleIds = [...new Set((cardRes.data ?? []).map((r) => r.sale_id as string))];
   const { data: sales } = saleIds.length
-    ? await db.from("tracker_sales").select("id, card_name, amount, live_id").eq("owner_id", admin.id).in("id", saleIds)
+    ? await db.from("tracker_sales").select("id, card_name, amount, live_id, owner_tag").eq("owner_id", admin.id).in("id", saleIds)
     : { data: [] as Record<string, unknown>[] };
   const liveIds = [...new Set((sales ?? []).map((s) => s.live_id as string))];
   const { data: lives } = liveIds.length ? await db.from("tracker_lives").select("id, title").eq("owner_id", admin.id).in("id", liveIds) : { data: [] as Record<string, unknown>[] };
@@ -52,6 +55,8 @@ export default async function TrackerProofsPage() {
   const urlOf = new Map(((urlRes.data ?? []) as { path: string | null; signedUrl: string }[]).map((u) => [u.path ?? "", u.signedUrl]));
   const liveTitle = new Map((lives ?? []).map((l) => [l.id as string, l.title as string]));
   const saleById = new Map((sales ?? []).map((s) => [s.id as string, s]));
+  const ownerLabels = parseOwnerLabels((settingsRes.data as { owner_labels?: unknown } | null)?.owner_labels);
+  const ownerNameOf = (tag: string | null) => (tag === null ? "No owner" : (ownerLabels.find((o) => o.code === tag)?.name ?? tag));
 
   const items: ProofItem[] = rows.map((c) => ({
     id: c.id as string,
@@ -71,7 +76,12 @@ export default async function TrackerProofsPage() {
       .filter((r) => r.claim_id === c.id)
       .map((r) => {
         const sale = saleById.get(r.sale_id as string);
-        return { name: (sale?.card_name as string) ?? "Card", amount: Number(r.amount), liveTitle: liveTitle.get((sale?.live_id as string) ?? "") ?? "" };
+        return {
+          name: (sale?.card_name as string) ?? "Card",
+          amount: Number(r.amount),
+          liveTitle: liveTitle.get((sale?.live_id as string) ?? "") ?? "",
+          owner: ownerNameOf(normalizeOwnerTag(sale?.owner_tag as string | null | undefined)),
+        };
       }),
   }));
 

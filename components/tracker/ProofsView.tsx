@@ -24,7 +24,19 @@ export interface ProofItem {
   reviewedAt: string | null;
   /** Short-lived signed link to the private screenshot. */
   proofUrl: string | null;
-  cards: { name: string; amount: number; liveTitle: string }[];
+  cards: { name: string; amount: number; liveTitle: string; owner: string }[];
+}
+
+/** Groups a proof's cards by who owns them, keeping first-seen order. */
+function groupByOwner(cards: ProofItem["cards"]) {
+  const groups = new Map<string, { owner: string; cards: ProofItem["cards"]; total: number }>();
+  for (const c of cards) {
+    const g = groups.get(c.owner) ?? { owner: c.owner, cards: [], total: 0 };
+    g.cards.push(c);
+    g.total += c.amount;
+    groups.set(c.owner, g);
+  }
+  return [...groups.values()];
 }
 
 function todayLocal(): string {
@@ -129,16 +141,28 @@ function ProofCard({ item }: { item: ProofItem }) {
           </p>
 
           {item.cards.length > 0 ? (
-            <ul className="space-y-0.5 text-xs text-foreground-muted">
-              {item.cards.map((c, i) => (
-                <li key={i} className="flex justify-between gap-2">
-                  <span className="truncate">
-                    {c.name} {c.liveTitle && <span className="opacity-70">· {c.liveTitle}</span>}
-                  </span>
-                  <span className="shrink-0">{formatCurrency(c.amount)}</span>
-                </li>
+            <div className="space-y-2">
+              {groupByOwner(item.cards).map((g) => (
+                <div key={g.owner} className="overflow-hidden rounded-lg border border-card-border">
+                  <div className="flex items-center justify-between gap-2 bg-gold/15 px-2.5 py-1 text-xs font-semibold">
+                    <span>
+                      {g.owner} <span className="font-normal text-foreground-muted">· {g.cards.length} {g.cards.length === 1 ? "card" : "cards"}</span>
+                    </span>
+                    <span>{formatCurrency(g.total)}</span>
+                  </div>
+                  <ul className="space-y-0.5 px-2.5 py-1.5 text-xs text-foreground-muted">
+                    {g.cards.map((c, i) => (
+                      <li key={i} className="flex justify-between gap-2">
+                        <span className="truncate">
+                          {c.name} {c.liveTitle && <span className="opacity-70">· {c.liveTitle}</span>}
+                        </span>
+                        <span className="shrink-0">{formatCurrency(c.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           ) : (
             <p className="text-xs text-foreground-muted">No cards ticked (shipping fee only).</p>
           )}

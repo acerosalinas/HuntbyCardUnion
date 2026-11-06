@@ -130,7 +130,7 @@ export interface TrackerData {
 }
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
-function parseOwnerLabels(raw: unknown): OwnerLabel[] {
+export function parseOwnerLabels(raw: unknown): OwnerLabel[] {
   if (!Array.isArray(raw)) return DEFAULT_OWNER_LABELS;
   const labels = raw
     .map((x) => ({
