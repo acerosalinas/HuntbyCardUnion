@@ -23,7 +23,16 @@ function tileMeta(card: CardItem): string {
   return parts.join(" · ");
 }
 
-export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNegotiating?: boolean }) {
+export function CardTile({
+  card,
+  isNegotiating = false,
+  decorative = false,
+}: {
+  card: CardItem;
+  isNegotiating?: boolean;
+  /** A repeated copy of a tile (the second half of a looping row): still clickable, but skipped by keyboard tabbing. Pair it with aria-hidden on the wrapper. */
+  decorative?: boolean;
+}) {
   const { buyer } = useBuyerIdentity();
   const { isWishlisted, toggle } = useWishlist();
   const wishlisted = isWishlisted(card.id);
@@ -34,6 +43,7 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
   return (
     <Link
       href={`/card/${card.id}`}
+      tabIndex={decorative ? -1 : undefined}
       className={cn(
         "group flex flex-col overflow-hidden rounded-2xl border outline-none transition-[transform,box-shadow,border-color] duration-200 ease-out",
         "focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -74,6 +84,7 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
             }}
             aria-label={wishlisted ? "Remove from wishlist" : "Save to wishlist"}
             aria-pressed={wishlisted}
+            tabIndex={decorative ? -1 : undefined}
             className={cn(
               "absolute right-1.5 top-1.5 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold",
               wishlisted ? "bg-gold text-navy-950" : "bg-navy-950/60 text-ivory hover:bg-navy-950/80",

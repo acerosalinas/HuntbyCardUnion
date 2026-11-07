@@ -71,6 +71,7 @@ export function SettingsForm({ settings }: { settings: TrackerSettings }) {
 
   return (
     <form onSubmit={submit} className="max-w-xl space-y-5 rounded-2xl border border-card-border bg-card p-5">
+      <h1 className="sr-only">Tracker settings</h1>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className={label}>Luzon shipping fee</label>

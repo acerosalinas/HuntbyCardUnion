@@ -50,13 +50,21 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
   const sfAmount = withSf ? Number(sfText || 0) : 0;
   const total = (Number.isFinite(cardsAmount) ? cardsAmount : 0) + (Number.isFinite(sfAmount) ? sfAmount : 0);
 
-  const togglePick = (id: string) =>
+  // Payment is per invoice (one live): ticking a live selects every card on it that can still be paid.
+  const payableIn = (live: { cards: typeof allCards }) => live.cards.filter((c) => c.left > 0 && !c.underReview);
+  const livePicked = (live: { cards: typeof allCards }) => {
+    const payable = payableIn(live);
+    return payable.length > 0 && payable.every((c) => picked.has(c.id));
+  };
+  const toggleLive = (live: { cards: typeof allCards }) =>
     setPicked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const ids = payableIn(live).map((c) => c.id);
+      if (ids.every((id) => next.has(id))) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
       return next;
     });
+  const pickedLiveCount = view.lives.filter(livePicked).length;
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -72,7 +80,7 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (pickedCards.length === 0 && !withSf) return setError("Tick the cards you paid for first.");
+    if (pickedCards.length === 0 && !withSf) return setError("Tick the invoice (live) you paid for first.");
     if (!Number.isFinite(cardsAmount) || cardsAmount < 0) return setError("Enter a valid amount for your cards.");
     if (withSf && (!Number.isFinite(sfAmount) || sfAmount <= 0)) return setError("Enter the shipping fee you paid, or untick the shipping fee box.");
     if (total <= 0) return setError("Enter the amount you paid.");
@@ -160,12 +168,25 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
         <p className="rounded-2xl border border-dashed border-card-border py-10 text-center text-sm text-foreground-muted">No live orders yet.</p>
       ) : (
         <>
-          {view.amountDue > 0 && <p className="text-xs text-foreground-muted">Tick the cards you paid for, then send your proof of payment below. Tick &quot;Ship&quot; on the cards you want sent to you.</p>}
+          {view.amountDue > 0 && <p className="text-xs text-foreground-muted">Tick the invoice (live) you paid, then send your proof of payment below. Tick &quot;Ship&quot; on the cards you want sent to you.</p>}
           {view.lives.map((live) => (
             <div key={live.id} className="overflow-hidden rounded-2xl border border-card-border bg-card">
               <div className="flex flex-wrap items-center justify-between gap-2 bg-foreground/5 px-4 py-2.5 text-sm">
-                <span>
-                  <span className="font-semibold">{live.liveDate}</span> · {live.title}
+                <span className="flex min-w-0 items-center gap-3">
+                  {view.amountDue > 0 && (
+                    <input
+                      type="checkbox"
+                      aria-label={`I paid the invoice for ${live.title}`}
+                      title={payableIn(live).length > 0 ? "Tick if you paid this whole invoice" : live.left > 0 ? "Waiting for the seller to review your proof" : "Already paid"}
+                      checked={livePicked(live)}
+                      disabled={payableIn(live).length === 0}
+                      onChange={() => toggleLive(live)}
+                      className="h-5 w-5 shrink-0 rounded border-card-border accent-gold disabled:opacity-30"
+                    />
+                  )}
+                  <span className="min-w-0">
+                    <span className="font-semibold">{live.liveDate}</span> · {live.title}
+                  </span>
                 </span>
                 <span className="text-xs text-foreground-muted">
                   {live.left > 0 ? <span className="font-semibold text-pending">{formatCurrency(live.left)} left</span> : <span className="font-semibold text-available">paid</span>} · {formatCurrency(live.total)}
@@ -173,25 +194,15 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
               </div>
               <ul className="divide-y divide-card-border">
                 {live.cards.map((c) => {
-                  const canPay = c.left > 0 && !c.underReview;
                   return (
                     <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        aria-label={`I paid for ${c.name}`}
-                        title={canPay ? "Tick if you paid for this card" : c.underReview ? "Waiting for the seller to review your proof" : "Already paid"}
-                        checked={picked.has(c.id)}
-                        disabled={!canPay}
-                        onChange={() => togglePick(c.id)}
-                        className="h-4 w-4 rounded border-card-border accent-gold disabled:opacity-30"
-                      />
                       {c.image && (
                         <button type="button" onClick={() => setViewing({ name: c.name, image: catalogImageUrl(c.image, "high") ?? "" })} aria-label={`View ${c.name} larger`} className="shrink-0 cursor-zoom-in overflow-hidden rounded border border-card-border">
                           {/* eslint-disable-next-line @next/next/no-img-element -- small catalog picture from the TCGdex image host */}
                           <img src={catalogImageUrl(c.image) ?? ""} alt="" loading="lazy" className="h-14 w-10 object-cover" />
                         </button>
                       )}
-                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                      <span className="min-w-32 flex-1 truncate">{c.name}</span>
                       <span className="font-medium">{formatCurrency(c.amount)}</span>
                       {c.underReview ? (
                         <Badge tone="pending">Pending review</Badge>
@@ -294,12 +305,12 @@ export function LiveOrders({ customer }: { customer: PortalCustomer }) {
           <h3 className="font-semibold">Send proof of payment</h3>
           <p className="text-xs text-foreground-muted">
             {pickedCards.length > 0
-              ? `${pickedCards.length} card${pickedCards.length === 1 ? "" : "s"} ticked · ${formatCurrency(pickedLeft)} unpaid`
-              : "Tick the cards you paid for above (or just the shipping fee below)."}
+              ? `${pickedLiveCount} invoice${pickedLiveCount === 1 ? "" : "s"} ticked · ${formatCurrency(pickedLeft)} unpaid`
+              : "Tick the invoice (live) you paid above (or just the shipping fee below)."}
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={label}>Amount paid for cards</label>
+              <label className={label}>Amount paid for the invoice</label>
               <Input inputMode="decimal" value={amountText ?? (pickedOwed > 0 ? String(pickedOwed) : "")} onChange={(e) => setAmountText(cleanAmount(e.target.value))} placeholder="0" />
             </div>
             <div>

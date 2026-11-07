@@ -130,6 +130,7 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">Distribution</h1>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           {tabs.map((t) => (

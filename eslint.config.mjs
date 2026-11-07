@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Design tool files installed by `npx impeccable install` - third-party code, not ours to lint.
     ".claude/**",
+    ".impeccable/**",
   ]),
 ]);
 

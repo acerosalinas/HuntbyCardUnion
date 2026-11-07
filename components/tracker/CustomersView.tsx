@@ -63,6 +63,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">Customers and balances</h1>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-2xl border border-card-border bg-card p-4">

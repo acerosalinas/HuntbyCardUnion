@@ -32,7 +32,8 @@ function mixSellers(cards: CardItem[]): CardItem[] {
  * Cards for sale from every seller, drifting sideways like a shop window. It follows the `cards` table live
  * (useRealtimeCards): a new listing joins the showcase, a sold-out or removed one leaves it, with no reload.
  * Reuses the vouch wall's marquee styles (globals.css): the track holds two identical copies and slides exactly
- * half its width, so the loop never jumps. It pauses on hover or focus; with reduced motion it becomes a plain
+ * half its width, so the loop never jumps. The second copy is aria-hidden and skipped by Tab but stays clickable - about half
+ * the time it is the one on screen, so it must never be inert. It pauses on hover or focus; with reduced motion it becomes a plain
  * scrollable strip and the second copy is hidden.
  */
 export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
@@ -61,11 +62,11 @@ export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
           <div
             key={copy}
             className="flex shrink-0 gap-3 pr-3 sm:gap-4 sm:pr-4"
-            {...(copy === 1 ? { "aria-hidden": true, inert: true, "data-dup": "" } : {})}
+            {...(copy === 1 ? { "aria-hidden": true, "data-dup": "" } : {})}
           >
             {cards.map((card) => (
               <div key={card.id} className="w-40 shrink-0 sm:w-52">
-                <CardTile card={card} />
+                <CardTile card={card} decorative={copy === 1} />
               </div>
             ))}
           </div>

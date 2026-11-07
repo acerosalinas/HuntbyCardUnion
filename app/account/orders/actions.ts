@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { wholeInvoiceViolation } from "@/lib/tracker/wholeInvoice";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
 import { validateImageFile } from "@/lib/imageValidation";
@@ -52,7 +53,7 @@ export async function portalSetShipping(customerId: string, saleIds: string[], w
   revalidatePath("/tracker", "layout");
 }
 
-/** The customer sends a proof of payment for the cards they ticked. Nothing counts as paid until the seller confirms it. */
+/** The customer sends a proof of payment for the invoices (lives) they ticked. Nothing counts as paid until the seller confirms it. */
 export async function portalSubmitClaim(formData: FormData) {
   const raw = {
     customerId: String(formData.get("customerId") ?? ""),
@@ -84,6 +85,10 @@ export async function portalSubmitClaim(formData: FormData) {
   const claimable = cards.filter((c) => wanted.has(c.id) && c.left > 0 && !c.underReview);
   if (v.cardsAmount > 0 && claimable.length === 0) throw new Error("None of the ticked cards can be claimed - they may be paid or already under review.");
   if (claimable.length !== v.saleIds.length) throw new Error("Some ticked cards are already paid or under review. Refresh the page and try again.");
+
+  // Strict: a payment is for whole invoices (a live), never for single cards.
+  const notWhole = wholeInvoiceViolation(customer.view.lives, wanted);
+  if (notWhole) throw new Error(notWhole);
 
   const owed = round2(claimable.reduce((n, c) => n + c.left, 0));
   if (v.cardsAmount > owed + 0.001) throw new Error(`The cards you ticked only add up to ${owed.toFixed(2)} unpaid.`);

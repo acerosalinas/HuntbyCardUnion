@@ -53,6 +53,7 @@ export function ProofsView({ items }: { items: ProofItem[] }) {
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">Payment proofs</h1>
       <div className="flex gap-2">
         {(
           [
