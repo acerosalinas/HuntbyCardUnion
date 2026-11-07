@@ -6,7 +6,7 @@ import { VouchWall } from "@/components/VouchWall";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
-import { JustListedMarquee } from "@/components/JustListedMarquee";
+import { CardShowcase } from "@/components/CardShowcase";
 import { CardRow, SellerProfileRow, VouchRow, cardFromRow, sellerProfileFromRow, vouchFromRow } from "@/types/marketplace";
 
 // Was force-dynamic (refetched on every request) - this page has no
@@ -27,7 +27,7 @@ export default async function HomePage() {
     supabase.from("seller_profiles").select("*").order("created_at", { ascending: true }),
     supabase.from("cards").select("admin_id").neq("status", "SOLD"),
     supabase.from("vouches").select("*").order("created_at", { ascending: false }).limit(60),
-    supabase.from("cards").select("*").eq("status", "AVAILABLE").order("created_at", { ascending: false }).limit(12),
+    supabase.from("cards").select("*").in("status", ["AVAILABLE", "PENDING"]).order("created_at", { ascending: false }),
   ]);
   const fresh = ((freshRows as CardRow[] | null) ?? []).map(cardFromRow);
   // The vouch wall needs supabase/migration_vouches.sql; until it has been run the query errors and the section stays hidden.
@@ -67,19 +67,7 @@ export default async function HomePage() {
           </Link>
         </div>
 
-        {fresh.length > 0 && (
-          <section aria-labelledby="fresh-heading" className="mb-12 w-full">
-            <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 id="fresh-heading" className="font-display text-xl font-medium text-foreground sm:text-2xl">
-                Just listed
-              </h2>
-              <Link href="/marketplace" className="text-sm font-medium text-gold-ink underline-offset-4 hover:underline">
-                See all
-              </Link>
-            </div>
-            <JustListedMarquee cards={fresh} />
-          </section>
-        )}
+        <CardShowcase initialCards={fresh} />
 
         <h2 className="mb-1 text-balance text-center font-display text-xl font-medium text-foreground sm:text-2xl">Shop by seller</h2>
         <p className="mb-5 text-center text-sm text-foreground-muted">
