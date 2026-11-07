@@ -59,15 +59,15 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 sm:mb-4">
+        <h1 className="text-xl font-bold sm:text-2xl">Admin Dashboard</h1>
         <span className="text-sm text-foreground-muted">
           {admin.email} · <span className="font-medium text-gold">{isSuper ? "Super Admin" : "Admin"}</span>
         </span>
       </div>
       <MetricCards metrics={metrics} />
       {showPriceReviewBanner && <PriceReviewBanner hasProfile={!!sellerProfile} />}
-      <div className="mt-6">
+      <div className="mt-4 sm:mt-6">
         <AdminTabs isSuperAdmin={isSuper} showTracker={canUseTracker(admin)} />
         {children}
       </div>

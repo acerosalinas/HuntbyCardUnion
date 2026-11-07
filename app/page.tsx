@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { LayoutGrid, Store } from "lucide-react";
+import { Store } from "lucide-react";
 import { SellerSpotlightCard } from "@/components/SellerSpotlightCard";
 import { LandingBackdrop } from "@/components/LandingBackdrop";
 import { VouchWall } from "@/components/VouchWall";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
-import { SellerProfileRow, VouchRow, sellerProfileFromRow, vouchFromRow } from "@/types/marketplace";
+import { JustListedMarquee } from "@/components/JustListedMarquee";
+import { CardRow, SellerProfileRow, VouchRow, cardFromRow, sellerProfileFromRow, vouchFromRow } from "@/types/marketplace";
 
 // Was force-dynamic (refetched on every request) - this page has no
 // per-user content (seller spotlight + counts are the same for everyone;
@@ -22,11 +23,13 @@ export default async function HomePage() {
   }
 
   const supabase = createServerReadClient();
-  const [{ data: profileRows }, { data: cardRows }, { data: vouchRows, error: vouchError }] = await Promise.all([
+  const [{ data: profileRows }, { data: cardRows }, { data: vouchRows, error: vouchError }, { data: freshRows }] = await Promise.all([
     supabase.from("seller_profiles").select("*").order("created_at", { ascending: true }),
     supabase.from("cards").select("admin_id").neq("status", "SOLD"),
     supabase.from("vouches").select("*").order("created_at", { ascending: false }).limit(60),
+    supabase.from("cards").select("*").eq("status", "AVAILABLE").order("created_at", { ascending: false }).limit(12),
   ]);
+  const fresh = ((freshRows as CardRow[] | null) ?? []).map(cardFromRow);
   // The vouch wall needs supabase/migration_vouches.sql; until it has been run the query errors and the section stays hidden.
   const vouches = vouchError ? null : ((vouchRows as VouchRow[] | null) ?? []).map(vouchFromRow);
 
@@ -43,32 +46,45 @@ export default async function HomePage() {
       <LandingBackdrop />
 
       <div className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 py-10 sm:py-12">
-        <h1 className="mb-3 text-balance text-center font-display text-4xl font-medium tracking-tight text-foreground sm:text-5xl">
-          Meet Our Sellers
+        <h1 className="mb-2 text-balance text-center font-display text-3xl font-medium tracking-tight text-foreground sm:text-5xl">
+          Find your next card
         </h1>
-        <div className="mb-4 flex items-center gap-3" aria-hidden="true">
-          <span className="h-px w-10 bg-linear-to-r from-transparent to-gold/60" />
-          <span className="h-1.5 w-1.5 rotate-45 bg-gold" />
-          <span className="h-px w-10 bg-linear-to-l from-transparent to-gold/60" />
-        </div>
         <p className="mb-5 max-w-md text-balance text-center text-sm text-foreground-muted sm:text-base">
-          Get to know who you&apos;re buying from, then browse their live listings, claim dibs, and make offers.
+          Claim it, message the seller, done. No bidding wars, no waiting rooms.
         </p>
-
-        <div className="mb-8 flex items-center gap-6 rounded-full border border-card-border bg-card/60 px-6 py-2.5 text-sm">
-          <span className="flex items-center gap-1.5 text-foreground-muted">
-            <span className="relative mr-0.5 flex h-1.5 w-1.5" aria-hidden="true">
-              <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-gold" />
-            </span>
-            <LayoutGrid size={15} className="text-gold" />
-            <span className="font-semibold tabular-nums text-foreground">{totalListings}</span> live listings
-          </span>
-          <span className="h-4 w-px bg-card-border" />
-          <span className="flex items-center gap-1.5 text-foreground-muted">
-            <Store size={15} className="text-gold" />
-            <span className="font-semibold tabular-nums text-foreground">{profiles.length}</span> sellers
-          </span>
+        <div className="mb-8 flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/marketplace"
+            className="foil-shine overflow-hidden rounded-full bg-gold px-6 py-3 text-sm font-semibold text-navy-950 transition-colors hover:bg-gold-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+          >
+            Browse {totalListings} cards
+          </Link>
+          <Link
+            href="/how-it-works"
+            className="px-2 py-3 text-sm font-medium text-foreground-muted underline underline-offset-4 transition-colors hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+          >
+            How buying works
+          </Link>
         </div>
+
+        {fresh.length > 0 && (
+          <section aria-labelledby="fresh-heading" className="mb-12 w-full">
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 id="fresh-heading" className="font-display text-xl font-medium text-foreground sm:text-2xl">
+                Just listed
+              </h2>
+              <Link href="/marketplace" className="text-sm font-medium text-gold-ink underline-offset-4 hover:underline">
+                See all
+              </Link>
+            </div>
+            <JustListedMarquee cards={fresh} />
+          </section>
+        )}
+
+        <h2 className="mb-1 text-balance text-center font-display text-xl font-medium text-foreground sm:text-2xl">Shop by seller</h2>
+        <p className="mb-5 text-center text-sm text-foreground-muted">
+          {profiles.length} sellers · {totalListings} live listings
+        </p>
 
         {profiles.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border px-8 py-16 text-center">
@@ -87,25 +103,6 @@ export default async function HomePage() {
 
       {vouches && <VouchWall initialVouches={vouches} />}
 
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 pb-10 sm:pb-12">
-        <div className="mt-2 flex flex-col items-center gap-2 text-center">
-          <Link
-            href="/marketplace"
-            className="foil-shine overflow-hidden rounded-full border border-gold/40 bg-navy-950 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.15em] text-gold transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-          >
-            Browse All Cards
-          </Link>
-          <Link
-            href="/how-it-works"
-            className="py-1.5 text-xs font-medium text-foreground-muted underline underline-offset-4 transition-colors hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-          >
-            New here? See how buying works
-          </Link>
-          <p className="mt-2 text-xs text-foreground-muted">
-            Claim it, message the seller, done — no bidding wars, no waiting rooms.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

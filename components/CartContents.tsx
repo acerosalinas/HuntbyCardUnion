@@ -11,7 +11,7 @@ import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { buildMessengerUrl, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { buildMessengerUrl, extractErrorMessage, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { formatCodShipDate } from "@/lib/codSchedule";
 import { CardItem, CardRow, cardFromRow, FulfillmentMethod, PaymentMethod, PlaceOrderResult } from "@/types/marketplace";
 
@@ -281,8 +281,8 @@ export function CartContents() {
   };
 
   const renderCardTile = (card: CardItem) => (
-    <div key={card.id} className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card">
-      <Link href={`/card/${card.id}`} className="relative block aspect-[3/4] w-full bg-navy-950/5">
+    <div key={card.id} className="flex overflow-hidden rounded-2xl border border-card-border bg-card">
+      <Link href={`/card/${card.id}`} className="relative block aspect-3/4 w-24 shrink-0 self-start bg-navy-950/5 sm:w-28">
         {card.images[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
           <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
@@ -292,13 +292,13 @@ export function CartContents() {
           </div>
         )}
       </Link>
-      <div className="flex flex-1 flex-col gap-2 p-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
         <div>
-          <p className="line-clamp-1 text-sm font-semibold text-foreground">{card.title}</p>
-          <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>
+          <p className="line-clamp-2 text-sm font-semibold text-foreground">{card.title}</p>
+          {hasKnownSet(card.setName) && <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>}
         </div>
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-bold text-foreground">{formatCurrency(getUnitPrice(card))}</p>
+          <p className="text-lg font-bold tabular-nums text-gold-ink">{formatCurrency(getUnitPrice(card))}</p>
           {getOfferId(card.id) && (
             <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold">
               Offer Price
@@ -320,7 +320,7 @@ export function CartContents() {
             />
           </div>
         )}
-        <Button variant="outline" className="mt-auto w-full" onClick={() => removeFromCart(card.id)}>
+        <Button variant="outline" className="mt-auto self-start" onClick={() => removeFromCart(card.id)}>
           <Trash2 size={14} />
           Remove
         </Button>
@@ -392,7 +392,7 @@ export function CartContents() {
       )}
 
       {!loading && error && cards.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-24 text-center">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-14 text-center sm:py-20">
           <p className="text-sm text-sold">{error}</p>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Try Again
@@ -401,7 +401,7 @@ export function CartContents() {
       )}
 
       {!loading && !error && cards.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-14 text-center sm:py-20">
           <ShoppingCart size={28} className="mb-3 text-foreground-muted" />
           <p className="mb-4 text-sm text-foreground-muted">Your cart is empty.</p>
           <Link href="/">
@@ -418,7 +418,7 @@ export function CartContents() {
                 <Truck size={16} />
                 Ship Out ({shipCards.reduce((sum, c) => sum + getQty(c.id), 0)})
               </h2>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {shipCards.map(renderCardTile)}
               </div>
             </div>
@@ -430,7 +430,7 @@ export function CartContents() {
                 <PackageCheck size={16} />
                 Stash With Us ({stashCards.reduce((sum, c) => sum + getQty(c.id), 0)})
               </h2>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {stashCards.map(renderCardTile)}
               </div>
             </div>

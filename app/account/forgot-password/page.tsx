@@ -24,7 +24,7 @@ export default function ForgotPasswordPage() {
         <p className="text-center text-sm text-foreground-muted">
           If that email has an account, we&apos;ve sent a link to reset your password.
         </p>
-        <Link href="/account/login" className="text-sm text-gold hover:underline">
+        <Link href="/account/login" className="text-sm font-medium text-gold-ink hover:underline">
           Back to sign in
         </Link>
       </div>
@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
           {pending ? "Sending..." : "Send Reset Link"}
         </Button>
         <p className="text-center text-sm text-foreground-muted">
-          <Link href="/account/login" className="text-gold hover:underline">
+          <Link href="/account/login" className="font-medium text-gold-ink hover:underline">
             Back to sign in
           </Link>
         </p>

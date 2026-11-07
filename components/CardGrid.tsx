@@ -10,7 +10,7 @@ export function CardGrid({
 }) {
   if (cards.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-14 text-center sm:py-20">
         <p className="text-foreground-muted">No cards match your search.</p>
       </div>
     );

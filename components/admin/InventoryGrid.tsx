@@ -73,7 +73,7 @@ export function InventoryGrid({
                 selected ? "border-gold ring-2 ring-gold/40" : "border-card-border",
               )}
             >
-              <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+              <div className="relative aspect-3/4 w-full bg-navy-950/5">
                 {card.images[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
                   <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />

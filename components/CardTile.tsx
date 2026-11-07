@@ -4,19 +4,31 @@ import Link from "next/link";
 import { Heart, ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ConditionBadges } from "@/components/ConditionBadges";
-import { RarityBadge } from "@/components/RarityBadge";
 import { SealedTypeBadge } from "@/components/SealedTypeBadge";
+import { parseConditionGrade } from "@/lib/conditionGrade";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useWishlist } from "@/hooks/useWishlist";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
+
+/** One quiet line under the title: condition or grade, then the set when we know it. Placeholder values ("Unknown Set", rarity "Other") say nothing and are left out. */
+function tileMeta(card: CardItem): string {
+  const parts: string[] = [];
+  if (card.productType !== "SEALED") {
+    const parsed = parseConditionGrade(card.conditionGrade);
+    parts.push(parsed.type === "RAW" ? `Raw ${parsed.condition}` : `${parsed.grader} ${parsed.gradeNumber}`);
+    if (card.rarity && card.rarity !== "Other") parts.push(card.rarity);
+  }
+  if (hasKnownSet(card.setName)) parts.push(card.setName);
+  return parts.join(" · ");
+}
 
 export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNegotiating?: boolean }) {
   const { buyer } = useBuyerIdentity();
   const { isWishlisted, toggle } = useWishlist();
   const wishlisted = isWishlisted(card.id);
   const isSold = card.status === "SOLD";
+  const meta = tileMeta(card);
   const isLowStock = !isSold && card.quantity > 1 && card.quantityAvailable <= Math.ceil(card.quantity * 0.2);
 
   return (
@@ -31,7 +43,7 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
           : "border-card-border bg-card hover:border-gold/50",
       )}
     >
-      <div className="relative aspect-[3/4] w-full overflow-hidden bg-navy-950/5">
+      <div className="relative aspect-3/4 w-full overflow-hidden bg-navy-950/5">
         {card.images[0] ? (
           // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs, not local assets
           <img
@@ -46,17 +58,12 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
             <ImageOff size={28} />
           </div>
         )}
-        <div className={cn("absolute left-2 top-2 flex flex-wrap gap-1.5", buyer ? "right-11" : "right-2")}>
-          {card.productType === "SEALED" ? (
-            <SealedTypeBadge sealedType={card.sealedType} />
-          ) : (
-            <>
-              <ConditionBadges conditionGrade={card.conditionGrade} />
-              <RarityBadge rarity={card.rarity} franchise={card.franchise} />
-            </>
-          )}
-          {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
-        </div>
+        {(card.isFlashSale || card.productType === "SEALED") && (
+          <div className={cn("absolute left-2 top-2 flex flex-wrap gap-1.5", buyer ? "right-11" : "right-2")}>
+            {card.productType === "SEALED" && <SealedTypeBadge sealedType={card.sealedType} />}
+            {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
+          </div>
+        )}
         {buyer && (
           <button
             type="button"
@@ -77,21 +84,19 @@ export function CardTile({ card, isNegotiating = false }: { card: CardItem; isNe
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-3 sm:p-3.5">
-        <div className="min-w-0">
-          <h3 className="line-clamp-1 font-semibold text-foreground">{card.title}</h3>
-          <p className="line-clamp-1 text-sm text-foreground-muted">{card.setName}</p>
+      <div className="flex flex-1 flex-col gap-1.5 p-3 sm:p-3.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-xl font-bold tabular-nums text-gold-ink">{formatCurrency(card.price)}</span>
+          {/* card.holdingOfferId (see migration_offer_hold.sql) covers the full hold - PENDING, COUNTERED, and ACCEPTED - a broader signal than the isNegotiating prop's PENDING-only one, so either firing is enough. */}
+          {(isNegotiating || card.holdingOfferId !== null) && !isSold ? (
+            <Badge tone="gold">On Hold</Badge>
+          ) : (
+            card.status !== "AVAILABLE" && <StatusBadge status={card.status} />
+          )}
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <span className="text-lg font-bold tabular-nums text-foreground">{formatCurrency(card.price)}</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {/* card.holdingOfferId (see migration_offer_hold.sql) covers the full hold - PENDING, COUNTERED, and ACCEPTED - a broader signal than the isNegotiating prop's PENDING-only one, so either firing is enough. */}
-            {(isNegotiating || card.holdingOfferId !== null) && !isSold && <Badge tone="gold">On Hold</Badge>}
-            <StatusBadge status={card.status} />
-          </div>
-        </div>
-        <p className="line-clamp-1 text-xs text-foreground-muted">{card.sellerHandle}</p>
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{card.title}</h3>
+        {meta && <p className="line-clamp-1 text-xs text-foreground-muted">{meta}</p>}
+        <p className="line-clamp-1 text-xs text-foreground-muted/80">{card.sellerHandle}</p>
 
         {!isSold && card.quantity > 1 && (
           <div className="rounded-lg bg-background-elevated/60 px-2.5 py-1.5">

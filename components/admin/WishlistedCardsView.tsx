@@ -95,7 +95,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                   )}
                 </button>
                 <div className="min-w-0 flex-1 basis-56">
-                  <button type="button" onClick={() => setViewingId(w.id)} className="break-words text-left text-sm font-semibold hover:text-gold">
+                  <button type="button" onClick={() => setViewingId(w.id)} className="wrap-break-word text-left text-sm font-semibold hover:text-gold">
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">
@@ -145,7 +145,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                   )}
                 </button>
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <button type="button" onClick={() => setViewingId(w.id)} className="break-words text-left text-sm font-semibold hover:text-gold">
+                  <button type="button" onClick={() => setViewingId(w.id)} className="wrap-break-word text-left text-sm font-semibold hover:text-gold">
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">

@@ -319,7 +319,7 @@ export function SalesLogTable({
                 <div className="grid grid-cols-2 gap-4 border-t border-card-border p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                   {group.claims.map((claim) => (
                     <div key={claim.id} className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card">
-                      <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+                      <div className="relative aspect-3/4 w-full bg-navy-950/5">
                         {claim.cardImage ? (
                           // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
                           <img src={claim.cardImage} alt={claim.cardTitle} loading="lazy" decoding="async" className="h-full w-full object-cover" />

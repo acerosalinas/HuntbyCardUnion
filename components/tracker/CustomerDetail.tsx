@@ -747,7 +747,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                     value={p.liveId ?? ""}
                     disabled={pending}
                     onChange={(e) => run(() => setPaymentLive(p.id, e.target.value || null))}
-                    className="max-w-[10rem] truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
+                    className="max-w-40 truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
                   >
                     <option value="">Any (oldest first)</option>
                     {lives

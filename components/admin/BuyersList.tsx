@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, Check, Trash2 } from "lucide-react";
+import { Ban, Check, Search, Trash2 } from "lucide-react";
 import { BuyerAccountSummary, deleteBuyer, setBuyerBlocked } from "@/app/admin/accountActions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { extractErrorMessage } from "@/lib/utils";
 
@@ -12,10 +13,14 @@ import { extractErrorMessage } from "@/lib/utils";
  * Buyer roster for the Manage page. Normally it lists everyone using the site (Hold / Delete); with `onHold` it lists
  * the accounts you put on hold (Release / Delete).
  */
+const PAGE_SIZE = 25;
+
 export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSummary[]; onHold?: boolean }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [limit, setLimit] = useState(PAGE_SIZE);
   const confirm = useConfirm();
 
   if (buyers.length === 0) {
@@ -77,8 +82,30 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
     run(buyer, deleteBuyer, "Couldn't delete this account.");
   };
 
+  const needle = search.trim().toLowerCase();
+  const matches = needle
+    ? buyers.filter((b) => [b.email, b.fullName, b.handle].some((v) => v?.toLowerCase().includes(needle)))
+    : buyers;
+  const shown = matches.slice(0, limit);
+
   return (
     <div className="space-y-2">
+      {buyers.length > PAGE_SIZE && (
+        <div className="relative max-w-sm">
+          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground-muted" aria-hidden="true" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setLimit(PAGE_SIZE);
+            }}
+            placeholder="Search email, name or handle"
+            aria-label="Search accounts"
+            className="pl-9"
+          />
+        </div>
+      )}
       {error && <p className="text-sm text-sold">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-card-border">
         <table className="w-full min-w-180 text-left text-sm">
@@ -92,7 +119,7 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
             </tr>
           </thead>
           <tbody>
-            {buyers.map((buyer) => {
+            {shown.map((buyer) => {
               const busy = pending && busyId === buyer.id;
               return (
                 <tr key={buyer.id} className="border-t border-card-border">
@@ -137,6 +164,14 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
           </tbody>
         </table>
       </div>
+      {matches.length === 0 && <p className="py-4 text-center text-sm text-foreground-muted">No accounts match &ldquo;{search}&rdquo;.</p>}
+      {matches.length > limit && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" onClick={() => setLimit((l) => l + PAGE_SIZE)}>
+            Show more ({matches.length - limit} left)
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

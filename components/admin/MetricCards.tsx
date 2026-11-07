@@ -21,17 +21,17 @@ export function MetricCards({ metrics }: { metrics: Metrics }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
       {items.map(({ label, value, icon: Icon, href, needsAction }) => (
         <Link
           key={label}
           href={href}
           className={cn(
-            "group rounded-2xl border bg-card p-4 transition-colors hover:border-gold/50",
+            "group rounded-2xl border bg-card p-3 transition-colors hover:border-gold/50 sm:p-4",
             needsAction ? "border-gold/40" : "border-card-border",
           )}
         >
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-1 flex items-center justify-between gap-2 sm:mb-2">
             <span className="text-xs font-medium text-foreground-muted">{label}</span>
             <span className="relative flex shrink-0 items-center">
               <Icon size={16} className="text-gold" aria-hidden="true" />
@@ -43,7 +43,7 @@ export function MetricCards({ metrics }: { metrics: Metrics }) {
               )}
             </span>
           </div>
-          <span className="text-2xl font-bold tabular-nums text-foreground">{value}</span>
+          <span className="text-xl font-bold tabular-nums text-foreground sm:text-2xl">{value}</span>
         </Link>
       ))}
     </div>

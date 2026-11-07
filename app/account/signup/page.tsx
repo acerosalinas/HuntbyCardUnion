@@ -48,7 +48,7 @@ function SignupForm() {
         </Button>
         <p className="text-center text-sm text-foreground-muted">
           Already have an account?{" "}
-          <Link href={`/account/login?from=${encodeURIComponent(from)}`} className="text-gold hover:underline">
+          <Link href={`/account/login?from=${encodeURIComponent(from)}`} className="font-medium text-gold-ink hover:underline">
             Sign in
           </Link>
         </p>

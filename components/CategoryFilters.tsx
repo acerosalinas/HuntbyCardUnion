@@ -15,13 +15,13 @@ export function CategoryFilters({ className }: { className?: string }) {
   const { category, setCategory } = useMarketplaceFilter();
 
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    <div className={cn("flex gap-2 sm:flex-wrap", className)}>
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => setCategory(opt.value)}
           className={cn(
-            "rounded-full border px-3 py-1.5 text-xs font-medium tracking-wide transition-colors",
+            "shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-medium tracking-wide transition-colors",
             category === opt.value
               ? "border-gold bg-gold text-navy-950"
               : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",

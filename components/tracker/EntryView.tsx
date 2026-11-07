@@ -368,7 +368,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
       {/* Live picker */}
       <div className="rounded-2xl border border-card-border bg-card p-4">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[14rem] flex-1">
+          <div className="min-w-56 flex-1">
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">Live</label>
             <Select
               value={liveId ?? ""}
@@ -424,7 +424,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
         </div>
         {editLiveOpen && live && (
           <form onSubmit={submitLiveEdit} className="mt-3 flex flex-wrap items-end gap-3 border-t border-card-border pt-3">
-            <div className="min-w-[12rem] flex-1">
+            <div className="min-w-48 flex-1">
               <label className="mb-1 block text-xs text-foreground-muted">Title</label>
               <Input value={liveDraft.title} onChange={(e) => setLiveDraft({ ...liveDraft, title: e.target.value })} maxLength={120} />
             </div>
@@ -442,7 +442,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
         )}
         {showNewLive && (
           <form onSubmit={submitLive} className="mt-3 flex flex-wrap items-end gap-3 border-t border-card-border pt-3">
-            <div className="min-w-[12rem] flex-1">
+            <div className="min-w-48 flex-1">
               <label className="mb-1 block text-xs text-foreground-muted">Title</label>
               <Input value={newLiveTitle} onChange={(e) => setNewLiveTitle(e.target.value)} placeholder="e.g. Friday night live" maxLength={120} />
             </div>

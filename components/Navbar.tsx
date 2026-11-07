@@ -25,7 +25,22 @@ import { useAdminSession } from "@/hooks/useAdminSession";
 import { useBuyerNotifications } from "@/hooks/useBuyerNotifications";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 
-const AUTH_PATH_PREFIXES = ["/account/login", "/account/signup", "/account/check-email", "/account/complete-profile"];
+const AUTH_PATH_PREFIXES = [
+  "/account/login",
+  "/account/signup",
+  "/account/check-email",
+  "/account/complete-profile",
+  "/account/forgot-password",
+  "/account/reset-password",
+  "/account/on-hold",
+];
+
+const OWN_ROUTES = new Set(["account", "admin", "api", "auth", "card", "cart", "catalog", "how-it-works", "marketplace", "privacy", "refund-policy", "sellers", "terms", "tracker"]);
+
+function isFranchisePath(pathname: string | null): boolean {
+  const parts = (pathname ?? "").split("/").filter(Boolean);
+  return parts.length === 1 && !OWN_ROUTES.has(parts[0]);
+}
 
 export function Navbar() {
   const pathname = usePathname();
@@ -38,6 +53,9 @@ export function Navbar() {
   const isLanding = pathname === "/";
   const isAuthPage = AUTH_PATH_PREFIXES.some((p) => pathname?.startsWith(p));
   const showBrowseControls = !isAdmin && !isLanding && !isAuthPage;
+  // The category chips and rarity filters only do something on the card grids: /marketplace and a franchise page
+  // (a single path segment that is not one of the app's own routes). Elsewhere (cart, account, ...) they were noise.
+  const showFilterRow = showBrowseControls && (pathname === "/marketplace" || isFranchisePath(pathname));
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Called once here (not by two independent <BuyerNotificationBell>/
   // <AdminNotificationBell> instances, one per mobile/desktop row) since
@@ -93,7 +111,7 @@ export function Navbar() {
       <div ref={topBarRef} className="fixed inset-x-0 top-0 z-40">
         <ConnectionBanner />
         <header className="header-edge bg-background/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
         {/* Mobile (<768px): single integrated row - logo, search, quick-access icons, hamburger. Primary nav lives in the drawer instead of a second row. */}
         <div className="flex flex-1 items-center gap-2 md:hidden">
           <Link href="/" className="shrink-0">
@@ -101,7 +119,9 @@ export function Navbar() {
           </Link>
           {showBrowseControls && <SearchBar className="min-w-0 flex-1" />}
           {isAuthPage ? (
-            <ThemeToggle />
+            <div className="ml-auto">
+              <ThemeToggle />
+            </div>
           ) : isAdmin ? (
             <div className="ml-auto flex items-center gap-1">
               <NotificationBell
@@ -224,8 +244,8 @@ export function Navbar() {
           </div>
         </div>
 
-        {showBrowseControls && (
-          <div className="flex flex-wrap items-center gap-2">
+        {showFilterRow && (
+          <div className="-mx-4 flex flex-nowrap items-center gap-2 overflow-x-auto px-4 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 *:shrink-0">
             <CategoryFilters />
             <RarityFilter className="w-auto" />
             <PokemonTypeFilter className="w-auto" />

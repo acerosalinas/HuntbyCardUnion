@@ -11,7 +11,7 @@ export function PriceReviewBanner({ hasProfile }: { hasProfile: boolean }) {
 
   if (!hasProfile) {
     return (
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-navy-950 px-4 py-3 text-sm text-ivory">
+      <div className="mb-4 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-navy-950 px-4 py-3 text-sm text-ivory">
         <span className="flex items-center gap-2">
           <AlertTriangle size={16} className="text-gold" />
           Set up your Seller Profile so buyers can find you on the home page.
@@ -24,7 +24,7 @@ export function PriceReviewBanner({ hasProfile }: { hasProfile: boolean }) {
   }
 
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-navy-950 px-4 py-3 text-sm text-ivory">
+    <div className="mb-4 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-navy-950 px-4 py-3 text-sm text-ivory">
       <span className="flex items-center gap-2">
         <AlertTriangle size={16} className="text-gold" />
         It&apos;s been over a week since you reviewed your card prices — the market moves fast, take a look.

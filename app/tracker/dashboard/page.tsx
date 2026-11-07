@@ -133,7 +133,7 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {kpis.map((k) => (
-          <div key={k.label} className={panel}>
+          <div key={k.label} className={cn(panel, "last:odd:col-span-2 lg:last:col-span-1")}>
             <span className="text-xs font-medium uppercase tracking-wide text-foreground-muted">{k.label}</span>
             <div className={cn("mt-1 text-2xl font-bold", k.accent && "text-pending")}>{k.value}</div>
             <span className="text-xs text-foreground-muted">{k.hint}</span>

@@ -49,3 +49,6 @@ next-env.d.ts
 /.claude/skills/impeccable/scripts/bin/
 # Local-only Claude Code settings (the Impeccable hooks live here).
 /.claude/settings.local.json
+
+# Design review captures and scratch scripts (can show buyer data)
+.impeccable/review/

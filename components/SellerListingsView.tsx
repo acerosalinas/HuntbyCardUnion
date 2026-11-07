@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LayoutGrid, PackageX, Radio } from "lucide-react";
 import { CardGrid } from "@/components/CardGrid";
+import { Button } from "@/components/ui/Button";
+import { useRestorableGrid } from "@/hooks/useRestorableGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
 import { SortMenu } from "@/components/SortMenu";
@@ -59,6 +61,7 @@ export function SellerListingsView({
     [cards, query, category, rarity, pokemonType, sort],
   );
   const availableCards = filtered.filter((c) => c.status === "AVAILABLE");
+  const { visible, hasMore, remaining, loadMore } = useRestorableGrid(filtered, `seller:${handle}|${query}|${category}|${rarity}|${pokemonType}|${sort}`);
 
   return (
     <div>
@@ -103,7 +106,16 @@ export function SellerListingsView({
       )}
 
       {view === "grid" ? (
-        <CardGrid cards={filtered} />
+        <>
+          <CardGrid cards={visible} />
+          {hasMore && (
+            <div className="mt-6 flex justify-center">
+              <Button variant="outline" onClick={loadMore}>
+                Load more ({remaining} left)
+              </Button>
+            </div>
+          )}
+        </>
       ) : (
         <LiveModeStack cards={availableCards} intervalSeconds={liveModeSeconds} />
       )}

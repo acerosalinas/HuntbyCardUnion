@@ -104,8 +104,50 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
               : "No customers match."}
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-card-border bg-card">
-          <table className="w-full min-w-[40rem] text-sm">
+        <>
+        <ul className="divide-y divide-card-border overflow-hidden rounded-2xl border border-card-border bg-card md:hidden">
+          {visible.map((r) => {
+            const pct = r.totals.cardsTotal > 0 ? Math.min(100, Math.round((r.cardsPaid / r.totals.cardsTotal) * 100)) : 0;
+            return (
+              <li key={r.id}>
+                <Link href={`/tracker/customers/${r.id}`} className="block px-4 py-3 active:bg-foreground/5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate font-medium">
+                      {r.name}
+                      {r.islandGroup && <span className="ml-2 text-xs font-normal text-foreground-muted">{ISLAND_GROUP_LABELS[r.islandGroup]}</span>}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-lg font-bold tabular-nums",
+                        r.totals.balance > 0 ? "text-pending" : r.totals.balance < 0 ? "text-available" : "text-foreground-muted",
+                      )}
+                    >
+                      {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2 text-xs text-foreground-muted">
+                    <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-foreground/10">
+                      <div className={cn("h-full rounded-full", pct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="tabular-nums">
+                      {formatCurrency(r.totals.paid)} paid of {formatCurrency(r.totals.cardsTotal + r.totals.shippingCharged)}
+                    </span>
+                  </div>
+                  {(r.totals.awaitingShipCount > 0 || r.totals.toDistributeCount > 0 || r.totals.shippedCount > 0 || r.totals.prepaidShippingCredit > 0) && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {r.totals.awaitingShipCount > 0 && <Badge tone="pending">{r.totals.awaitingShipCount} to ship</Badge>}
+                      {r.totals.toDistributeCount > 0 && <Badge tone="pending">{r.totals.toDistributeCount} to hand over</Badge>}
+                      {r.totals.shippedCount > 0 && <Badge tone="available">{r.totals.shippedCount} shipped</Badge>}
+                      {r.totals.prepaidShippingCredit > 0 && <Badge tone="gold">{formatCurrency(r.totals.prepaidShippingCredit)} prepaid</Badge>}
+                    </div>
+                  )}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="hidden overflow-x-auto rounded-2xl border border-card-border bg-card md:block">
+          <table className="w-full min-w-160 text-sm">
             <thead>
               <tr className="border-b border-card-border text-left text-xs uppercase tracking-wide text-foreground-muted">
                 <th scope="col" className="px-4 py-3">Customer</th>
@@ -163,6 +205,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

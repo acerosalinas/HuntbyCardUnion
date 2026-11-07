@@ -6,7 +6,7 @@ export function ContactUs() {
     <ul className="space-y-2 text-sm">
       <li className="rounded-lg border border-card-border bg-card px-3 py-2">
         <span className="text-foreground-muted">TikTok: </span>
-        <a href={CONTACT.tiktokUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-gold hover:underline">
+        <a href={CONTACT.tiktokUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-gold-ink hover:underline">
           {CONTACT.tiktokHandle}
         </a>
       </li>

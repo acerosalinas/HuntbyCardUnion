@@ -14,7 +14,7 @@ export default async function AccountPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-sm flex-col items-center gap-4 px-4 py-24">
+    <div className="mx-auto flex max-w-sm flex-col items-center gap-4 px-4 py-10 sm:py-16">
       <div className="flex h-14 w-14 items-center justify-center rounded-full border border-gold/40 bg-navy-950 text-gold glow-gold">
         <UserCircle size={26} />
       </div>

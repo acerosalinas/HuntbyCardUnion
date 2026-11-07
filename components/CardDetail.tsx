@@ -21,7 +21,7 @@ import { useMyOffer } from "@/hooks/useMyOffer";
 import { useWishlist } from "@/hooks/useWishlist";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { useCountdown } from "@/hooks/useCountdown";
-import { cn, formatCountdown, formatCurrency } from "@/lib/utils";
+import { cn, formatCountdown, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { weekdayLabel } from "@/lib/codSchedule";
 import { CardItem, FulfillmentMethod, PaymentMethod, SellerProfile } from "@/types/marketplace";
 
@@ -175,7 +175,7 @@ export function CardDetail({
 
       <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
         <div>
-          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-card-border bg-navy-950/5">
+          <div className="relative aspect-3/4 w-full overflow-hidden rounded-2xl border border-card-border bg-navy-950/5">
             {images[activeImage] ? (
               // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs, not local assets
               <img
@@ -220,18 +220,18 @@ export function CardDetail({
             ) : (
               <>
                 <ConditionBadges conditionGrade={card.conditionGrade} />
-                <RarityBadge rarity={card.rarity} franchise={card.franchise} />
+                {card.rarity !== "Other" && <RarityBadge rarity={card.rarity} franchise={card.franchise} />}
               </>
             )}
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
-            <StatusBadge status={card.status} />
+            {card.status !== "AVAILABLE" && <StatusBadge status={card.status} />}
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
           </div>
 
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-foreground">{card.title}</h1>
-              <p className="text-foreground-muted">{card.setName}</p>
+              {hasKnownSet(card.setName) && <p className="text-foreground-muted">{card.setName}</p>}
             </div>
             {buyer && (
               <button
@@ -253,7 +253,7 @@ export function CardDetail({
 
           <div className="flex items-center justify-between border-y border-card-border py-3">
             <div>
-              <span className="text-3xl font-bold text-foreground">{formatCurrency(card.price)}</span>
+              <span className="text-3xl font-bold tabular-nums text-gold-ink">{formatCurrency(card.price)}</span>
               {card.quantity > 1 && (
                 <p className="text-xs text-foreground-muted">
                   {card.quantityAvailable} of {card.quantity} available
@@ -494,7 +494,7 @@ export function CardDetail({
           {initialSellerProfile && (
             <Link
               href={`/sellers/${initialSellerProfile.handle}`}
-              className="group relative mt-2 overflow-hidden rounded-2xl border border-card-border bg-gradient-to-br from-navy-950 to-gold/10 transition-colors hover:border-gold/50"
+              className="group relative mt-2 overflow-hidden rounded-2xl border border-card-border bg-navy-950 transition-colors hover:border-gold/50"
             >
               <div className="relative flex items-center gap-4 p-5">
                 <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gold bg-navy-950 text-gold">

@@ -32,7 +32,7 @@ export function Logo({ src, alt = "Hunt by Card Union", className, size = "sm", 
           <span
             className={cn(
               "font-display font-semibold tracking-tight",
-              isLarge ? "text-xl sm:text-4xl" : "text-xs whitespace-nowrap sm:text-lg",
+              isLarge ? "whitespace-nowrap text-xl sm:text-3xl" : "text-xs whitespace-nowrap sm:text-lg",
             )}
           >
             Hunt <span className="font-normal italic">by Card Union</span>

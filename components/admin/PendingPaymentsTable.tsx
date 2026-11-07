@@ -182,7 +182,7 @@ export function PendingPaymentsTable({
                         busy ? "opacity-60" : "border-card-border",
                       )}
                     >
-                      <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+                      <div className="relative aspect-3/4 w-full bg-navy-950/5">
                         {claim.cardImage ? (
                           // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
                           <img src={claim.cardImage} alt={claim.cardTitle} loading="lazy" decoding="async" className="h-full w-full object-cover" />

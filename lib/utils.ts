@@ -69,3 +69,8 @@ export function isStalePending(claimedAt: number | null, thresholdHours = STALE_
   if (!claimedAt) return false;
   return Date.now() - claimedAt > thresholdHours * 60 * 60 * 1000;
 }
+
+/** Listings without a known set carry the placeholder "Unknown Set"; screens leave it out rather than print it. */
+export function hasKnownSet(setName: string | null | undefined): setName is string {
+  return Boolean(setName) && !/^unknown set$/i.test(setName as string);
+}

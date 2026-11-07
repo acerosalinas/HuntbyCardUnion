@@ -25,6 +25,8 @@
 
   --gold: #d4af37;
   --gold-bright: #ffd700;
+  /* Gold used as TEXT on the page background: the brand gold is too pale on white (about 2:1), so the light theme gets a deeper one (5:1). */
+  --gold-ink: #8a6a00;
   --ivory: #fffff0;
   --ivory-alt: #f8f9fa;
 
@@ -44,6 +46,8 @@
   --border: rgba(212, 175, 55, 0.22);
   --card: #1c2541;
   --card-border: rgba(212, 175, 55, 0.25);
+
+  --gold-ink: var(--gold);
 
   --status-available: #34d399;
   --status-available-bg: rgba(16, 185, 129, 0.12);
@@ -66,6 +70,7 @@
   --color-navy-800: var(--navy-800);
   --color-gold: var(--gold);
   --color-gold-bright: var(--gold-bright);
+  --color-gold-ink: var(--gold-ink);
   --color-ivory: var(--ivory);
   --color-ivory-alt: var(--ivory-alt);
 

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 const links = [
@@ -16,8 +17,20 @@ const links = [
 
 export function TrackerNav({ className, proofCount = 0, planCount = 0 }: { className?: string; proofCount?: number; planCount?: number }) {
   const pathname = usePathname();
+  const navRef = useRef<HTMLElement>(null);
+
+  // On a phone the menu is one swipeable row (it is pinned to the top, so wrapping onto several rows would cover a third of the screen). Keep the current section in view.
+  useEffect(() => {
+    const active = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [pathname]);
+
   return (
-    <nav aria-label="Live Tracker sections" className={cn("flex flex-wrap gap-2", className)}>
+    <nav
+      ref={navRef}
+      aria-label="Live Tracker sections"
+      className={cn("-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&>a]:shrink-0 [&>a]:whitespace-nowrap", className)}
+    >
       {links.map((l) => {
         const active = l.exact ? pathname === l.href : pathname?.startsWith(l.href);
         return (

@@ -278,7 +278,7 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
                     value={p.liveId ?? ""}
                     disabled={pending}
                     onChange={(e) => reassign(p, e.target.value)}
-                    className="max-w-[9rem] truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
+                    className="max-w-36 truncate rounded-md border border-card-border bg-background-elevated px-1.5 py-0.5 text-xs text-foreground"
                   >
                     <option value="">Any (oldest first)</option>
                     {lives

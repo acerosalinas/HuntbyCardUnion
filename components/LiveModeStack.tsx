@@ -5,7 +5,7 @@ import { ImageOff, Pause, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConditionBadges } from "@/components/ConditionBadges";
 import { SealedTypeBadge } from "@/components/SealedTypeBadge";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 const TOSS_DURATION_MS = 500;
@@ -79,7 +79,7 @@ export function LiveModeStack({ cards, intervalSeconds }: { cards: CardItem[]; i
 
   return (
     <div className="mx-auto w-full max-w-sm">
-      <div className="relative aspect-[3/4] w-full">
+      <div className="relative aspect-3/4 w-full">
         {visible.map((card, stackPos) => {
           const isActive = stackPos === 0;
           return (
@@ -115,10 +115,10 @@ export function LiveModeStack({ cards, intervalSeconds }: { cards: CardItem[]; i
                     <ConditionBadges conditionGrade={card.conditionGrade} />
                   )}
                 </div>
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-navy-950/90 to-transparent p-4 pt-10">
+                <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-navy-950/90 to-transparent p-4 pt-10">
                   <p className="line-clamp-1 font-semibold text-ivory">{card.title}</p>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="line-clamp-1 text-sm text-ivory/70">{card.setName}</p>
+                    {hasKnownSet(card.setName) && <p className="line-clamp-1 text-sm text-ivory/70">{card.setName}</p>}
                     <p className="shrink-0 text-lg font-bold text-gold">{formatCurrency(card.price)}</p>
                   </div>
                 </div>

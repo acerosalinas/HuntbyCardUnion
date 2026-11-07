@@ -16,7 +16,7 @@ export default async function CheckEmailPage({
       <p className="text-center text-sm text-foreground-muted">
         We sent you a confirmation link. Click it, then sign in to continue.
       </p>
-      <Link href={`/account/login?from=${encodeURIComponent(from)}`} className="text-sm text-gold hover:underline">
+      <Link href={`/account/login?from=${encodeURIComponent(from)}`} className="text-sm font-medium text-gold-ink hover:underline">
         Go to sign in
       </Link>
     </div>

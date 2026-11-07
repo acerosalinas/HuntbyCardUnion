@@ -168,7 +168,7 @@ export function VouchWall({ initialVouches }: { initialVouches: Vouch[] }) {
           Vouches from our members
         </h2>
         <p className="max-w-md text-sm text-foreground-muted">
-          Real words from approved members about buying here. Bought something? Leave yours.
+          {vouches.length === 0 ? "No vouches yet. Bought something? Be the first to say how it went." : "Real words from members about buying here. Bought something? Leave yours."}
         </p>
         {vouches.length > 0 && (
           <div className="flex items-center gap-2 text-sm text-foreground-muted">
@@ -186,11 +186,7 @@ export function VouchWall({ initialVouches }: { initialVouches: Vouch[] }) {
         )}
       </div>
 
-      {vouches.length === 0 ? (
-        <div className="mx-auto flex max-w-md flex-col items-center rounded-2xl border border-dashed border-card-border px-6 py-10 text-center">
-          <p className="text-sm text-foreground-muted">No vouches yet. Be the first to say how it went.</p>
-        </div>
-      ) : (
+      {vouches.length === 0 ? null : (
         <div role="region" aria-label="Member vouches" className="flex flex-col gap-4">
           {rows.map((row, i) => (
             <Row key={i} vouches={row} userId={buyer?.id ?? null} reverse={i === 1} animate={animate} deletingId={deletingId} onDelete={remove} />

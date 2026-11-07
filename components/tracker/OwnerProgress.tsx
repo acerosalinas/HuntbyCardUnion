@@ -17,7 +17,7 @@ export function OwnerProgressBars({ items, labels, compact = false }: { items: I
   const width = (n: number) => `${Math.min(100, (n / scale) * 100)}%`;
 
   return (
-    <ul className={cn("grid gap-5", compact ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3")}>
+    <ul className={cn("grid gap-5", compact ? "sm:grid-cols-2" : "grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]")}>
       {items.map((o) => {
         const pct = o.expected > 0 ? Math.min(100, Math.round((o.actual / o.expected) * 100)) : 0;
         const toGive = Math.round((o.actual - o.distributed) * 100) / 100;

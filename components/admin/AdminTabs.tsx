@@ -51,7 +51,7 @@ export function AdminTabs({ isSuperAdmin, showTracker = false }: { isSuperAdmin:
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "shrink-0 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors",
+                "shrink-0 whitespace-nowrap border-b-2 px-2.5 py-3 text-sm font-medium transition-colors",
                 active
                   ? "border-gold text-foreground"
                   : "border-transparent text-foreground-muted hover:text-foreground",
@@ -68,8 +68,8 @@ export function AdminTabs({ isSuperAdmin, showTracker = false }: { isSuperAdmin:
           className="mb-1.5 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm text-foreground-muted transition-colors hover:bg-foreground/5 hover:text-foreground sm:px-3"
         >
           <LogOut size={14} aria-hidden="true" />
-          <span className="hidden sm:inline">Sign Out</span>
-          <span className="sr-only sm:hidden">Sign Out</span>
+          <span className="hidden 2xl:inline">Sign Out</span>
+          <span className="sr-only 2xl:hidden">Sign Out</span>
         </button>
       </form>
     </div>

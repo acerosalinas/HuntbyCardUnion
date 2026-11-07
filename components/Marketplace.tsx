@@ -60,22 +60,22 @@ export function Marketplace({
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-foreground-muted transition-colors hover:text-foreground"
-        >
-          <ArrowLeft size={16} />
-          Home
-        </Link>
-        <h1 className="text-lg font-bold text-foreground">{franchiseLabel ?? "All Cards"}</h1>
-      </div>
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
       <LiveDropBanner nextDropAt={nextDropAt} />
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="text-sm text-foreground-muted">
-          {filtered.length} listing{filtered.length === 1 ? "" : "s"}
-        </p>
+      <div className="mb-4 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <Link
+            href="/"
+            className="hidden items-center gap-1 text-xs text-foreground-muted transition-colors hover:text-foreground sm:inline-flex"
+          >
+            <ArrowLeft size={12} />
+            Home
+          </Link>
+          <h1 className="font-display text-2xl font-medium tracking-tight text-foreground">{franchiseLabel ?? "All Cards"}</h1>
+          <p className="text-sm tabular-nums text-foreground-muted">
+            {filtered.length} listing{filtered.length === 1 ? "" : "s"}
+          </p>
+        </div>
         <SortMenu />
       </div>
       <CardGrid cards={visible} negotiatingCardIds={negotiatingCardIds} />

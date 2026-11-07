@@ -381,7 +381,7 @@ export function MyDibsContents() {
         className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
       >
         <Link href={`/card/${claim.card.id}`}>
-          <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+          <div className="relative aspect-3/4 w-full bg-navy-950/5">
             {claim.card.images[0] ? (
               // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
               <img src={claim.card.images[0]} alt={claim.card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
@@ -494,7 +494,7 @@ export function MyDibsContents() {
           inactive && "opacity-60",
         )}
       >
-        <Link href={`/card/${card.id}`} className="relative block aspect-[3/4] w-full bg-navy-950/5">
+        <Link href={`/card/${card.id}`} className="relative block aspect-3/4 w-full bg-navy-950/5">
           {card.images[0] ? (
             // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
             <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
@@ -675,7 +675,7 @@ export function MyDibsContents() {
       )}
 
       {!loading && loadError && (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-24 text-center">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-card-border py-14 text-center sm:py-20">
           <p className="text-sm text-sold">{loadError}</p>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Try Again
@@ -684,7 +684,7 @@ export function MyDibsContents() {
       )}
 
       {isEmpty && (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-24 text-center">
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-card-border py-14 text-center sm:py-20">
           <PackageSearch size={28} className="mb-3 text-foreground-muted" />
           <p className="text-sm text-foreground-muted">You haven&apos;t claimed dibs on any cards yet.</p>
         </div>
@@ -738,7 +738,7 @@ export function MyDibsContents() {
                 href={`/card/${card.id}`}
                 className="flex flex-col overflow-hidden rounded-2xl border border-card-border bg-card transition-shadow hover:glow-gold"
               >
-                <div className="relative aspect-[3/4] w-full bg-navy-950/5">
+                <div className="relative aspect-3/4 w-full bg-navy-950/5">
                   {card.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- arbitrary seller-supplied image URLs
                     <img src={card.images[0]} alt={card.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
