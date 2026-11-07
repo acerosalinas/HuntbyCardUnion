@@ -282,10 +282,9 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
 
     startTransition(async () => {
       try {
-        if (card) {
-          await updateCard(card.id, input);
-        } else {
-          await createCard(input);
+        const result = card ? await updateCard(card.id, input) : await createCard(input);
+        if (result.error) throw new Error(result.error);
+        if (!card) {
           setCatalogId(null);
           // Re-derive sellerHandle from the seller profile, same as the
           // initial mount - a bare emptyForm would blank it back to "" and

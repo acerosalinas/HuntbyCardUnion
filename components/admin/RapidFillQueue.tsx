@@ -176,7 +176,8 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
       franchise: form.franchise,
       quantity,
     })
-      .then(() => {
+      .then((result) => {
+        if (result.error) throw new Error(result.error);
         setCompleted((prev) => new Set(prev).add(current.id));
         setQueue((prev) =>
           prev.map((c) =>

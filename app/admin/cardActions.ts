@@ -7,6 +7,7 @@ import { uploadToR2 } from "@/lib/r2";
 import { canTransitionCardStatus } from "@/lib/cardStatus";
 import { FRANCHISES } from "@/lib/franchises";
 import { CardItem, CardRow, cardFromRow } from "@/types/marketplace";
+import { extractErrorMessage } from "@/lib/utils";
 import { revalidateAdmin, getCardOwner } from "./actionHelpers";
 
 export async function deleteCard(cardId: string) {
@@ -203,7 +204,30 @@ function normalizeQuantity(raw: number): number {
   return Math.max(0, Math.round(raw));
 }
 
-export async function createCard(input: CreateCardInput) {
+/**
+ * Next.js blanks the message of any error thrown out of a server action in production ("Minified React error
+ * #441"), which left the listing form unable to say why a save failed. The two listing saves therefore return the
+ * reason as data instead - the form shows it, and the same message is still written to the server log.
+ */
+async function asResult(label: string, run: () => Promise<void>): Promise<{ error?: string }> {
+  try {
+    await run();
+    return {};
+  } catch (err) {
+    console.error(`[${label}]`, err);
+    return { error: extractErrorMessage(err) ?? "Failed to save listing" };
+  }
+}
+
+export async function createCard(input: CreateCardInput): Promise<{ error?: string }> {
+  return asResult("createCard", () => createCardOrThrow(input));
+}
+
+export async function updateCard(cardId: string, input: CreateCardInput): Promise<{ error?: string }> {
+  return asResult("updateCard", () => updateCardOrThrow(cardId, input));
+}
+
+async function createCardOrThrow(input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
   const quantity = normalizeQuantity(input.quantity);
@@ -233,7 +257,7 @@ export async function createCard(input: CreateCardInput) {
   revalidateAdmin();
 }
 
-export async function updateCard(cardId: string, input: CreateCardInput) {
+async function updateCardOrThrow(cardId: string, input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
   assertOwnsOrSuper(admin, await getCardOwner(supabase, cardId));
