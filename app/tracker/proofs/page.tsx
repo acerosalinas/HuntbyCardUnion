@@ -5,7 +5,6 @@ import type { MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { loadMarketplaceClaims } from "@/lib/tracker/marketplaceData";
 import { parseOwnerLabels } from "@/lib/tracker/data";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
-import { manilaDay } from "@/lib/tracker/proofDays";
 
 export const dynamic = "force-dynamic";
 
@@ -53,11 +52,6 @@ export default async function TrackerProofsPage() {
   const liveIds = [...new Set((sales ?? []).map((s) => s.live_id as string))];
   const { data: lives } = liveIds.length ? await db.from("tracker_lives").select("id, title").eq("owner_id", admin.id).in("id", liveIds) : { data: [] as Record<string, unknown>[] };
 
-  // The day each confirmed proof was paid (the payment date picked when confirming it).
-  const paymentIds = [...new Set(rows.map((c) => c.payment_id as string | null).filter((id): id is string => Boolean(id)))];
-  const { data: paymentRows } = paymentIds.length ? await db.from("tracker_payments").select("id, paid_on").eq("owner_id", admin.id).in("id", paymentIds) : { data: [] as Record<string, unknown>[] };
-  const paidOnOf = new Map((paymentRows ?? []).map((p) => [p.id as string, p.paid_on as string]));
-
   const nameOf = new Map((customerRes.data ?? []).map((c) => [c.id as string, c.name as string]));
   const handleOf = new Map((buyerRes.data ?? []).map((b) => [b.id as string, b.handle as string]));
   const urlOf = new Map(((urlRes.data ?? []) as { path: string | null; signedUrl: string }[]).map((u) => [u.path ?? "", u.signedUrl]));
@@ -79,11 +73,6 @@ export default async function TrackerProofsPage() {
     rejectReason: (c.reject_reason as string | null) ?? null,
     createdAt: c.created_at as string,
     reviewedAt: (c.reviewed_at as string | null) ?? null,
-    day:
-      c.status === "PENDING"
-        ? manilaDay(c.created_at as string)
-        : ((c.payment_id ? paidOnOf.get(c.payment_id as string) : undefined) ?? manilaDay(((c.reviewed_at as string | null) ?? (c.created_at as string)))),
-    distributedAt: (c.distributed_at as string | null | undefined) ?? null,
     proofUrl: urlOf.get(c.proof_path as string) ?? null,
     cards: (cardRes.data ?? [])
       .filter((r) => r.claim_id === c.id)
@@ -121,12 +110,11 @@ export default async function TrackerProofsPage() {
       customerName: customer?.name ?? null,
       note: first.proofNote,
       uploadedAt: first.proofUploadedAt ?? first.claimedAt,
-      day: manilaDay(first.proofUploadedAt ?? first.claimedAt),
       proofUrl: marketUrl.get(path) ?? null,
       total: Math.round(group.reduce((n, c) => n + c.amount, 0) * 100) / 100,
       claims: group.map((c) => ({ id: c.id, title: c.title, packNumber: c.packNumber, amount: c.amount })),
     };
   });
 
-  return <ProofsView items={items} marketItems={marketItems} ownerLabels={ownerLabels} />;
+  return <ProofsView items={items} marketItems={marketItems} />;
 }

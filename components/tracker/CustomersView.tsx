@@ -33,7 +33,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
   const summary = useMemo(
     () => ({
       sold: rows.reduce((s, r) => s + r.totals.cardsTotal, 0),
-      collected: rows.reduce((s, r) => s + r.totals.paid, 0),
+      collected: rows.reduce((s, r) => s + r.totals.cardsPaid, 0),
       outstanding: rows.reduce((s, r) => s + owed(r), 0),
       owing: rows.filter((r) => owed(r) > 0).length,
       toShip: rows.reduce((s, r) => s + r.totals.awaitingShipCount, 0),
@@ -131,13 +131,14 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                       {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
                     </span>
                   </div>
+                  {r.totals.shippingBalance > 0 && <p className="mt-1 text-xs text-foreground-muted">+ {formatCurrency(r.totals.shippingBalance)} shipping fee, kept out of the balance</p>}
                   {r.marketUnpaid > 0 && <p className="mt-1 text-xs text-pending">+ {formatCurrency(r.marketUnpaid)} on the marketplace · {formatCurrency(owed(r))} in all</p>}
                   <div className="mt-1.5 flex items-center gap-2 text-xs text-foreground-muted">
                     <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-foreground/10">
                       <div className={cn("h-full rounded-full", pct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pct}%` }} />
                     </div>
                     <span className="tabular-nums">
-                      {formatCurrency(r.totals.paid)} paid of {formatCurrency(r.totals.cardsTotal + r.totals.shippingCharged)}
+                      {formatCurrency(r.totals.cardsPaid)} paid of {formatCurrency(r.totals.cardsTotal)}
                     </span>
                   </div>
                   {(r.totals.awaitingShipCount > 0 || r.totals.toDistributeCount > 0 || r.totals.shippedCount > 0 || r.totals.prepaidShippingCredit > 0) && (
@@ -175,8 +176,8 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                     </Link>
                     {r.islandGroup && <span className="ml-2 text-xs text-foreground-muted">{ISLAND_GROUP_LABELS[r.islandGroup]}</span>}
                   </td>
-                  <td className="px-4 py-3 text-right">{formatCurrency(r.totals.cardsTotal + r.totals.shippingCharged)}</td>
-                  <td className="px-4 py-3 text-right">{formatCurrency(r.totals.paid)}</td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(r.totals.cardsTotal)}</td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(r.totals.cardsPaid)}</td>
                   <td
                     className={cn(
                       "px-4 py-3 text-right font-semibold",
@@ -185,6 +186,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                   >
                     {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
                     {r.marketUnpaid > 0 && <span className="block text-xs font-normal text-pending">+ {formatCurrency(r.marketUnpaid)} marketplace</span>}
+                    {r.totals.shippingBalance > 0 && <span className="block text-xs font-normal text-foreground-muted">+ {formatCurrency(r.totals.shippingBalance)} shipping fee</span>}
                   </td>
                   <td className="px-4 py-3">
                     {(() => {

@@ -18,8 +18,6 @@ export interface MarketProofItem {
   customerName: string | null;
   note: string | null;
   uploadedAt: string;
-  /** yyyy-mm-dd the screenshot was sent (Philippine time). */
-  day: string;
   /** Short-lived signed link to the private screenshot. */
   proofUrl: string | null;
   total: number;

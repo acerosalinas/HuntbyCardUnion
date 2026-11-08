@@ -6,11 +6,8 @@ import { Check, ExternalLink, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { confirmClaim, rejectClaim, setProofDistributed } from "@/app/tracker/paymentActions";
+import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
-import { DayEntry, dayLabel, groupByDay } from "@/lib/tracker/proofDays";
-import { ownerColor } from "@/lib/tracker/ownerColors";
-import type { OwnerLabel } from "@/lib/tracker/split";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 export interface ProofItem {
@@ -26,10 +23,6 @@ export interface ProofItem {
   rejectReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
-  /** yyyy-mm-dd the customer paid: the payment date picked when it was confirmed, else the day it was sent or reviewed. */
-  day: string;
-  /** When the confirmed payment was split between the card owners, or null while it is still waiting. */
-  distributedAt: string | null;
   /** Short-lived signed link to the private screenshot. */
   proofUrl: string | null;
   cards: { name: string; amount: number; liveTitle: string; owner: string }[];
@@ -54,67 +47,27 @@ function todayLocal(): string {
 }
 
 /** Live Tracker proofs and marketplace payment screenshots in one inbox, newest first. */
-export function ProofsView({ items, marketItems = [], ownerLabels = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[]; ownerLabels?: OwnerLabel[] }) {
-  type Tab = "PENDING" | "TO_DISTRIBUTE" | "DISTRIBUTED" | "REJECTED";
-  const [tab, setTab] = useState<Tab>("PENDING");
+export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[] }) {
+  const [tab, setTab] = useState<"PENDING" | "DONE">("PENDING");
   const pending = items.filter((i) => i.status === "PENDING");
-  const toDistribute = items.filter((i) => i.status === "CONFIRMED" && !i.distributedAt);
-  const distributed = items.filter((i) => i.status === "CONFIRMED" && i.distributedAt);
-  const rejected = items.filter((i) => i.status === "REJECTED");
-  const shown = { PENDING: pending, TO_DISTRIBUTE: toDistribute, DISTRIBUTED: distributed, REJECTED: rejected }[tab];
+  const done = items.filter((i) => i.status !== "PENDING");
+  const shown = tab === "PENDING" ? pending : done;
   // Marketplace screenshots only exist while they wait for review: confirming or rejecting one takes it off the list.
   const shownMarket = tab === "PENDING" ? marketItems : [];
   const toReview = pending.length + marketItems.length;
-  // One divider per day the customers paid, with that day's total by card owner and by person; newest first inside each day.
-  const entries: (DayEntry<{ at: string; node: React.ReactNode }>)[] = [
-    ...shown.map((item) => ({
-      date: item.day,
-      total: item.cardsAmount + item.sfAmount,
-      person: item.customerName,
-      owners: groupByOwner(item.cards).map((g) => ({ name: g.owner, amount: g.total })),
-      item: { at: item.createdAt, node: <ProofCard key={item.id} item={item} /> },
-    })),
-    ...shownMarket.map((item) => ({
-      date: item.day,
-      total: item.total,
-      person: item.customerName ?? item.buyerHandle,
-      owners: [],
-      item: { at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> },
-    })),
-  ].sort((a, b) => b.item.at.localeCompare(a.item.at));
-  const days = groupByDay(entries);
-
-  // Per day and per owner: what was received on confirmed proofs and how much of it has already been handed out. Counted over every
-  // confirmed proof, whichever tab is open, so a day reads the same on To distribute and on Distributed.
-  const ownerStats = new Map<string, Map<string, { received: number; distributed: number }>>();
-  for (const item of items) {
-    if (item.status !== "CONFIRMED") continue;
-    const day = ownerStats.get(item.day) ?? new Map<string, { received: number; distributed: number }>();
-    for (const g of groupByOwner(item.cards)) {
-      const stat = day.get(g.owner) ?? { received: 0, distributed: 0 };
-      stat.received += g.total;
-      if (item.distributedAt) stat.distributed += g.total;
-      day.set(g.owner, stat);
-    }
-    ownerStats.set(item.day, day);
-  }
-  const pctDone = (st: { received: number; distributed: number }) => (st.received > 0 ? (st.distributed / st.received) * 100 : 0);
-  const showOwnerBars = tab === "TO_DISTRIBUTE" || tab === "DISTRIBUTED";
-  const ownerOrder = (name: string) => {
-    const i = ownerLabels.findIndex((o) => o.name === name);
-    return i === -1 ? 999 : i;
-  };
+  const inbox = [
+    ...shown.map((item) => ({ at: item.createdAt, node: <ProofCard key={item.id} item={item} /> })),
+    ...shownMarket.map((item) => ({ at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Payment proofs</h1>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex gap-2">
         {(
           [
             ["PENDING", "To review", toReview],
-            ["TO_DISTRIBUTE", "To distribute", toDistribute.length],
-            ["DISTRIBUTED", "Distributed", distributed.length],
-            ["REJECTED", "Rejected", rejected.length],
+            ["DONE", "Reviewed", done.length],
           ] as const
         ).map(([id, text, count]) => (
           <button
@@ -131,77 +84,12 @@ export function ProofsView({ items, marketItems = [], ownerLabels = [] }: { item
         ))}
       </div>
 
-      {days.length === 0 ? (
+      {inbox.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-12 text-center text-sm text-foreground-muted">
-          {
-            {
-              PENDING: "No payment proofs waiting for review.",
-              TO_DISTRIBUTE: "Every confirmed payment has been distributed.",
-              DISTRIBUTED: "Nothing distributed yet.",
-              REJECTED: "No rejected proofs.",
-            }[tab]
-          }
+          {tab === "PENDING" ? "No payment proofs waiting for review." : "Nothing reviewed yet."}
         </p>
       ) : (
-        days.map((day) => (
-          <div key={day.date} className="space-y-3">
-            <div className="rounded-xl border border-card-border bg-background-elevated px-3 py-2.5 text-sm">
-              <h2 className="font-semibold">{dayLabel(day.date)}</h2>
-              {showOwnerBars && (
-                (() => {
-                  const stats = [...(ownerStats.get(day.date) ?? new Map<string, { received: number; distributed: number }>()).entries()].sort(
-                    ([x], [y]) => ownerOrder(x) - ownerOrder(y) || x.localeCompare(y),
-                  );
-                  const total = {
-                    received: stats.reduce((n, [, st]) => n + st.received, 0),
-                    distributed: stats.reduce((n, [, st]) => n + st.distributed, 0),
-                  };
-                  const row = (key: string, name: string, stat: { received: number; distributed: number }, fill: string, strong = false) => {
-                    const toGive = Math.round((stat.received - stat.distributed) * 100) / 100;
-                    const pct = stat.received > 0 ? Math.min(100, Math.round((stat.distributed / stat.received) * 100)) : 0;
-                    return (
-                      <li key={key}>
-                        <div className="mb-1 flex items-baseline justify-between gap-2">
-                          <span className="font-semibold">{name}</span>
-                          {toGive > 0 ? (
-                            <span className="text-xs text-foreground-muted">
-                              to distribute <span className="text-sm font-bold text-pending">{formatCurrency(toGive)}</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs font-medium text-available">All distributed</span>
-                          )}
-                        </div>
-                        <div
-                          role="progressbar"
-                          aria-label={`${name} distributed`}
-                          aria-valuenow={pct}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          className={cn("overflow-hidden rounded-full bg-foreground/10", strong ? "h-3.5" : "h-2.5")}
-                        >
-                          <div className={cn("h-full rounded-full transition-all", fill)} style={{ width: `${pct}%` }} />
-                        </div>
-                        <p className="mt-0.5 text-xs text-foreground-muted">
-                          {formatCurrency(stat.distributed)} of {formatCurrency(stat.received)} given out
-                        </p>
-                      </li>
-                    );
-                  };
-                  return (
-                    <ul className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
-                      {stats.length > 1 && row("total", "Total", total, pctDone(total) >= 100 ? "bg-available" : "bg-gold", true)}
-                      {stats.map(([owner, stat]) => {
-                        const code = ownerLabels.find((o) => o.name === owner)?.code ?? null;
-                        return row(owner, owner, stat, ownerColor(code, ownerLabels)?.bar ?? "bg-gold");
-                      })}
-                    </ul>
-                  );
-                })()
-              )}
-            </div>
-            {day.items.map((entry) => entry.node)}
-          </div>
-        ))
+        inbox.map((entry) => entry.node)
       )}
     </div>
   );
@@ -222,14 +110,6 @@ function ProofCard({ item }: { item: ProofItem }) {
       } catch (err) {
         setError(extractErrorMessage(err) ?? "Something went wrong.");
       }
-    });
-  };
-
-  const setDistributed = (distributed: boolean) => {
-    setError(null);
-    startTransition(async () => {
-      const result = await setProofDistributed(item.id, distributed);
-      if (result.error) setError(result.error);
     });
   };
 
@@ -298,26 +178,6 @@ function ProofCard({ item }: { item: ProofItem }) {
           )}
           {item.note && <p className="rounded-lg bg-foreground/5 px-3 py-2 text-xs">&ldquo;{item.note}&rdquo;</p>}
           {item.status === "REJECTED" && item.rejectReason && <p className="text-xs text-sold">Reason given: {item.rejectReason}</p>}
-
-          {item.status === "CONFIRMED" && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-card-border pt-3">
-              {item.distributedAt ? (
-                <>
-                  <Badge tone="available">Distributed {item.distributedAt.slice(0, 10)}</Badge>
-                  <Button variant="outline" type="button" disabled={pending} onClick={() => setDistributed(false)}>
-                    Undo
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Badge tone="pending">Not distributed yet</Badge>
-                  <Button variant="gold" type="button" disabled={pending} onClick={() => setDistributed(true)}>
-                    <Check size={14} /> Mark as distributed
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
 
           {error && <p className="text-sm text-sold">{error}</p>}
 

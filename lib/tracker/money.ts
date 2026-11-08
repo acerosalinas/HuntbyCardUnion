@@ -28,10 +28,18 @@ export interface CustomerTotals {
   cardsTotal: number;
   /** Shipping fees actually charged (a shipment exists). */
   shippingCharged: number;
+  /** All money received from the customer: cards and shipping fees together. */
   paid: number;
+  /** Money paid toward the cards (everything except shipping-fee payments). */
+  cardsPaid: number;
   /** Money paid specifically toward shipping fees (the "SF" part of payments). */
   shippingPaid: number;
-  /** Positive = customer owes; negative = customer has credit. */
+  /** Shipping fees still unpaid (positive), or paid ahead of any parcel (negative). Kept OUT of the balance on purpose. */
+  shippingBalance: number;
+  /**
+   * What the customer owes for their CARDS: positive = owes, negative = overpaid. Shipping fees are deliberately not part of it - they are
+   * charged only when a parcel ships and paid separately, and mixing them in made prepaid shipping money show up as a mysterious credit.
+   */
   balance: number;
   /** Prepaid shipping money not yet used by a shipment. */
   prepaidShippingCredit: number;
@@ -54,12 +62,15 @@ export function computeCustomerTotals(
   const shippingCharged = sum(shipments.map((s) => s.fee));
   const paid = sum(payments.map((p) => p.amount));
   const shippingPaid = sum(payments.filter((p) => p.purpose === "SHIPPING").map((p) => p.amount));
+  const cardsPaid = round2(paid - shippingPaid);
   return {
     cardsTotal,
     shippingCharged,
     paid,
+    cardsPaid,
     shippingPaid,
-    balance: round2(cardsTotal + shippingCharged - paid),
+    shippingBalance: round2(shippingCharged - shippingPaid),
+    balance: round2(cardsTotal - cardsPaid),
     prepaidShippingCredit: Math.max(0, round2(shippingPaid - shippingCharged)),
     cardCount: sales.length,
     forShippingCount: sales.filter((s) => s.forShipping).length,

@@ -413,12 +413,19 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
 
   const stats = [
     { label: "Cards", value: formatCurrency(totals.cardsTotal) },
-    { label: "Shipping charged", value: formatCurrency(totals.shippingCharged) },
-    { label: "Paid", value: formatCurrency(totals.paid) },
+    { label: "Paid for cards", value: formatCurrency(totals.cardsPaid) },
     {
       label: totals.balance < 0 ? "Credit" : "Balance",
       value: formatCurrency(Math.abs(totals.balance)),
       tone: totals.balance > 0 ? "text-pending" : totals.balance < 0 ? "text-available" : "",
+      hint: "cards only",
+    },
+    // Shipping fees are kept apart from the balance so a prepaid or unpaid fee never looks like a credit or a debt on the cards.
+    {
+      label: "Shipping fee",
+      value: totals.shippingBalance < 0 ? `${formatCurrency(-totals.shippingBalance)} prepaid` : formatCurrency(totals.shippingBalance),
+      tone: totals.shippingBalance > 0 ? "text-pending" : totals.shippingBalance < 0 ? "text-available" : "",
+      hint: `charged ${formatCurrency(totals.shippingCharged)} · paid ${formatCurrency(totals.shippingPaid)}`,
     },
   ];
 
@@ -442,6 +449,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           <div key={s.label} className={panel}>
             <span className="text-xs font-medium uppercase tracking-wide text-foreground-muted">{s.label}</span>
             <div className={`mt-1 text-2xl font-bold ${s.tone ?? ""}`}>{s.value}</div>
+            {s.hint && <span className="text-xs text-foreground-muted">{s.hint}</span>}
           </div>
         ))}
       </div>

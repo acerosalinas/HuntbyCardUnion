@@ -15,14 +15,17 @@ test("round2 removes float drift", () => {
   assert.equal(round2(0.1 + 0.2), 0.3);
 });
 
-test("balance = cards + shipping charged - payments", () => {
+test("balance = cards - card payments; the shipping fee is kept out of it", () => {
   const t = computeCustomerTotals(
     [sale(1500), sale(800)],
     [{ amount: 1000, purpose: "CARDS" }],
     [{ fee: 64 }],
   );
   assert.equal(t.cardsTotal, 2300);
-  assert.equal(t.balance, 1364);
+  assert.equal(t.balance, 1300);
+  assert.equal(t.cardsPaid, 1000);
+  // The 64 shipping fee is tracked on its own: still unpaid, not part of the balance.
+  assert.equal(t.shippingBalance, 64);
   assert.equal(t.cardCount, 2);
 });
 
@@ -45,8 +48,17 @@ test("prepaid shipping is credit until a shipment uses it", () => {
   const payments = [{ amount: 64, purpose: "SHIPPING" as const }];
   assert.equal(computeCustomerTotals([], payments, []).prepaidShippingCredit, 64);
   assert.equal(computeCustomerTotals([], payments, [{ fee: 64 }]).prepaidShippingCredit, 0);
-  // Shipment fee is charged AND the prepaid payment offsets it: net zero owed.
-  assert.equal(computeCustomerTotals([], payments, [{ fee: 64 }]).balance, 0);
+  // Shipment fee is charged AND the prepaid payment offsets it: nothing owed for shipping.
+  assert.equal(computeCustomerTotals([], payments, [{ fee: 64 }]).shippingBalance, 0);
+});
+
+test("prepaid shipping money never shows up as a credit on the card balance", () => {
+  const t = computeCustomerTotals([sale(1000)], [{ amount: 64, purpose: "SHIPPING" }], []);
+  assert.equal(t.balance, 1000);
+  assert.equal(t.shippingBalance, -64);
+  assert.equal(t.prepaidShippingCredit, 64);
+  // A real overpayment of the cards is still a credit.
+  assert.equal(computeCustomerTotals([sale(1000)], [{ amount: 1200, purpose: "CARDS" }], []).balance, -200);
 });
 
 test("awaiting-ship counts only unshipped for-shipping cards", () => {
