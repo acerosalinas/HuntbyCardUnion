@@ -152,6 +152,54 @@ export async function confirmPaidMany(claimIds: string[]): Promise<{ confirmed: 
   return { confirmed: ids.length - failed, failed, firstError };
 }
 
+/**
+ * The seller turns down a payment screenshot a buyer attached to unpaid orders (wrong amount, unreadable...). The screenshot is dropped and the
+ * orders stay unpaid so the buyer can send another; the reason goes to them as a notification. Returns the reason for a refusal as data.
+ */
+export async function rejectOrderProof(claimIds: string[], reason: string): Promise<{ error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    const supabase = createAdminClient();
+    const ids = [...new Set(claimIds)];
+    if (ids.length === 0 || ids.length > 100) return { error: "Pick the orders to reject." };
+    const why = reason.trim().slice(0, 300);
+    if (!why) return { error: "Say why - the buyer will see it." };
+
+    const { data, error } = await supabase.from("card_claims").select("id, buyer_id, status, proof_path, cards(admin_id, title)").in("id", ids);
+    if (error) return { error: error.message };
+    const rows = (data ?? []) as unknown as { id: string; buyer_id: string | null; status: string; proof_path: string | null; cards: { admin_id: string | null; title: string } | null }[];
+    if (rows.length !== ids.length) return { error: "Some of these orders no longer exist - refresh and try again." };
+    for (const row of rows) assertOwnsOrSuper(admin, row.cards?.admin_id ?? null);
+    if (rows.some((r) => r.status !== "PENDING")) return { error: "Some of these orders were already paid or cancelled - refresh and try again." };
+
+    const { error: updateError } = await supabase.from("card_claims").update({ proof_path: null, proof_uploaded_at: null, proof_note: null }).in("id", ids).eq("status", "PENDING");
+    if (updateError) return { error: updateError.message };
+
+    // The file goes too, unless another order still points at it.
+    for (const path of new Set(rows.map((r) => r.proof_path).filter((p): p is string => Boolean(p)))) {
+      const { count } = await supabase.from("card_claims").select("id", { count: "exact", head: true }).eq("proof_path", path);
+      if (!count) await supabase.storage.from("order-proofs").remove([path]);
+    }
+
+    const buyers = new Map<string, string[]>();
+    for (const row of rows) if (row.buyer_id) buyers.set(row.buyer_id, [...(buyers.get(row.buyer_id) ?? []), row.cards?.title ?? "Card"]);
+    for (const [buyerId, titles] of buyers) {
+      await notifyUser(supabase, {
+        recipientId: buyerId,
+        type: "tracker_proof_rejected",
+        title: "Payment proof not accepted",
+        body: `${titles.length === 1 ? `"${titles[0]}"` : `${titles.length} orders`}: ${why} Please send another screenshot.`,
+        link: "/account/dibs",
+      });
+    }
+    revalidateAdmin();
+    return {};
+  } catch (err) {
+    console.error("[rejectOrderProof]", err);
+    return { error: err instanceof Error ? err.message : "Couldn't reject the proof." };
+  }
+}
+
 interface ConfirmedPayment {
   buyerId: string;
   orderId: string | null;

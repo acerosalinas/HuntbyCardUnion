@@ -14,12 +14,17 @@ export interface CustomerRow {
   name: string;
   islandGroup: IslandGroup | null;
   totals: CustomerTotals;
+  /** Pay-now marketplace orders this customer (when linked to an account) has not paid yet. */
+  marketUnpaid: number;
   lastPaymentOn: string | null;
   /** How much of their cards is paid so far (money matched to cards, not shipping fees). */
   cardsPaid: number;
 }
 
 type Filter = "OUTSTANDING" | "TO_SHIP" | "ALL";
+
+/** What a customer owes across both ledgers: the live balance (a credit is not netted) plus their unpaid pay-now marketplace orders. */
+const owed = (r: CustomerRow) => Math.max(0, r.totals.balance) + r.marketUnpaid;
 
 export function CustomersView({ rows }: { rows: CustomerRow[] }) {
   const [filter, setFilter] = useState<Filter>("OUTSTANDING");
@@ -29,8 +34,8 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
     () => ({
       sold: rows.reduce((s, r) => s + r.totals.cardsTotal, 0),
       collected: rows.reduce((s, r) => s + r.totals.paid, 0),
-      outstanding: rows.reduce((s, r) => s + Math.max(0, r.totals.balance), 0),
-      owing: rows.filter((r) => r.totals.balance > 0).length,
+      outstanding: rows.reduce((s, r) => s + owed(r), 0),
+      owing: rows.filter((r) => owed(r) > 0).length,
       toShip: rows.reduce((s, r) => s + r.totals.awaitingShipCount, 0),
     }),
     [rows],
@@ -41,11 +46,11 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
     return rows
       .filter((r) => (q ? r.name.toLowerCase().includes(q) : true))
       .filter((r) => {
-        if (filter === "OUTSTANDING") return r.totals.balance > 0;
+        if (filter === "OUTSTANDING") return owed(r) > 0;
         if (filter === "TO_SHIP") return r.totals.awaitingShipCount > 0;
         return true;
       })
-      .sort((a, b) => (filter === "ALL" ? a.name.localeCompare(b.name) : b.totals.balance - a.totals.balance));
+      .sort((a, b) => (filter === "ALL" ? a.name.localeCompare(b.name) : owed(b) - owed(a)));
   }, [rows, filter, query]);
 
   const cards = [
@@ -126,6 +131,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                       {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
                     </span>
                   </div>
+                  {r.marketUnpaid > 0 && <p className="mt-1 text-xs text-pending">+ {formatCurrency(r.marketUnpaid)} on the marketplace · {formatCurrency(owed(r))} in all</p>}
                   <div className="mt-1.5 flex items-center gap-2 text-xs text-foreground-muted">
                     <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-foreground/10">
                       <div className={cn("h-full rounded-full", pct >= 100 ? "bg-available" : "bg-gold")} style={{ width: `${pct}%` }} />
@@ -178,6 +184,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                     )}
                   >
                     {r.totals.balance < 0 ? `${formatCurrency(-r.totals.balance)} credit` : formatCurrency(r.totals.balance)}
+                    {r.marketUnpaid > 0 && <span className="block text-xs font-normal text-pending">+ {formatCurrency(r.marketUnpaid)} marketplace</span>}
                   </td>
                   <td className="px-4 py-3">
                     {(() => {

@@ -81,6 +81,23 @@ export async function linkCustomerBuyer(customerId: string, buyerId: string | nu
   refresh();
 }
 
+/** Links several customers to the accounts the admin confirmed from the suggestions. Each goes through the same checks as a single link; failures are reported, the rest still link. */
+export async function linkSuggested(pairs: { customerId: string; buyerId: string }[]): Promise<{ linked: string[]; firstError: string | null }> {
+  await requireTrackerAdmin();
+  const list = parse(z.array(z.object({ customerId: z.string().uuid(), buyerId: z.string().uuid() })).max(200), pairs);
+  const linked: string[] = [];
+  let firstError: string | null = null;
+  for (const pair of list) {
+    try {
+      await linkCustomerBuyer(pair.customerId, pair.buyerId);
+      linked.push(pair.customerId);
+    } catch (err) {
+      firstError ??= err instanceof Error ? err.message : "Couldn't link one of them.";
+    }
+  }
+  return { linked, firstError };
+}
+
 /** Returns { error } when it can't be deleted - a thrown message is hidden in production (React #441), so expected refusals come back as a value. */
 export async function deleteCustomer(id: string): Promise<{ error: string } | void> {
   const admin = await requireTrackerAdmin();

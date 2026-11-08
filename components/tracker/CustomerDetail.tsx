@@ -23,6 +23,7 @@ import { undoShipment } from "@/app/tracker/shippingActions";
 import { copyText } from "@/lib/tracker/clipboard";
 import { buildStatementText, computeStatement } from "@/lib/tracker/statement";
 import { CustomerTotals } from "@/lib/tracker/money";
+import { canShipWithParcel, combinedOwed, marketplaceSummary, MarketClaim } from "@/lib/tracker/marketplaceLink";
 import {
   ISLAND_GROUP_LABELS,
   islandGroupForRegion,
@@ -61,12 +62,14 @@ interface Props {
   linkedBuyer: { id: string; handle: string; fullName: string } | null;
   /** This customer's open installment plans (requested or approved), one per card at most. */
   plans: TrackerPlan[];
+  /** Their marketplace orders on this seller's cards (empty when the customer isn't linked to an account). */
+  marketplace: MarketClaim[];
 }
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
-export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer, plans }: Props) {
+export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer, plans, marketplace }: Props) {
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +132,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
     (liveById.get(a.liveId)?.liveDate ?? "").localeCompare(liveById.get(b.liveId)?.liveDate ?? "") || a.createdAt.localeCompare(b.createdAt);
   const pendingCards = sales.filter((s) => !isDone(s)).sort(byOrder);
   const shippedCards = sales.filter(isDone).sort(byOrder);
+  const market = marketplaceSummary(marketplace);
+  const owedTotal = combinedOwed(totals.balance, market);
   const pendingTotal = round2(pendingCards.reduce((n, s) => n + s.amount, 0));
   const pendingPaid = round2(pendingCards.reduce((n, s) => n + paidOf(s.id), 0));
   const pendingPct = pendingTotal > 0 ? Math.min(100, Math.round((pendingPaid / pendingTotal) * 100)) : 0;
@@ -440,6 +445,66 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           </div>
         ))}
       </div>
+
+      {linkedBuyer && (
+        <section className={panel}>
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-semibold">
+              Marketplace orders <span className="text-sm font-normal text-foreground-muted">· @{linkedBuyer.handle.replace(/^@/, "")}</span>
+            </h3>
+            <p className="text-sm">
+              Owes in total <span className="text-lg font-bold tabular-nums">{formatCurrency(owedTotal)}</span>
+              <span className="block text-right text-xs text-foreground-muted sm:inline sm:pl-2">
+                live {formatCurrency(Math.max(0, totals.balance))} + marketplace {formatCurrency(market.unpaid)}
+              </span>
+            </p>
+          </div>
+          {marketplace.length === 0 ? (
+            <p className="py-3 text-sm text-foreground-muted">No open marketplace orders from this buyer.</p>
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-foreground-muted">
+                {market.unpaidCount > 0 && `${market.unpaidCount} unpaid · `}
+                {market.codCount > 0 && `${market.codCount} cash on delivery (${formatCurrency(market.cod)}) · `}
+                {market.readyToShip.length > 0 && `${market.readyToShip.length} paid and ready to ship - they can go in the same parcel as the live cards · `}
+                {market.stashed > 0 && `${market.stashed} stashed with you`}
+              </p>
+              <ul className="divide-y divide-card-border rounded-xl border border-card-border">
+                {marketplace.slice(0, 30).map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                    {c.image && (
+                      // eslint-disable-next-line @next/next/no-img-element -- seller-supplied listing photo
+                      <img src={c.image} alt="" loading="lazy" className="h-12 w-9 shrink-0 rounded border border-card-border object-cover" />
+                    )}
+                    <span className="min-w-32 flex-1 truncate">
+                      {c.title}
+                      {c.packNumber !== null && <span className="text-foreground-muted"> · Pack #{c.packNumber}</span>}
+                    </span>
+                    <span className="font-medium tabular-nums">{formatCurrency(c.amount)}</span>
+                    {c.status === "PENDING" ? (
+                      c.paymentMethod === "COD" ? (
+                        <Badge tone="neutral">Cash on delivery</Badge>
+                      ) : c.proofUploadedAt ? (
+                        <Badge tone="gold">Proof sent</Badge>
+                      ) : (
+                        <Badge tone="pending">Unpaid</Badge>
+                      )
+                    ) : (
+                      <Badge tone="available">Paid</Badge>
+                    )}
+                    {canShipWithParcel(c) ? <Badge tone="gold">Ready to ship</Badge> : c.status === "SOLD" && !c.shipped && <Badge tone="neutral">Stashed</Badge>}
+                  </li>
+                ))}
+              </ul>
+              {marketplace.some((c) => c.status === "PENDING" && c.proofPath) && (
+                <p className="mt-2 text-xs text-foreground-muted">
+                  Payment screenshots wait for you in <Link href="/tracker/proofs" className="text-gold-ink hover:underline">Proofs</Link>.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
 
       {/* Pending cards - one table per live */}
       <section className={panel}>
@@ -929,6 +994,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         onShipped={() => setSelected(new Set())}
         customer={{ id: customer.id, name: customer.name, islandGroup: customer.islandGroup }}
         saleIds={toShip.map((s) => s.id)}
+        marketplace={market.readyToShip}
         prepaidCredit={totals.prepaidShippingCredit}
         rates={settings}
       />

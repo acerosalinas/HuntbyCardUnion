@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { loadTrackerData } from "@/lib/tracker/data";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadMarketplaceClaims } from "@/lib/tracker/marketplaceData";
 import { CustomerDetail } from "@/components/tracker/CustomerDetail";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +22,13 @@ export default async function TrackerCustomerPage({ params }: { params: Promise<
     if (profile) linkedBuyer = { id: profile.id as string, handle: profile.handle as string, fullName: profile.full_name as string };
   }
 
+  // Their marketplace orders on this seller's cards, so one page shows everything this person owes and is waiting on.
+  const marketplace = customer.buyerId ? await loadMarketplaceClaims(createAdminClient(), admin.id, [customer.buyerId]) : [];
+
   return (
     <CustomerDetail
       linkedBuyer={linkedBuyer}
+      marketplace={marketplace}
       customer={customer}
       totals={data.totalsByCustomer[id]}
       lives={data.lives}

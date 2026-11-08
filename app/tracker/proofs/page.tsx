@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { ProofsView, ProofItem } from "@/components/tracker/ProofsView";
+import type { MarketProofItem } from "@/components/tracker/MarketProofCard";
+import { loadMarketplaceClaims } from "@/lib/tracker/marketplaceData";
 import { parseOwnerLabels } from "@/lib/tracker/data";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 
@@ -85,5 +87,34 @@ export default async function TrackerProofsPage() {
       }),
   }));
 
-  return <ProofsView items={items} />;
+  // Marketplace payment screenshots from buyers (My Dibs), so one inbox covers both ledgers. One screenshot can cover several orders.
+  const marketClaims = (await loadMarketplaceClaims(db, admin.id, null)).filter((c) => c.status === "PENDING" && c.proofPath);
+  const marketBuyerIds = [...new Set(marketClaims.map((c) => c.buyerId))];
+  const [marketProfiles, marketCustomers, marketUrls] = await Promise.all([
+    marketBuyerIds.length ? db.from("profiles").select("id, handle").in("id", marketBuyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    marketBuyerIds.length ? db.from("tracker_customers").select("id, name, buyer_id").eq("owner_id", admin.id).in("buyer_id", marketBuyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    marketClaims.length ? db.storage.from("order-proofs").createSignedUrls([...new Set(marketClaims.map((c) => c.proofPath as string))], 3600) : Promise.resolve({ data: [] as { path: string | null; signedUrl: string }[] }),
+  ]);
+  const marketHandle = new Map((marketProfiles.data ?? []).map((p) => [p.id as string, p.handle as string]));
+  const marketCustomer = new Map((marketCustomers.data ?? []).map((c) => [c.buyer_id as string, { id: c.id as string, name: c.name as string }]));
+  const marketUrl = new Map(((marketUrls.data ?? []) as { path: string | null; signedUrl: string }[]).map((u) => [u.path ?? "", u.signedUrl]));
+  const byProof = new Map<string, typeof marketClaims>();
+  for (const claim of marketClaims) byProof.set(claim.proofPath as string, [...(byProof.get(claim.proofPath as string) ?? []), claim]);
+  const marketItems: MarketProofItem[] = [...byProof.entries()].map(([path, group]) => {
+    const first = group[0];
+    const customer = marketCustomer.get(first.buyerId);
+    return {
+      key: path,
+      buyerHandle: marketHandle.get(first.buyerId) ?? "buyer",
+      customerId: customer?.id ?? null,
+      customerName: customer?.name ?? null,
+      note: first.proofNote,
+      uploadedAt: first.proofUploadedAt ?? first.claimedAt,
+      proofUrl: marketUrl.get(path) ?? null,
+      total: Math.round(group.reduce((n, c) => n + c.amount, 0) * 100) / 100,
+      claims: group.map((c) => ({ id: c.id, title: c.title, packNumber: c.packNumber, amount: c.amount })),
+    };
+  });
+
+  return <ProofsView items={items} marketItems={marketItems} />;
 }

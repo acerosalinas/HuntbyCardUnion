@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { markShipped } from "@/app/tracker/shippingActions";
+import type { MarketClaim } from "@/lib/tracker/marketplaceLink";
 import { ISLAND_GROUP_LABELS, IslandGroup, ShippingRates, shippingFeeFor } from "@/lib/tracker/regions";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 
@@ -19,6 +20,8 @@ interface Props {
   /** Prepaid shipping money the customer has on file, not yet used by a parcel. */
   prepaidCredit: number;
   rates: ShippingRates;
+  /** The customer's paid marketplace orders that can ride in this same parcel (they are marked shipped with it). */
+  marketplace?: MarketClaim[];
 }
 
 /** "Mark parcel as shipped": one parcel = one shipping fee, however many cards. Shared by the customer page and the Enter Sales screen. */
@@ -31,7 +34,8 @@ export function ShipDialog(props: Props) {
   );
 }
 
-function ShipDialogBody({ onClose, onShipped, customer, saleIds, prepaidCredit, rates }: Props) {
+function ShipDialogBody({ onClose, onShipped, customer, saleIds, prepaidCredit, rates, marketplace = [] }: Props) {
+  const [rideAlong, setRideAlong] = useState<Set<string>>(new Set(marketplace.map((c) => c.id)));
   const defaultFee = shippingFeeFor(customer.islandGroup, rates);
   const [fee, setFee] = useState(defaultFee === null ? "" : String(defaultFee));
   const [note, setNote] = useState("");
@@ -47,7 +51,7 @@ function ShipDialogBody({ onClose, onShipped, customer, saleIds, prepaidCredit, 
     setError(null);
     startTransition(async () => {
       try {
-        await markShipped({ customerId: customer.id, saleIds, fee: feeNumber, note });
+        await markShipped({ customerId: customer.id, saleIds, fee: feeNumber, note, marketplaceClaimIds: [...rideAlong] });
         onClose();
         onShipped?.();
       } catch (err) {
@@ -59,12 +63,43 @@ function ShipDialogBody({ onClose, onShipped, customer, saleIds, prepaidCredit, 
   return (
     <div className="space-y-4">
       <p className="text-sm text-foreground-muted">
-        {saleIds.length} card{saleIds.length === 1 ? "" : "s"} going out in one parcel to {customer.name}. One shipping fee is charged for the whole parcel.
+        {saleIds.length + rideAlong.size} item{saleIds.length + rideAlong.size === 1 ? "" : "s"} going out in one parcel to {customer.name}. One shipping fee is charged for the whole parcel.
       </p>
       {customer.islandGroup === null && (
         <p className="rounded-lg border border-pending/30 bg-pending-bg px-3 py-2 text-sm text-pending">
           No region saved for this customer, so the fee can&apos;t be worked out automatically. Enter it below, and set their region afterwards.
         </p>
+      )}
+      {marketplace.length > 0 && (
+        <div className="rounded-xl border border-card-border">
+          <p className="border-b border-card-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-foreground-muted">Also in this parcel · marketplace orders</p>
+          <ul className="divide-y divide-card-border text-sm">
+            {marketplace.map((c) => (
+              <li key={c.id}>
+                <label className="flex cursor-pointer items-center gap-2 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={rideAlong.has(c.id)}
+                    onChange={() =>
+                      setRideAlong((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
+                    className="h-4 w-4 rounded border-card-border accent-gold"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {c.title}
+                    {c.packNumber !== null && ` · Pack #${c.packNumber}`}
+                  </span>
+                  <span className="font-medium tabular-nums">{formatCurrency(c.amount)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <div>
         <label className={label}>Shipping fee{customer.islandGroup ? ` (${ISLAND_GROUP_LABELS[customer.islandGroup]})` : ""}</label>

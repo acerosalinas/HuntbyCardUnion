@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
+import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 export interface ProofItem {
@@ -45,11 +46,19 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function ProofsView({ items }: { items: ProofItem[] }) {
+/** Live Tracker proofs and marketplace payment screenshots in one inbox, newest first. */
+export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[] }) {
   const [tab, setTab] = useState<"PENDING" | "DONE">("PENDING");
   const pending = items.filter((i) => i.status === "PENDING");
   const done = items.filter((i) => i.status !== "PENDING");
   const shown = tab === "PENDING" ? pending : done;
+  // Marketplace screenshots only exist while they wait for review: confirming or rejecting one takes it off the list.
+  const shownMarket = tab === "PENDING" ? marketItems : [];
+  const toReview = pending.length + marketItems.length;
+  const inbox = [
+    ...shown.map((item) => ({ at: item.createdAt, node: <ProofCard key={item.id} item={item} /> })),
+    ...shownMarket.map((item) => ({ at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <div className="space-y-4">
@@ -57,7 +66,7 @@ export function ProofsView({ items }: { items: ProofItem[] }) {
       <div className="flex gap-2">
         {(
           [
-            ["PENDING", "To review", pending.length],
+            ["PENDING", "To review", toReview],
             ["DONE", "Reviewed", done.length],
           ] as const
         ).map(([id, text, count]) => (
@@ -75,12 +84,12 @@ export function ProofsView({ items }: { items: ProofItem[] }) {
         ))}
       </div>
 
-      {shown.length === 0 ? (
+      {inbox.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-12 text-center text-sm text-foreground-muted">
           {tab === "PENDING" ? "No payment proofs waiting for review." : "Nothing reviewed yet."}
         </p>
       ) : (
-        shown.map((item) => <ProofCard key={item.id} item={item} />)
+        inbox.map((entry) => entry.node)
       )}
     </div>
   );

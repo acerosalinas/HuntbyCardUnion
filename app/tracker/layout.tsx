@@ -34,6 +34,13 @@ export default async function TrackerLayout({ children }: { children: React.Reac
     .select("id", { count: "exact", head: true })
     .eq("owner_id", admin.id)
     .eq("status", "PENDING");
+  // Marketplace payment screenshots waiting on this seller (quiet 0 until the order-proofs migration has been run).
+  const { count: marketProofCount } = await createAdminClient()
+    .from("card_claims")
+    .select("id, cards!inner(admin_id)", { count: "exact", head: true })
+    .eq("cards.admin_id", admin.id)
+    .eq("status", "PENDING")
+    .not("proof_path", "is", null);
 
   return (
     <div className="min-h-screen">
@@ -72,7 +79,7 @@ export default async function TrackerLayout({ children }: { children: React.Reac
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6">
-        <TrackerNav proofCount={proofCount ?? 0} planCount={planCount ?? 0} />
+        <TrackerNav proofCount={(proofCount ?? 0) + (marketProofCount ?? 0)} planCount={planCount ?? 0} />
       </div>
       </StickyBar>
       <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6">{children}</div>
