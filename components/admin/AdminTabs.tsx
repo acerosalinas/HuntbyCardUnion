@@ -8,25 +8,33 @@ import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/admin/accountActions";
 
-const baseTabs = [
-  { href: "/admin", label: "Pending Payments" },
-  { href: "/admin/offers", label: "Incoming Offers" },
-  { href: "/admin/inventory", label: "Inventory Manager" },
-  { href: "/admin/wanted", label: "Wanted Cards" },
-  { href: "/admin/logs", label: "Sales Log" },
-  { href: "/admin/disputes", label: "Disputes" },
-  { href: "/admin/profile", label: "My Profile" },
-];
+interface Tab {
+  href: string;
+  label: string;
+}
+
+/** Most-used first: money and orders, then stock, then the occasional ones, then account settings. */
+function buildTabs(isSuperAdmin: boolean, showTracker: boolean): Tab[] {
+  return [
+    { href: "/admin", label: "Pending Payments" },
+    ...(showTracker ? [{ href: "/tracker", label: "Live Tracker" }] : []),
+    { href: "/admin/inventory", label: "Inventory Manager" },
+    { href: "/admin/offers", label: "Incoming Offers" },
+    { href: "/admin/logs", label: "Sales Log" },
+    ...(isSuperAdmin ? [{ href: "/admin/live-sales", label: "Live Sales" }] : []),
+    { href: "/admin/wanted", label: "Wanted Cards" },
+    { href: "/admin/disputes", label: "Disputes" },
+    { href: "/admin/profile", label: "My Profile" },
+    ...(isSuperAdmin ? [{ href: "/admin/manage", label: "Manage Admins" }] : []),
+  ];
+}
 
 export function AdminTabs({ isSuperAdmin, showTracker = false }: { isSuperAdmin: boolean; showTracker?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
 
-  const withTracker = showTracker ? [...baseTabs, { href: "/tracker", label: "Live Tracker" }] : baseTabs;
-  const tabs = isSuperAdmin
-    ? [...withTracker, { href: "/admin/live-sales", label: "Live Sales" }, { href: "/admin/manage", label: "Manage Admins" }]
-    : withTracker;
+  const tabs = buildTabs(isSuperAdmin, showTracker);
 
   const isActive = (href: string) => (href === "/admin" ? pathname === "/admin" : Boolean(pathname?.startsWith(href)));
   const current = tabs.find((tab) => isActive(tab.href));

@@ -11,6 +11,8 @@ interface ClaimJoinRow {
   unit_price: number;
   claimed_at: string;
   pack_number: number | null;
+  proof_path: string | null;
+  proof_note: string | null;
   cards: { title: string; admin_id: string | null; images: string[] } | null;
 }
 
@@ -21,7 +23,7 @@ export default async function AdminPendingPaymentsPage() {
   let query = supabase
     .from("card_claims")
     .select(
-      "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, pack_number, cards!inner(title, admin_id, images)",
+      "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, pack_number, proof_path, proof_note, cards!inner(title, admin_id, images)",
     )
     .eq("status", "PENDING")
     // Most-recent-first - the component further groups these by order and
@@ -34,6 +36,16 @@ export default async function AdminPendingPaymentsPage() {
   }
 
   const { data } = await query;
+  // The screenshots are private: each is shown through a short-lived signed link, one per file (a screenshot can cover several claims).
+  const proofUrlByPath = new Map<string, string>();
+  const proofPaths = [...new Set(((data as unknown as ClaimJoinRow[] | null) ?? []).map((r) => r.proof_path).filter((p): p is string => Boolean(p)))];
+  await Promise.all(
+    proofPaths.map(async (path) => {
+      const { data: signed } = await supabase.storage.from("order-proofs").createSignedUrl(path, 600);
+      if (signed?.signedUrl) proofUrlByPath.set(path, signed.signedUrl);
+    }),
+  );
+
   const claims: PendingClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
     id: row.id,
     cardId: row.card_id,
@@ -44,6 +56,8 @@ export default async function AdminPendingPaymentsPage() {
     quantity: row.quantity,
     unitPrice: row.unit_price,
     claimedAt: new Date(row.claimed_at).getTime(),
+    proofUrl: row.proof_path ? (proofUrlByPath.get(row.proof_path) ?? null) : null,
+    proofNote: row.proof_note,
   }));
 
   const queueCounts: Record<string, number> = {};

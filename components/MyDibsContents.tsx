@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { LogoSpinner } from "@/components/LogoSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { HoldCountdown } from "@/components/HoldCountdown";
+import { OrderProofDialog } from "@/components/OrderProofDialog";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useCart } from "@/components/CartProvider";
 import { requestShipping } from "@/app/account/actions";
@@ -40,6 +41,8 @@ interface ClaimedCardView {
   shipRequestedAt: number | null;
   /** Fun Mystery Pack: which numbered pack this claim took. */
   packNumber: number | null;
+  /** When the buyer sent a payment screenshot for this claim (null = none yet). */
+  proofSentAt: number | null;
 }
 
 function claimStage(c: ClaimedCardView): ClaimStage {
@@ -71,6 +74,7 @@ interface ClaimJoinRow {
   payment_method: PaymentMethod;
   ship_requested_at: string | null;
   pack_number: number | null;
+  proof_uploaded_at: string | null;
   cards: CardRow | null;
 }
 
@@ -92,6 +96,8 @@ export function MyDibsContents() {
   const [loading, setLoading] = useState(false);
   const [busyClaimId, setBusyClaimId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // The claim whose payment-proof dialog is open.
+  const [proofFor, setProofFor] = useState<string | null>(null);
   const confirm = useConfirm();
   const [loadError, setLoadError] = useState<string | null>(null);
   // All negotiation actions (accept/decline a counter, add an accepted
@@ -114,7 +120,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, pack_number, cards(*)")
+        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, pack_number, proof_uploaded_at, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -134,6 +140,7 @@ export function MyDibsContents() {
           paymentMethod: row.payment_method,
           shipRequestedAt: row.ship_requested_at ? new Date(row.ship_requested_at).getTime() : null,
           packNumber: row.pack_number ?? null,
+          proofSentAt: row.proof_uploaded_at ? new Date(row.proof_uploaded_at).getTime() : null,
         }));
       setClaims(mappedClaims);
 
@@ -433,6 +440,16 @@ export function MyDibsContents() {
                 Scan to pay {claim.card.sellerHandle}
               </span>
             </a>
+          )}
+          {stage === "PENDING_PAYMENT" && claim.paymentMethod === "PREPAID" && (
+            <>
+              {claim.proofSentAt && (
+                <p className="rounded-lg bg-pending-bg px-3 py-1.5 text-center text-xs font-medium text-pending">Proof sent - waiting for the seller to confirm</p>
+              )}
+              <Button variant={claim.proofSentAt ? "outline" : "gold"} disabled={busy} onClick={() => setProofFor(claim.claimId)} className="w-full">
+                {claim.proofSentAt ? "Send a different screenshot" : "Send proof of payment"}
+              </Button>
+            </>
           )}
           {stage === "PENDING_PAYMENT" && (
             <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
@@ -774,6 +791,20 @@ export function MyDibsContents() {
           </div>
         </div>
       )}
+      {proofFor && (() => {
+        const open = claims.find((c) => c.claimId === proofFor);
+        if (!open) return null;
+        const toProof = (c: ClaimedCardView) => ({ claimId: c.claimId, title: c.card.title + (c.packNumber ? ` (Pack #${c.packNumber})` : ""), total: c.card.price * c.quantity });
+        const siblings = claims.filter((c) => c.claimId !== open.claimId && c.status === "PENDING" && c.paymentMethod === "PREPAID" && c.card.adminId === open.card.adminId);
+        return (
+          <OrderProofDialog
+            claim={toProof(open)}
+            siblings={siblings.map(toProof)}
+            onClose={() => setProofFor(null)}
+            onSent={(ids) => setClaims((prev) => prev.map((c) => (ids.includes(c.claimId) ? { ...c, proofSentAt: new Date().getTime() } : c)))}
+          />
+        );
+      })()}
     </div>
   );
 }

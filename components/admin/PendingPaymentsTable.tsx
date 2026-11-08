@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePending } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/orderActions";
+import { PaymentProofButton } from "@/components/admin/PaymentProofButton";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
 /** One PENDING card_claims row joined to its card - a card can now have several of these at once, one per buyer. */
@@ -20,6 +21,9 @@ export interface PendingClaimView {
   quantity: number;
   unitPrice: number;
   claimedAt: number;
+  /** Short-lived link to the buyer's payment screenshot, when they sent one. */
+  proofUrl: string | null;
+  proofNote: string | null;
 }
 
 type View = "list" | "tiles";
@@ -220,6 +224,7 @@ export function PendingPaymentsTable({
                       </div>
 
                       <div className="flex flex-col gap-1.5 p-3 pt-0">
+                        {claim.proofUrl && <PaymentProofButton url={claim.proofUrl} note={claim.proofNote} title={claim.cardTitle} className="px-2 py-1.5 text-xs" />}
                         <Button variant="primary" disabled={busy} onClick={() => run(claim.id, () => confirmPaid(claim.id))} className="px-2 py-1.5 text-xs">
                           Confirm Paid
                         </Button>
@@ -294,6 +299,7 @@ export function PendingPaymentsTable({
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
+                              {claim.proofUrl && <PaymentProofButton url={claim.proofUrl} note={claim.proofNote} title={claim.cardTitle} />}
                               <Button
                                 variant="primary"
                                 disabled={busy}
