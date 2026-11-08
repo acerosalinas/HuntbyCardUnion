@@ -98,6 +98,7 @@ export function ProofsView({ items, marketItems = [], ownerLabels = [] }: { item
     }
     ownerStats.set(item.day, day);
   }
+  const pctDone = (st: { received: number; distributed: number }) => (st.received > 0 ? (st.distributed / st.received) * 100 : 0);
   const showOwnerBars = tab === "TO_DISTRIBUTE" || tab === "DISTRIBUTED";
   const ownerOrder = (name: string) => {
     const i = ownerLabels.findIndex((o) => o.name === name);
@@ -147,43 +148,55 @@ export function ProofsView({ items, marketItems = [], ownerLabels = [] }: { item
             <div className="rounded-xl border border-card-border bg-background-elevated px-3 py-2.5 text-sm">
               <h2 className="font-semibold">{dayLabel(day.date)}</h2>
               {showOwnerBars && (
-                <ul className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
-                  {[...(ownerStats.get(day.date) ?? new Map<string, { received: number; distributed: number }>()).entries()]
-                    .sort(([a], [b]) => ownerOrder(a) - ownerOrder(b) || a.localeCompare(b))
-                    .map(([owner, stat]) => {
-                      const toGive = Math.round((stat.received - stat.distributed) * 100) / 100;
-                      const pct = stat.received > 0 ? Math.min(100, Math.round((stat.distributed / stat.received) * 100)) : 0;
-                      const code = ownerLabels.find((o) => o.name === owner)?.code ?? null;
-                      const color = ownerColor(code, ownerLabels);
-                      return (
-                        <li key={owner}>
-                          <div className="mb-1 flex items-baseline justify-between gap-2">
-                            <span className="font-semibold">{owner}</span>
-                            {toGive > 0 ? (
-                              <span className="text-xs text-foreground-muted">
-                                to distribute <span className="text-sm font-bold text-pending">{formatCurrency(toGive)}</span>
-                              </span>
-                            ) : (
-                              <span className="text-xs font-medium text-available">All distributed</span>
-                            )}
-                          </div>
-                          <div
-                            role="progressbar"
-                            aria-label={`${owner} distributed`}
-                            aria-valuenow={pct}
-                            aria-valuemin={0}
-                            aria-valuemax={100}
-                            className="h-2.5 overflow-hidden rounded-full bg-foreground/10"
-                          >
-                            <div className={cn("h-full rounded-full transition-all", color?.bar ?? "bg-gold")} style={{ width: `${pct}%` }} />
-                          </div>
-                          <p className="mt-0.5 text-xs text-foreground-muted">
-                            {formatCurrency(stat.distributed)} of {formatCurrency(stat.received)} given out
-                          </p>
-                        </li>
-                      );
-                    })}
-                </ul>
+                (() => {
+                  const stats = [...(ownerStats.get(day.date) ?? new Map<string, { received: number; distributed: number }>()).entries()].sort(
+                    ([x], [y]) => ownerOrder(x) - ownerOrder(y) || x.localeCompare(y),
+                  );
+                  const total = {
+                    received: stats.reduce((n, [, st]) => n + st.received, 0),
+                    distributed: stats.reduce((n, [, st]) => n + st.distributed, 0),
+                  };
+                  const row = (key: string, name: string, stat: { received: number; distributed: number }, fill: string, strong = false) => {
+                    const toGive = Math.round((stat.received - stat.distributed) * 100) / 100;
+                    const pct = stat.received > 0 ? Math.min(100, Math.round((stat.distributed / stat.received) * 100)) : 0;
+                    return (
+                      <li key={key}>
+                        <div className="mb-1 flex items-baseline justify-between gap-2">
+                          <span className="font-semibold">{name}</span>
+                          {toGive > 0 ? (
+                            <span className="text-xs text-foreground-muted">
+                              to distribute <span className="text-sm font-bold text-pending">{formatCurrency(toGive)}</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs font-medium text-available">All distributed</span>
+                          )}
+                        </div>
+                        <div
+                          role="progressbar"
+                          aria-label={`${name} distributed`}
+                          aria-valuenow={pct}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          className={cn("overflow-hidden rounded-full bg-foreground/10", strong ? "h-3.5" : "h-2.5")}
+                        >
+                          <div className={cn("h-full rounded-full transition-all", fill)} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="mt-0.5 text-xs text-foreground-muted">
+                          {formatCurrency(stat.distributed)} of {formatCurrency(stat.received)} given out
+                        </p>
+                      </li>
+                    );
+                  };
+                  return (
+                    <ul className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
+                      {stats.length > 1 && row("total", "Total", total, pctDone(total) >= 100 ? "bg-available" : "bg-gold", true)}
+                      {stats.map(([owner, stat]) => {
+                        const code = ownerLabels.find((o) => o.name === owner)?.code ?? null;
+                        return row(owner, owner, stat, ownerColor(code, ownerLabels)?.bar ?? "bg-gold");
+                      })}
+                    </ul>
+                  );
+                })()
               )}
             </div>
             {day.items.map((entry) => entry.node)}
