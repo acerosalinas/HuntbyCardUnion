@@ -238,6 +238,7 @@ async function createCardOrThrow(input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
   const quantity = normalizeQuantity(input.quantity);
+  if (quantity < 1) throw new Error("A new listing needs at least 1 in stock.");
   assertMysteryRules(input, quantity);
   const row: Record<string, unknown> = {
     title: input.title,

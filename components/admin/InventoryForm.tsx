@@ -179,7 +179,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   // out" - see updateCard in app/admin/*Actions.ts) is reached deliberately
   // rather than by accident while typing. Can't go below however many units
   // are already claimed, same floor the server itself enforces.
-  const minQuantity = card ? card.quantity - card.quantityAvailable : 0;
+  const minQuantity = card ? card.quantity - card.quantityAvailable : 1;
   const isMystery = form.productType === "MYSTERY";
   // A Fun Mystery Pack is 1-10 numbered packs; other listings have no upper limit.
   const maxQuantity = isMystery ? MYSTERY_MAX_PACKS : Infinity;
