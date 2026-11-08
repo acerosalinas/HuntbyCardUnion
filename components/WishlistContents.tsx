@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Heart } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CardGrid } from "@/components/CardGrid";
-import { LogoSpinner } from "@/components/LogoSpinner";
+import { PageSpinner } from "@/components/PageSpinner";
 import { WantedCardForm } from "@/components/WantedCardForm";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -77,10 +77,7 @@ export function WishlistContents() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <h1 className="mb-4 text-lg font-bold text-foreground">My Wishlist</h1>
       {loading ? (
-        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
-          <LogoSpinner size={64} />
-          <p className="text-sm text-foreground-muted">Loading...</p>
-        </div>
+        <PageSpinner />
       ) : error ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-card-border py-24 text-center">
           <p className="text-sm text-sold">{error}</p>

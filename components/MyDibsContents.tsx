@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Banknote, Hourglass, ImageOff, PackageCheck, PackageSearch, QrCode, Truck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { LogoSpinner } from "@/components/LogoSpinner";
+import { PageSpinner } from "@/components/PageSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { HoldCountdown } from "@/components/HoldCountdown";
 import { OrderProofDialog } from "@/components/OrderProofDialog";
@@ -690,10 +690,7 @@ export function MyDibsContents() {
       <h1 className="mb-6 text-2xl font-bold text-foreground">My Dibs {buyer ? `— ${buyer.handle}` : ""}</h1>
 
       {loading && (
-        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
-          <LogoSpinner size={64} />
-          <p className="text-sm text-foreground-muted">Loading...</p>
-        </div>
+        <PageSpinner />
       )}
 
       {!loading && loadError && (

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck, ImageOff, PackageCheck, QrCode, ShoppingCart, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
-import { LogoSpinner } from "@/components/LogoSpinner";
+import { PageSpinner } from "@/components/PageSpinner";
 import { useCart } from "@/components/CartProvider";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -396,10 +396,7 @@ export function CartContents() {
       )}
 
       {loading && (
-        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
-          <LogoSpinner size={64} />
-          <p className="text-sm text-foreground-muted">Loading...</p>
-        </div>
+        <PageSpinner />
       )}
 
       {!loading && error && cards.length === 0 && (
