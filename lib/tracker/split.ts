@@ -104,6 +104,73 @@ export function allocateCardPayments(sales: SplitSale[], payments: SplitPayment[
   return paid;
 }
 
+export interface AttributablePayment extends SplitPayment {
+  id: string;
+  /** Sortable key (payment date + entry time): older payments are used up first when money is pooled. */
+  order: string;
+}
+
+/**
+ * The same allocation as allocateCardPayments, but remembering WHICH payment paid WHICH card: payment id -> (card id -> amount).
+ * Money is pooled exactly as above (explicit ticks first, then a live's own payments, then the general pool oldest-first); where
+ * several payments share a pool they are used up oldest first. Summed per card it always equals allocateCardPayments. This is what
+ * lets one payment be split by card owner, whether it came from a confirmed proof or was marked paid directly.
+ */
+export function attributePayments(sales: SplitSale[], payments: AttributablePayment[], options: { strict?: boolean } = {}): Map<string, Map<string, number>> {
+  const out = new Map<string, Map<string, number>>();
+  const credit = (paymentId: string, saleId: string, amount: number) => {
+    const forPayment = out.get(paymentId) ?? new Map<string, number>();
+    forPayment.set(saleId, round2((forPayment.get(saleId) ?? 0) + amount));
+    out.set(paymentId, forPayment);
+  };
+
+  const byCustomer = new Map<string, SplitSale[]>();
+  for (const s of sales) byCustomer.set(s.customerId, [...(byCustomer.get(s.customerId) ?? []), s]);
+
+  for (const [customerId, unsorted] of byCustomer) {
+    const items = [...unsorted].sort((a, b) => a.order.localeCompare(b.order));
+    const byId = new Map(items.map((s) => [s.id, s]));
+    const room = new Map(items.map((s) => [s.id, s.amount]));
+    const mine = payments.filter((p) => p.customerId === customerId && p.purpose === "CARDS").sort((a, b) => a.order.localeCompare(b.order));
+
+    type Source = { paymentId: string; liveId: string | null; left: number };
+    const sources: Source[] = [];
+    for (const p of mine) {
+      let remaining = p.amount;
+      for (const a of p.allocations ?? []) {
+        const card = byId.get(a.saleId);
+        if (!card) continue;
+        const applied = Math.min(room.get(card.id) ?? 0, a.amount, remaining);
+        if (applied <= 0) continue;
+        room.set(card.id, round2((room.get(card.id) ?? 0) - applied));
+        remaining = round2(remaining - applied);
+        credit(p.id, card.id, applied);
+      }
+      sources.push({ paymentId: p.id, liveId: p.liveId, left: remaining });
+    }
+
+    const consume = (targets: SplitSale[], from: Source[]) => {
+      for (const card of targets) {
+        for (const src of from) {
+          if (src.left <= 0) continue;
+          const open = room.get(card.id) ?? 0;
+          if (open <= 0) break;
+          const take = Math.min(open, src.left);
+          room.set(card.id, round2(open - take));
+          src.left = round2(src.left - take);
+          credit(src.paymentId, card.id, take);
+        }
+      }
+    };
+
+    const liveIds = [...new Set(sources.map((r) => r.liveId).filter((id): id is string => id !== null))];
+    for (const liveId of liveIds) consume(items.filter((s) => s.liveId === liveId), sources.filter((r) => r.liveId === liveId));
+    // Strict: what a live's payment couldn't place stays unallocated; otherwise it joins the general pool.
+    consume(items, sources.filter((r) => r.liveId === null || !options.strict));
+  }
+  return out;
+}
+
 /** Cards and paid-so-far for every (customer, live) pair - what each live's order is worth and how much of it is settled. */
 export function liveBalances(sales: SplitSale[], paid: Map<string, number>): Record<string, Record<string, { cards: number; paid: number }>> {
   const out: Record<string, Record<string, { cards: number; paid: number }>> = {};

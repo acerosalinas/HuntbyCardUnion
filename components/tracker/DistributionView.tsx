@@ -5,28 +5,31 @@ import { useState, useTransition } from "react";
 import { Check, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { setProofDistributed } from "@/app/tracker/paymentActions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { Input } from "@/components/ui/Input";
+import { markDistributedUpTo, setPaymentDistributed } from "@/app/tracker/paymentActions";
 import { dayLabel, groupByDay } from "@/lib/tracker/proofDays";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import type { OwnerLabel } from "@/lib/tracker/split";
 import { cn, formatCurrency } from "@/lib/utils";
 
-/** A confirmed customer payment, and the cards it paid for (grouped by owner below). */
+/** A payment for cards, and the cards it paid for (grouped by owner below). */
 export interface DistributionItem {
   id: string;
   customerId: string;
   customerName: string;
-  buyerHandle: string;
   method: "GCASH" | "MARIBANK";
-  cardsAmount: number;
-  sfAmount: number;
+  /** What was paid toward cards (shipping fees are not part of the owners' money). */
+  amount: number;
   note: string | null;
+  /** A customer's confirmed proof, or an invoice / card the seller marked paid directly. */
+  source: "PROOF" | "DIRECT";
   createdAt: string;
   /** yyyy-mm-dd the customer paid. */
   day: string;
   /** When this payment's money was split between the owners, or null while it is still waiting. */
   distributedAt: string | null;
-  /** Short-lived signed link to the private screenshot. */
+  /** Short-lived signed link to the private screenshot, for payments that came from a proof. */
   proofUrl: string | null;
   cards: { name: string; amount: number; liveTitle: string; owner: string }[];
 }
@@ -48,6 +51,8 @@ function groupByOwner(cards: DistributionItem["cards"]) {
 /** Payment distribution: for each day customers paid, how much of every owner's share is still to hand out, and the payments behind it. */
 export function DistributionView({ items, ownerLabels }: { items: DistributionItem[]; ownerLabels: OwnerLabel[] }) {
   const [tab, setTab] = useState<"TO_DISTRIBUTE" | "DISTRIBUTED">("TO_DISTRIBUTE");
+  // A long history would make a very long page: show the newest days and reveal more on request.
+  const [visibleDays, setVisibleDays] = useState(14);
   const toDistribute = items.filter((i) => !i.distributedAt);
   const distributed = items.filter((i) => i.distributedAt);
   const shown = tab === "TO_DISTRIBUTE" ? toDistribute : distributed;
@@ -58,7 +63,7 @@ export function DistributionView({ items, ownerLabels }: { items: DistributionIt
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((item) => ({
         date: item.day,
-        total: item.cardsAmount + item.sfAmount,
+        total: item.amount,
         person: item.customerName,
         owners: groupByOwner(item.cards).map((g) => ({ name: g.owner, amount: g.total })),
         item,
@@ -118,6 +123,7 @@ export function DistributionView({ items, ownerLabels }: { items: DistributionIt
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Payment distribution</h1>
+      <CatchUp />
       <div className="flex flex-wrap gap-2">
         {(
           [
@@ -144,7 +150,7 @@ export function DistributionView({ items, ownerLabels }: { items: DistributionIt
           {tab === "TO_DISTRIBUTE" ? "Every confirmed payment has been distributed." : "Nothing distributed yet."}
         </p>
       ) : (
-        days.map((day) => {
+        days.slice(0, visibleDays).map((day) => {
           const stats = [...(ownerStats.get(day.date) ?? new Map<string, Stat>()).entries()].sort(([a], [b]) => ownerOrder(a) - ownerOrder(b) || a.localeCompare(b));
           const total = { received: stats.reduce((n, [, s]) => n + s.received, 0), distributed: stats.reduce((n, [, s]) => n + s.distributed, 0) };
           const allDone = total.received > 0 && total.distributed >= total.received;
@@ -167,6 +173,62 @@ export function DistributionView({ items, ownerLabels }: { items: DistributionIt
           );
         })
       )}
+      {days.length > visibleDays && (
+        <div className="text-center">
+          <Button variant="outline" type="button" onClick={() => setVisibleDays((n) => n + 14)}>
+            Show older days ({days.length - visibleDays} more)
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** For payments that were already split before this page existed: marks everything up to a date as distributed in one go. */
+function CatchUp() {
+  const confirm = useConfirm();
+  const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!date) return setMessage("Pick a date first.");
+    const ok = await confirm({
+      title: "Mark everything up to this date as distributed?",
+      message: `Every payment dated ${date} or earlier that is still waiting will be marked as distributed. Use this only for money you have already handed to the owners.`,
+      confirmLabel: "Mark as distributed",
+    });
+    if (!ok) return;
+    startTransition(async () => {
+      const result = await markDistributedUpTo(date);
+      setMessage(result.error ?? `${result.count ?? 0} payment${result.count === 1 ? "" : "s"} marked as distributed.`);
+    });
+  };
+
+  return (
+    <div className="text-sm">
+      {!open ? (
+        <button type="button" onClick={() => setOpen(true)} className="text-xs text-foreground-muted underline-offset-4 hover:text-foreground hover:underline">
+          Already handed out the older payments? Catch up
+        </button>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-card-border bg-card p-3">
+          <div>
+            <label htmlFor="catch-up-date" className="mb-1 block text-xs text-foreground-muted">
+              Mark every payment up to this date as distributed
+            </label>
+            <Input id="catch-up-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <Button variant="outline" type="button" disabled={pending} onClick={run}>
+            Mark as distributed
+          </Button>
+          <Button variant="outline" type="button" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+          {message && <p className="w-full text-xs text-foreground-muted">{message}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -178,7 +240,7 @@ function PaymentCard({ item }: { item: DistributionItem }) {
   const setDistributed = (distributed: boolean) => {
     setError(null);
     startTransition(async () => {
-      const result = await setProofDistributed(item.id, distributed);
+      const result = await setPaymentDistributed(item.id, distributed);
       if (result.error) setError(result.error);
     });
   };
@@ -194,27 +256,21 @@ function PaymentCard({ item }: { item: DistributionItem }) {
               <ExternalLink size={11} /> Open full size
             </span>
           </a>
-        ) : (
+        ) : item.source === "PROOF" ? (
           <div className="flex h-40 w-32 shrink-0 items-center justify-center rounded-lg border border-dashed border-card-border text-xs text-foreground-muted">Screenshot unavailable</div>
-        )}
+        ) : null}
 
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/tracker/customers/${item.customerId}`} className="text-base font-semibold hover:text-gold">
               {item.customerName}
             </Link>
-            {item.buyerHandle && <span className="text-xs text-foreground-muted">@{item.buyerHandle.replace(/^@/, "")}</span>}
+            <Badge tone={item.source === "PROOF" ? "gold" : "neutral"}>{item.source === "PROOF" ? "Customer proof" : "Marked paid by us"}</Badge>
           </div>
 
           <p>
-            <span className="text-lg font-bold">{formatCurrency(item.cardsAmount + item.sfAmount)}</span>{" "}
+            <span className="text-lg font-bold">{formatCurrency(item.amount)}</span>{" "}
             <span className="text-foreground-muted">via {item.method === "GCASH" ? "GCash" : "Maribank"}</span>
-            {item.sfAmount > 0 && (
-              <span className="text-foreground-muted">
-                {" "}
-                · cards {formatCurrency(item.cardsAmount)} + shipping fee {formatCurrency(item.sfAmount)}
-              </span>
-            )}
           </p>
 
           {item.cards.length > 0 ? (
@@ -241,7 +297,7 @@ function PaymentCard({ item }: { item: DistributionItem }) {
               ))}
             </div>
           ) : (
-            <p className="text-xs text-foreground-muted">No cards ticked (shipping fee only).</p>
+            <p className="text-xs text-foreground-muted">This payment isn&apos;t matched to any card yet, so there is nothing to split.</p>
           )}
           {item.note && <p className="rounded-lg bg-foreground/5 px-3 py-2 text-xs">&ldquo;{item.note}&rdquo;</p>}
           {error && <p className="text-sm text-sold">{error}</p>}

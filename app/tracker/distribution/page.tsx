@@ -1,94 +1,77 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { DistributionView, DistributionItem } from "@/components/tracker/DistributionView";
-import { parseOwnerLabels } from "@/lib/tracker/data";
-import { manilaDay } from "@/lib/tracker/proofDays";
-import { normalizeOwnerTag } from "@/lib/tracker/split";
+import { loadTrackerData } from "@/lib/tracker/data";
+import { attributePayments, SplitSale } from "@/lib/tracker/split";
 
 export const dynamic = "force-dynamic";
 
-const MISSING = /tracker_payment_claims|tracker_claim_cards|schema cache|does not exist/i;
-
-/** Payment distribution: the confirmed customer payments, and how much of each owner's share has been handed out. */
+/**
+ * Payment distribution: every payment for cards - a customer's confirmed proof or an invoice / card the seller marked paid directly -
+ * split by card owner, and how much of each owner's share has been handed out.
+ */
 export default async function TrackerDistributionPage() {
   const admin = await requireTrackerAdminOrRedirect();
+  const data = await loadTrackerData(admin.id);
   const db = createAdminClient();
 
+  const liveById = new Map(data.lives.map((l) => [l.id, l]));
+  const saleById = new Map(data.sales.map((s) => [s.id, s]));
+  const customerById = new Map(data.customers.map((c) => [c.id, c]));
+  const ownerNameOf = (tag: string | null) => (tag === null ? "No owner" : (data.settings.ownerLabels.find((o) => o.code === tag)?.name ?? tag));
+
+  // Which card each payment paid, so one payment can be split by owner.
+  const splitSales: SplitSale[] = data.sales.map((s) => ({
+    id: s.id,
+    customerId: s.customerId,
+    liveId: s.liveId,
+    amount: s.amount,
+    ownerTag: s.ownerTag,
+    order: `${liveById.get(s.liveId)?.liveDate ?? ""}|${s.createdAt}`,
+  }));
+  const cardPayments = data.payments.filter((p) => p.purpose === "CARDS" && p.amount > 0);
+  const attribution = attributePayments(
+    splitSales,
+    cardPayments.map((p) => ({ id: p.id, customerId: p.customerId, amount: p.amount, liveId: p.liveId, purpose: p.purpose, allocations: p.allocations, order: `${p.paidOn}|${p.createdAt}` })),
+    { strict: data.settings.strictPayments },
+  );
+
+  // Payments that came from a confirmed customer proof keep their screenshot.
+  const proofByPayment = new Map<string, { path: string; note: string | null }>();
   const { data: claims, error } = await db
     .from("tracker_payment_claims")
-    .select("*")
+    .select("payment_id, proof_path, note")
     .eq("owner_id", admin.id)
     .eq("status", "CONFIRMED")
-    .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) {
-    if (MISSING.test(error.message)) {
-      return (
-        <p className="rounded-2xl border border-dashed border-card-border p-8 text-center text-sm text-foreground-muted">
-          Payment proofs aren&apos;t set up yet. Run <span className="font-mono">supabase/migration_live_tracker_claims.sql</span> in the Supabase SQL editor.
-        </p>
-      );
-    }
-    throw new Error(error.message);
-  }
-  const rows = claims ?? [];
+    .not("payment_id", "is", null)
+    .limit(2000);
+  // The claims table arrives with its own migration; without it every payment is simply a direct one.
+  if (!error) for (const c of claims ?? []) proofByPayment.set(c.payment_id as string, { path: c.proof_path as string, note: (c.note as string | null) ?? null });
+  const paths = [...new Set([...proofByPayment.values()].map((p) => p.path))];
+  const { data: signed } = paths.length ? await db.storage.from("tracker-proofs").createSignedUrls(paths, 3600) : { data: [] as { path: string | null; signedUrl: string }[] };
+  const urlOf = new Map((signed ?? []).map((u) => [u.path ?? "", u.signedUrl]));
 
-  const claimIds = rows.map((c) => c.id as string);
-  const customerIds = [...new Set(rows.map((c) => c.customer_id as string))];
-  const buyerIds = [...new Set(rows.map((c) => c.buyer_id as string))];
-  const paymentIds = [...new Set(rows.map((c) => c.payment_id as string | null).filter((id): id is string => Boolean(id)))];
+  const items: DistributionItem[] = cardPayments.map((p) => {
+    const proof = proofByPayment.get(p.id);
+    const cards = [...(attribution.get(p.id) ?? new Map<string, number>()).entries()].flatMap(([saleId, amount]) => {
+      const sale = saleById.get(saleId);
+      return sale ? [{ name: sale.cardName, amount, liveTitle: liveById.get(sale.liveId)?.title ?? "", owner: ownerNameOf(sale.ownerTag) }] : [];
+    });
+    return {
+      id: p.id,
+      customerId: p.customerId,
+      customerName: customerById.get(p.customerId)?.name ?? "Customer",
+      method: p.method,
+      amount: p.amount,
+      note: p.note ?? proof?.note ?? null,
+      createdAt: p.createdAt,
+      day: p.paidOn,
+      distributedAt: p.distributedAt,
+      source: proof ? "PROOF" : "DIRECT",
+      proofUrl: proof ? (urlOf.get(proof.path) ?? null) : null,
+      cards,
+    };
+  });
 
-  const [settingsRes, cardRes, customerRes, buyerRes, urlRes, paymentRes] = await Promise.all([
-    db.from("tracker_settings").select("owner_labels").eq("owner_id", admin.id).maybeSingle(),
-    claimIds.length ? db.from("tracker_claim_cards").select("claim_id, sale_id, amount").in("claim_id", claimIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    customerIds.length ? db.from("tracker_customers").select("id, name").eq("owner_id", admin.id).in("id", customerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    buyerIds.length ? db.from("profiles").select("id, handle").in("id", buyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    rows.length ? db.storage.from("tracker-proofs").createSignedUrls(rows.map((c) => c.proof_path as string), 3600) : Promise.resolve({ data: [] as { path: string | null; signedUrl: string }[] }),
-    paymentIds.length ? db.from("tracker_payments").select("id, paid_on").eq("owner_id", admin.id).in("id", paymentIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-  ]);
-
-  const saleIds = [...new Set((cardRes.data ?? []).map((r) => r.sale_id as string))];
-  const { data: sales } = saleIds.length
-    ? await db.from("tracker_sales").select("id, card_name, amount, live_id, owner_tag").eq("owner_id", admin.id).in("id", saleIds)
-    : { data: [] as Record<string, unknown>[] };
-  const liveIds = [...new Set((sales ?? []).map((s) => s.live_id as string))];
-  const { data: lives } = liveIds.length ? await db.from("tracker_lives").select("id, title").eq("owner_id", admin.id).in("id", liveIds) : { data: [] as Record<string, unknown>[] };
-
-  const nameOf = new Map((customerRes.data ?? []).map((c) => [c.id as string, c.name as string]));
-  const handleOf = new Map((buyerRes.data ?? []).map((b) => [b.id as string, b.handle as string]));
-  const urlOf = new Map(((urlRes.data ?? []) as { path: string | null; signedUrl: string }[]).map((u) => [u.path ?? "", u.signedUrl]));
-  const paidOnOf = new Map((paymentRes.data ?? []).map((p) => [p.id as string, p.paid_on as string]));
-  const liveTitle = new Map((lives ?? []).map((l) => [l.id as string, l.title as string]));
-  const saleById = new Map((sales ?? []).map((s) => [s.id as string, s]));
-  const ownerLabels = parseOwnerLabels((settingsRes.data as { owner_labels?: unknown } | null)?.owner_labels);
-  const ownerNameOf = (tag: string | null) => (tag === null ? "No owner" : (ownerLabels.find((o) => o.code === tag)?.name ?? tag));
-
-  const items: DistributionItem[] = rows.map((c) => ({
-    id: c.id as string,
-    customerId: c.customer_id as string,
-    customerName: nameOf.get(c.customer_id as string) ?? "Customer",
-    buyerHandle: handleOf.get(c.buyer_id as string) ?? "",
-    method: c.method as "GCASH" | "MARIBANK",
-    cardsAmount: Number(c.cards_amount),
-    sfAmount: Number(c.sf_amount),
-    note: (c.note as string | null) ?? null,
-    createdAt: c.created_at as string,
-    // The day the customer paid: the payment date picked when the proof was confirmed.
-    day: (c.payment_id ? paidOnOf.get(c.payment_id as string) : undefined) ?? manilaDay((c.reviewed_at as string | null) ?? (c.created_at as string)),
-    distributedAt: (c.distributed_at as string | null | undefined) ?? null,
-    proofUrl: urlOf.get(c.proof_path as string) ?? null,
-    cards: (cardRes.data ?? [])
-      .filter((r) => r.claim_id === c.id)
-      .map((r) => {
-        const sale = saleById.get(r.sale_id as string);
-        return {
-          name: (sale?.card_name as string) ?? "Card",
-          amount: Number(r.amount),
-          liveTitle: liveTitle.get((sale?.live_id as string) ?? "") ?? "",
-          owner: ownerNameOf(normalizeOwnerTag(sale?.owner_tag as string | null | undefined)),
-        };
-      }),
-  }));
-
-  return <DistributionView items={items} ownerLabels={ownerLabels} />;
+  return <DistributionView items={items} ownerLabels={data.settings.ownerLabels} />;
 }

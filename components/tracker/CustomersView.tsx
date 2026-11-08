@@ -36,7 +36,6 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
       collected: rows.reduce((s, r) => s + r.totals.cardsPaid, 0),
       outstanding: rows.reduce((s, r) => s + owed(r), 0),
       owing: rows.filter((r) => owed(r) > 0).length,
-      toShip: rows.reduce((s, r) => s + r.totals.awaitingShipCount, 0),
     }),
     [rows],
   );
@@ -57,7 +56,6 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
     { label: "Total Sold", value: formatCurrency(summary.sold) },
     { label: "Collected", value: formatCurrency(summary.collected) },
     { label: "Outstanding", value: formatCurrency(summary.outstanding), hint: `${summary.owing} customer${summary.owing === 1 ? "" : "s"}` },
-    { label: "Cards To Ship", value: String(summary.toShip) },
   ];
 
   const filters: { id: Filter; label: string }[] = [

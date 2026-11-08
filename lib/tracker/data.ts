@@ -77,6 +77,9 @@ export interface TrackerPayment {
   allocations: { saleId: string; amount: number }[];
   paidOn: string;
   note: string | null;
+  createdAt: string;
+  /** When this payment's money was split between the card owners, or null while it is still waiting (cards payments only). */
+  distributedAt: string | null;
 }
 export interface TrackerShipment {
   id: string;
@@ -291,6 +294,8 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     allocations: [],
     paidOn: r.paid_on as string,
     note: (r.note as string | null) ?? null,
+    createdAt: r.created_at as string,
+    distributedAt: (r.distributed_at as string | null | undefined) ?? null,
   }));
   const shipments: TrackerShipment[] = shipmentRows.map((r) => ({
     id: r.id as string,

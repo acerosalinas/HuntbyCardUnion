@@ -347,19 +347,36 @@ export async function markCardUnpaid(saleId: string): Promise<{ error?: string; 
   return { amount: Number(data ?? 0) };
 }
 
-/** Marks a confirmed proof as split between the card owners (or takes the mark back), so everyone can see which payments are still waiting to be distributed. */
-export async function setProofDistributed(claimId: string, distributed: boolean): Promise<{ error?: string }> {
+/** Marks a cards payment as split between the card owners (or takes the mark back), so everyone can see which payments are still waiting to be distributed. */
+export async function setPaymentDistributed(paymentId: string, distributed: boolean): Promise<{ error?: string }> {
   const admin = await requireTrackerAdmin();
-  const v = parse(z.object({ claimId: z.string().uuid(), distributed: z.boolean() }), { claimId, distributed });
+  const v = parse(z.object({ paymentId: z.string().uuid(), distributed: z.boolean() }), { paymentId, distributed });
   const { data, error } = await createAdminClient()
-    .from("tracker_payment_claims")
+    .from("tracker_payments")
     .update({ distributed_at: v.distributed ? new Date().toISOString() : null })
-    .eq("id", v.claimId)
+    .eq("id", v.paymentId)
     .eq("owner_id", admin.id)
-    .eq("status", "CONFIRMED")
+    .eq("purpose", "CARDS")
     .select("id");
-  if (error) return { error: /distributed_at/i.test(error.message) ? "Run supabase/migration_proof_distributed.sql in the Supabase SQL editor first." : error.message };
-  if (!data || data.length === 0) return { error: "Only a confirmed proof can be marked as distributed." };
+  if (error) return { error: /distributed_at/i.test(error.message) ? "Run supabase/migration_payment_distributed.sql in the Supabase SQL editor first." : error.message };
+  if (!data || data.length === 0) return { error: "That payment wasn't found." };
   refresh();
   return {};
+}
+
+/** Catch-up for payments that were split before this page existed: marks every cards payment dated on or before `date` as distributed. */
+export async function markDistributedUpTo(date: string): Promise<{ count?: number; error?: string }> {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.") }), { date });
+  const { data, error } = await createAdminClient()
+    .from("tracker_payments")
+    .update({ distributed_at: new Date().toISOString() })
+    .eq("owner_id", admin.id)
+    .eq("purpose", "CARDS")
+    .is("distributed_at", null)
+    .lte("paid_on", v.date)
+    .select("id");
+  if (error) return { error: /distributed_at/i.test(error.message) ? "Run supabase/migration_payment_distributed.sql in the Supabase SQL editor first." : error.message };
+  refresh();
+  return { count: data?.length ?? 0 };
 }

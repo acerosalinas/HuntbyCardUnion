@@ -89,7 +89,6 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
     { label: "Collected", value: formatCurrency(d.collectedInRange), hint: "payments received" },
     { label: "Shipping Charged", value: formatCurrency(d.shippingChargedInRange), hint: `${d.parcelsInRange} parcel${d.parcelsInRange === 1 ? "" : "s"} shipped` },
     { label: "Outstanding Now", value: formatCurrency(d.outstandingNow), hint: `${d.owingCount} customer${d.owingCount === 1 ? "" : "s"} owe`, accent: d.outstandingNow > 0 },
-    { label: "Cards To Ship", value: String(d.awaitingShipCards), hint: "flagged for shipping" },
   ];
 
   const panel = "rounded-2xl border border-card-border bg-card p-4";
@@ -131,7 +130,7 @@ export default async function TrackerDashboardPage({ searchParams }: { searchPar
         Sold, collected and shipping figures cover <span className="font-medium text-foreground">{rangeLabel}</span>. Outstanding and cards to ship always show where things stand today.
       </p>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((k) => (
           <div key={k.label} className={cn(panel, "last:odd:col-span-2 lg:last:col-span-1")}>
             <span className="text-xs font-medium uppercase tracking-wide text-foreground-muted">{k.label}</span>
