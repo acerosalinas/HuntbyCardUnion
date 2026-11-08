@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { confirmClaim, rejectClaim, setProofDistributed } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { DayEntry, dayLabel, groupByDay } from "@/lib/tracker/proofDays";
+import { ownerColor } from "@/lib/tracker/ownerColors";
+import type { OwnerLabel } from "@/lib/tracker/split";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 export interface ProofItem {
@@ -52,7 +54,7 @@ function todayLocal(): string {
 }
 
 /** Live Tracker proofs and marketplace payment screenshots in one inbox, newest first. */
-export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[] }) {
+export function ProofsView({ items, marketItems = [], ownerLabels = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[]; ownerLabels?: OwnerLabel[] }) {
   type Tab = "PENDING" | "TO_DISTRIBUTE" | "DISTRIBUTED" | "REJECTED";
   const [tab, setTab] = useState<Tab>("PENDING");
   const pending = items.filter((i) => i.status === "PENDING");
@@ -81,6 +83,26 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
     })),
   ].sort((a, b) => b.item.at.localeCompare(a.item.at));
   const days = groupByDay(entries);
+
+  // Per day and per owner: what was received on confirmed proofs and how much of it has already been handed out. Counted over every
+  // confirmed proof, whichever tab is open, so a day reads the same on To distribute and on Distributed.
+  const ownerStats = new Map<string, Map<string, { received: number; distributed: number }>>();
+  for (const item of items) {
+    if (item.status !== "CONFIRMED") continue;
+    const day = ownerStats.get(item.day) ?? new Map<string, { received: number; distributed: number }>();
+    for (const g of groupByOwner(item.cards)) {
+      const stat = day.get(g.owner) ?? { received: 0, distributed: 0 };
+      stat.received += g.total;
+      if (item.distributedAt) stat.distributed += g.total;
+      day.set(g.owner, stat);
+    }
+    ownerStats.set(item.day, day);
+  }
+  const showOwnerBars = tab === "TO_DISTRIBUTE" || tab === "DISTRIBUTED";
+  const ownerOrder = (name: string) => {
+    const i = ownerLabels.findIndex((o) => o.name === name);
+    return i === -1 ? 999 : i;
+  };
 
   return (
     <div className="space-y-4">
@@ -122,30 +144,47 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
       ) : (
         days.map((day) => (
           <div key={day.date} className="space-y-3">
-            <div className="rounded-xl border border-card-border bg-background-elevated px-3 py-2 text-sm shadow-sm">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h2 className="font-semibold">{dayLabel(day.date)}</h2>
-                <span className="font-bold tabular-nums">
-                  {formatCurrency(day.total)} <span className="text-xs font-normal text-foreground-muted">· {day.items.length} proof{day.items.length === 1 ? "" : "s"}</span>
-                </span>
-              </div>
-              {day.owners.length > 0 && (
-                <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-foreground-muted">
-                  {day.owners.map((o) => (
-                    <span key={o.name}>
-                      {o.name} <span className="font-semibold text-foreground">{formatCurrency(o.amount)}</span>
-                    </span>
-                  ))}
-                </p>
+            <div className="rounded-xl border border-card-border bg-background-elevated px-3 py-2.5 text-sm">
+              <h2 className="font-semibold">{dayLabel(day.date)}</h2>
+              {showOwnerBars && (
+                <ul className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))]">
+                  {[...(ownerStats.get(day.date) ?? new Map<string, { received: number; distributed: number }>()).entries()]
+                    .sort(([a], [b]) => ownerOrder(a) - ownerOrder(b) || a.localeCompare(b))
+                    .map(([owner, stat]) => {
+                      const toGive = Math.round((stat.received - stat.distributed) * 100) / 100;
+                      const pct = stat.received > 0 ? Math.min(100, Math.round((stat.distributed / stat.received) * 100)) : 0;
+                      const code = ownerLabels.find((o) => o.name === owner)?.code ?? null;
+                      const color = ownerColor(code, ownerLabels);
+                      return (
+                        <li key={owner}>
+                          <div className="mb-1 flex items-baseline justify-between gap-2">
+                            <span className="font-semibold">{owner}</span>
+                            {toGive > 0 ? (
+                              <span className="text-xs text-foreground-muted">
+                                to distribute <span className="text-sm font-bold text-pending">{formatCurrency(toGive)}</span>
+                              </span>
+                            ) : (
+                              <span className="text-xs font-medium text-available">All distributed</span>
+                            )}
+                          </div>
+                          <div
+                            role="progressbar"
+                            aria-label={`${owner} distributed`}
+                            aria-valuenow={pct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            className="h-2.5 overflow-hidden rounded-full bg-foreground/10"
+                          >
+                            <div className={cn("h-full rounded-full transition-all", color?.bar ?? "bg-gold")} style={{ width: `${pct}%` }} />
+                          </div>
+                          <p className="mt-0.5 text-xs text-foreground-muted">
+                            {formatCurrency(stat.distributed)} of {formatCurrency(stat.received)} given out
+                          </p>
+                        </li>
+                      );
+                    })}
+                </ul>
               )}
-              <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-foreground-muted">
-                {day.people.map((p) => (
-                  <span key={p.name}>
-                    {p.name} <span className="font-semibold text-foreground">{formatCurrency(p.amount)}</span>
-                    {p.proofs > 1 && ` (${p.proofs})`}
-                  </span>
-                ))}
-              </p>
             </div>
             {day.items.map((entry) => entry.node)}
           </div>

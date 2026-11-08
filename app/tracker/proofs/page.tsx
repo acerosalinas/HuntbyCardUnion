@@ -128,5 +128,5 @@ export default async function TrackerProofsPage() {
     };
   });
 
-  return <ProofsView items={items} marketItems={marketItems} />;
+  return <ProofsView items={items} marketItems={marketItems} ownerLabels={ownerLabels} />;
 }
