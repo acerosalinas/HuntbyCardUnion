@@ -6,7 +6,7 @@ import { createContext, useContext, useState } from "react";
 // grid this filter applies to (see Marketplace.tsx / SellerListingsView.tsx),
 // so filtering by it would always return zero results. Sold-out listings now
 // live on their own page (app/sellers/[handle]/sold-out).
-export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "FLASH_SALE";
+export type CategoryFilter = "ALL" | "RAW" | "GRADED" | "SEALED" | "MYSTERY" | "FLASH_SALE";
 
 /** How a card grid is ordered - newest listed first by default. */
 export type SortOption = "NEWEST" | "OLDEST" | "PRICE_LOW" | "PRICE_HIGH";

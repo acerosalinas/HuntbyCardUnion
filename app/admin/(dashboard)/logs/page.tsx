@@ -12,6 +12,7 @@ interface ClaimJoinRow {
   confirmed_at: string | null;
   shipped: boolean;
   ship_requested_at: string | null;
+  pack_number: number | null;
   cards: { title: string; admin_id: string | null; images: string[] } | null;
 }
 
@@ -23,7 +24,7 @@ export default async function AdminLogsPage() {
   let query = supabase
     .from("card_claims")
     .select(
-      "id, card_id, buyer_handle, order_id, quantity, unit_price, confirmed_at, shipped, ship_requested_at, cards!inner(title, admin_id, images)",
+      "id, card_id, buyer_handle, order_id, quantity, unit_price, confirmed_at, shipped, ship_requested_at, pack_number, cards!inner(title, admin_id, images)",
     )
     .eq("status", "SOLD")
     .order("confirmed_at", { ascending: false });
@@ -57,7 +58,7 @@ export default async function AdminLogsPage() {
   const claims: SoldClaimView[] = rows.map((row) => ({
     id: row.id,
     cardId: row.card_id,
-    cardTitle: row.cards?.title ?? "Card",
+    cardTitle: `${row.cards?.title ?? "Card"}${row.pack_number ? ` · Pack #${row.pack_number}` : ""}`,
     cardImage: row.cards?.images?.[0] ?? null,
     buyerHandle: row.buyer_handle,
     orderId: row.order_id,

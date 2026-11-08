@@ -13,6 +13,8 @@ export interface StoredCartItem {
   /** Set when this item is being bought at a negotiated price through an accepted offer instead of the card's listed price - see offers.agreed_amount. Always paired with agreedAmount, and always quantity 1 (offers are single-unit). */
   offerId: string | null;
   agreedAmount: number | null;
+  /** Fun Mystery Pack only: the numbered pack picked (1-10), always paired with quantity 1. */
+  packNumber: number | null;
 }
 
 export function getStoredCartItems(): StoredCartItem[] {
@@ -27,12 +29,13 @@ export function getStoredCartItems(): StoredCartItem[] {
       .map((item) => ({
         cardId: item.cardId,
         // An offer-priced item is always exactly 1 unit, regardless of what a stale stored cart says.
-        quantity: item.offerId ? 1 : Math.max(1, Math.round(item.quantity) || 1),
+        quantity: item.offerId || Number.isInteger(item.packNumber) ? 1 : Math.max(1, Math.round(item.quantity) || 1),
         // Defaults to SHIP/PREPAID for a cart saved before these fields existed.
         fulfillmentMethod: item.fulfillmentMethod === "STASH" ? "STASH" : "SHIP",
         paymentMethod: item.paymentMethod === "COD" ? "COD" : "PREPAID",
         offerId: typeof item.offerId === "string" ? item.offerId : null,
         agreedAmount: typeof item.agreedAmount === "number" ? item.agreedAmount : null,
+        packNumber: Number.isInteger(item.packNumber) ? item.packNumber : null,
       }));
   } catch {
     return [];

@@ -84,6 +84,7 @@ export function CartContents() {
     items.find((i) => i.cardId === cardId)?.fulfillmentMethod ?? "SHIP";
   const getPaymentMethod = (cardId: string): PaymentMethod =>
     items.find((i) => i.cardId === cardId)?.paymentMethod ?? "PREPAID";
+  const getPackNumber = (cardId: string): number | null => items.find((i) => i.cardId === cardId)?.packNumber ?? null;
   const getOfferId = (cardId: string): string | null => items.find((i) => i.cardId === cardId)?.offerId ?? null;
   // A negotiated-price item is charged its agreed offer price, not the card's listed price.
   const getUnitPrice = (card: CardItem) => items.find((i) => i.cardId === card.id)?.agreedAmount ?? card.price;
@@ -124,6 +125,7 @@ export function CartContents() {
           fulfillment_method: i.fulfillmentMethod,
           payment_method: i.paymentMethod,
           offer_id: i.offerId ?? null,
+          pack_number: i.packNumber ?? null,
         })),
         p_ship_name: shipName.trim(),
         p_ship_phone: shipPhone.trim(),
@@ -141,6 +143,8 @@ export function CartContents() {
       // between adding it to the cart and checking out - place_order refuses
       // it rather than letting it queue, since it isn't actually available.
       const heldItems = result.items.filter((i) => i.result === "card_on_hold");
+      // A Fun Mystery Pack number someone else picked first (or a pack that sold out) - never queued, the buyer just picks another.
+      const packTakenItems = result.items.filter((i) => i.result === "pack_taken" || i.result === "pack_invalid");
 
       let copiedToClipboard = false;
       if (claimedItems.length > 0) {
@@ -148,7 +152,7 @@ export function CartContents() {
           string,
           {
             adminId: string | null;
-            items: { title: string; price: number; quantity: number; fulfillmentMethod: FulfillmentMethod; paymentMethod: PaymentMethod }[];
+            items: { title: string; packNumber: number | null; price: number; quantity: number; fulfillmentMethod: FulfillmentMethod; paymentMethod: PaymentMethod }[];
           }
         >();
         for (const item of claimedItems) {
@@ -157,6 +161,7 @@ export function CartContents() {
           const group = bySeller.get(card.sellerMessenger) ?? { adminId: card.adminId, items: [] };
           group.items.push({
             title: item.title ?? card.title,
+            packNumber: item.packNumber ?? getPackNumber(item.cardId),
             price: item.price ?? card.price,
             quantity: item.quantity ?? 1,
             fulfillmentMethod: getFulfillment(item.cardId),
@@ -205,7 +210,7 @@ export function CartContents() {
             list
               .map(
                 (i) =>
-                  `• ${i.title} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}${i.paymentMethod === "COD" ? " (Cash on Delivery)" : ""}`,
+                  `• ${i.title}${i.packNumber ? ` (Pack #${i.packNumber})` : ""} x${i.quantity} — ${formatCurrency(i.price * i.quantity)}${i.paymentMethod === "COD" ? " (Cash on Delivery)" : ""}`,
               )
               .join("\n");
 
@@ -271,6 +276,11 @@ export function CartContents() {
           `${heldItems.length} item${heldItems.length === 1 ? "" : "s"} ${heldItems.length === 1 ? "is" : "are"} on hold from another buyer's offer and couldn't be bought right now - try again later.`,
         );
       }
+      if (packTakenItems.length > 0) {
+        summary.push(
+          `${packTakenItems.length} mystery pack${packTakenItems.length === 1 ? "" : "s"} you picked ${packTakenItems.length === 1 ? "was" : "were"} taken by someone else just before you - open the listing and choose another number.`,
+        );
+      }
       setResultSummary(summary);
       clearCart();
     } catch (err) {
@@ -295,6 +305,7 @@ export function CartContents() {
       <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
         <div>
           <p className="line-clamp-2 text-sm font-semibold text-foreground">{card.title}</p>
+          {getPackNumber(card.id) !== null && <p className="text-xs font-semibold text-gold-ink">Pack #{getPackNumber(card.id)}</p>}
           {hasKnownSet(card.setName) && <p className="line-clamp-1 text-xs text-foreground-muted">{card.setName}</p>}
         </div>
         <div className="flex items-center gap-1.5">
@@ -305,7 +316,7 @@ export function CartContents() {
             </span>
           )}
         </div>
-        {!getOfferId(card.id) && card.quantityAvailable > 1 && (
+        {!getOfferId(card.id) && getPackNumber(card.id) === null && card.quantityAvailable > 1 && (
           <div className="flex items-center gap-1.5">
             <label className="text-[10px] font-medium uppercase tracking-wide text-foreground-muted">Qty</label>
             <Input

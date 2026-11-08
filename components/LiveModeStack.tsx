@@ -1,5 +1,6 @@
 "use client";
 
+import { MysteryPackBadge } from "@/components/MysteryPackBadge";
 import { useEffect, useRef, useState } from "react";
 import { ImageOff, Pause, Play, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -111,6 +112,8 @@ export function LiveModeStack({ cards, intervalSeconds }: { cards: CardItem[]; i
                 <div className="absolute left-2 top-2 flex flex-wrap gap-1.5">
                   {card.productType === "SEALED" ? (
                     <SealedTypeBadge sealedType={card.sealedType} />
+                  ) : card.productType === "MYSTERY" ? (
+                    <MysteryPackBadge />
                   ) : (
                     <ConditionBadges conditionGrade={card.conditionGrade} />
                   )}

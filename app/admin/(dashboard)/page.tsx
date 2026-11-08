@@ -10,6 +10,7 @@ interface ClaimJoinRow {
   quantity: number;
   unit_price: number;
   claimed_at: string;
+  pack_number: number | null;
   cards: { title: string; admin_id: string | null; images: string[] } | null;
 }
 
@@ -20,7 +21,7 @@ export default async function AdminPendingPaymentsPage() {
   let query = supabase
     .from("card_claims")
     .select(
-      "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, cards!inner(title, admin_id, images)",
+      "id, card_id, buyer_handle, order_id, quantity, unit_price, claimed_at, pack_number, cards!inner(title, admin_id, images)",
     )
     .eq("status", "PENDING")
     // Most-recent-first - the component further groups these by order and
@@ -36,7 +37,7 @@ export default async function AdminPendingPaymentsPage() {
   const claims: PendingClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
     id: row.id,
     cardId: row.card_id,
-    cardTitle: row.cards?.title ?? "Card",
+    cardTitle: `${row.cards?.title ?? "Card"}${row.pack_number ? ` · Pack #${row.pack_number}` : ""}`,
     cardImage: row.cards?.images?.[0] ?? null,
     buyerHandle: row.buyer_handle,
     orderId: row.order_id,

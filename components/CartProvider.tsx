@@ -15,6 +15,7 @@ interface CartContextValue {
     fulfillmentMethod: FulfillmentMethod,
     paymentMethod: PaymentMethod,
     offer?: { offerId: string; agreedAmount: number },
+    packNumber?: number | null,
   ) => void;
   setQuantity: (cardId: string, quantity: number) => void;
   removeFromCart: (cardId: string) => void;
@@ -53,6 +54,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     fulfillmentMethod: FulfillmentMethod,
     paymentMethod: PaymentMethod,
     offer?: { offerId: string; agreedAmount: number },
+    packNumber?: number | null,
   ) => {
     setItems((prev) => {
       if (prev.some((item) => item.cardId === cardId)) return prev;
@@ -61,11 +63,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         {
           cardId,
           // Offers are always single-unit, regardless of what's passed in.
-          quantity: offer ? 1 : Math.max(1, Math.round(quantity) || 1),
+          quantity: offer || packNumber ? 1 : Math.max(1, Math.round(quantity) || 1),
           fulfillmentMethod,
           paymentMethod,
           offerId: offer?.offerId ?? null,
           agreedAmount: offer?.agreedAmount ?? null,
+          packNumber: packNumber ?? null,
         },
       ];
       setStoredCartItems(next);
@@ -77,7 +80,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => {
       const next = prev.map((item) =>
         // Locked at 1 for an offer-priced item - offers are single-unit, no stepper for it in the UI.
-        item.cardId === cardId && !item.offerId
+        item.cardId === cardId && !item.offerId && item.packNumber === null
           ? { ...item, quantity: Math.max(1, Math.round(quantity) || 1) }
           : item,
       );

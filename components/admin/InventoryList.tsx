@@ -1,5 +1,6 @@
 "use client";
 
+import { MysteryPackBadge } from "@/components/MysteryPackBadge";
 import { useState, useTransition } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -98,6 +99,8 @@ export function InventoryList({
                   <div className="flex flex-wrap gap-1.5">
                     {card.productType === "SEALED" ? (
                       <SealedTypeBadge sealedType={card.sealedType} />
+                    ) : card.productType === "MYSTERY" ? (
+                      <MysteryPackBadge />
                     ) : (
                       <ConditionBadges conditionGrade={card.conditionGrade} />
                     )}

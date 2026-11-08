@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Camera, ImagePlus, Minus, Package, Plus, Sparkles, X } from "lucide-react";
+import { Camera, Gift, ImagePlus, Minus, Package, Plus, Sparkles, X } from "lucide-react";
 import { CatalogPicker } from "@/components/CatalogPicker";
 import { searchPokemonCards } from "@/app/catalog/actions";
 import { catalogImageUrl, isCatalogImage } from "@/lib/pokemonCatalog";
@@ -15,6 +15,7 @@ import { normalizeImageFiles } from "@/lib/imageNormalize";
 import { FRANCHISES } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
+import { MYSTERY_CONDITION_GRADE, MYSTERY_MAX_PACKS, MYSTERY_PACK_LABEL, MYSTERY_RARITY, MYSTERY_SET_NAME } from "@/lib/mysteryPack";
 import { SEALED_TYPES, SEALED_TYPE_LABELS, SEALED_CONDITION_GRADE, SEALED_RARITY, SealedType } from "@/lib/sealedType";
 import { createCard, updateCard, uploadCardImages } from "@/app/admin/cardActions";
 import { CardItem, ProductType, SellerProfile } from "@/types/marketplace";
@@ -179,8 +180,11 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   // rather than by accident while typing. Can't go below however many units
   // are already claimed, same floor the server itself enforces.
   const minQuantity = card ? card.quantity - card.quantityAvailable : 0;
+  const isMystery = form.productType === "MYSTERY";
+  // A Fun Mystery Pack is 1-10 numbered packs; other listings have no upper limit.
+  const maxQuantity = isMystery ? MYSTERY_MAX_PACKS : Infinity;
   const adjustQuantity = (delta: number) =>
-    setForm((f) => ({ ...f, quantity: String(Math.max(minQuantity, (Number(f.quantity) || 0) + delta)) }));
+    setForm((f) => ({ ...f, quantity: String(Math.min(maxQuantity, Math.max(minQuantity, (Number(f.quantity) || 0) + delta))) }));
 
   const handleProductTypeChange = (productType: ProductType) => {
     setForm((f) => ({
@@ -188,6 +192,9 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       productType,
       sealedType: productType === "SEALED" ? (f.sealedType ?? SEALED_TYPES[0]) : null,
       pokemonType: productType === "CARD" && f.franchise === "pokemon" ? (f.pokemonType ?? POKEMON_TYPES[0]) : null,
+      // A mystery pack has 1-10 packs and is never negotiated.
+      quantity: productType === "MYSTERY" ? String(Math.min(MYSTERY_MAX_PACKS, Math.max(1, Number(f.quantity) || 1))) : f.quantity,
+      isNegotiable: productType === "MYSTERY" ? false : f.isNegotiable,
     }));
   };
 
@@ -241,7 +248,8 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
     setSuccess(false);
 
     const price = Number(form.price);
-    if (!form.title || !form.setName || !price || !form.sellerHandle || !form.sellerMessenger) {
+    const isMysteryPack = form.productType === "MYSTERY";
+    if (!form.title || (!isMysteryPack && !form.setName) || !price || !form.sellerHandle || !form.sellerMessenger) {
       setError("Fill in all required fields.");
       return;
     }
@@ -252,7 +260,14 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       return;
     }
 
-    const conditionGrade = isSealed
+    if (isMysteryPack && !(Number(form.quantity) >= 1 && Number(form.quantity) <= MYSTERY_MAX_PACKS)) {
+      setError(`A ${MYSTERY_PACK_LABEL} has 1 to ${MYSTERY_MAX_PACKS} packs.`);
+      return;
+    }
+
+    const conditionGrade = isMysteryPack
+      ? MYSTERY_CONDITION_GRADE
+      : isSealed
       ? SEALED_CONDITION_GRADE
       : form.cardType === "RAW"
         ? `Raw ${form.condition}`
@@ -260,23 +275,23 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
 
     const input = {
       title: form.title,
-      setName: form.setName,
+      setName: isMysteryPack ? MYSTERY_SET_NAME : form.setName,
       price,
       conditionGrade,
-      rarity: isSealed ? SEALED_RARITY : form.rarity,
-      pokemonType: !isSealed && form.franchise === "pokemon" ? form.pokemonType : null,
+      rarity: isMysteryPack ? MYSTERY_RARITY : isSealed ? SEALED_RARITY : form.rarity,
+      pokemonType: !isSealed && !isMysteryPack && form.franchise === "pokemon" ? form.pokemonType : null,
       productType: form.productType,
       sealedType: isSealed ? form.sealedType : null,
       images,
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
       isFlashSale: form.isFlashSale,
-      isNegotiable: form.isNegotiable,
+      isNegotiable: isMysteryPack ? false : form.isNegotiable,
       franchise: form.franchise,
       // 0 is valid and intentional here - the stepper is the only way to
       // change this value, so there's no stray/invalid typed input to guard
       // against the way a free-text field would need.
-      quantity: Math.max(minQuantity, Math.round(Number(form.quantity)) || 0),
+      quantity: Math.min(maxQuantity, Math.max(minQuantity, Math.round(Number(form.quantity)) || 0)),
       catalogCardId: catalogId,
     };
 
@@ -326,13 +341,15 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           <Input value={form.title} onChange={(e) => set("title", e.target.value)} required />
         )}
       </Field>
-      <Field label="Set Name *">
-        <Input value={form.setName} onChange={(e) => set("setName", e.target.value)} required />
-      </Field>
+      {!isMystery && (
+        <Field label="Set Name *">
+          <Input value={form.setName} onChange={(e) => set("setName", e.target.value)} required />
+        </Field>
+      )}
       <Field label="Price (₱) *">
         <Input type="number" min={0} step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} required />
       </Field>
-      <Field label="Quantity *">
+      <Field label={isMystery ? `Number of packs (1-${MYSTERY_MAX_PACKS}) *` : "Quantity *"}>
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -351,6 +368,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             type="button"
             variant="outline"
             onClick={() => adjustQuantity(1)}
+            disabled={Number(form.quantity) >= maxQuantity}
             className="h-10 w-10 shrink-0 p-0"
             aria-label="Increase quantity"
           >
@@ -372,6 +390,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             [
               { key: "CARD" as const, label: "Card", icon: Sparkles },
               { key: "SEALED" as const, label: "Sealed Product", icon: Package },
+              { key: "MYSTERY" as const, label: MYSTERY_PACK_LABEL, icon: Gift },
             ]
           ).map(({ key, label, icon: Icon }) => (
             <button
@@ -575,15 +594,17 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         Mark as Flash Sale
       </label>
 
-      <label className="flex items-center gap-2 text-sm text-foreground-muted sm:col-span-2">
-        <input
-          type="checkbox"
-          checked={form.isNegotiable}
-          onChange={(e) => set("isNegotiable", e.target.checked)}
-          className="h-4 w-4 rounded border-card-border accent-gold"
-        />
-        Negotiable - buyers can Make Offer on this listing
-      </label>
+      {!isMystery && (
+        <label className="flex items-center gap-2 text-sm text-foreground-muted sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={form.isNegotiable}
+            onChange={(e) => set("isNegotiable", e.target.checked)}
+            className="h-4 w-4 rounded border-card-border accent-gold"
+          />
+          Negotiable - buyers can Make Offer on this listing
+        </label>
+      )}
 
       {error && <p className="text-sm text-sold sm:col-span-2">{error}</p>}
       {success && !isEdit && <p className="text-sm text-available sm:col-span-2">Listing created.</p>}

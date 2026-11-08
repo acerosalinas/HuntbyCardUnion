@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Heart, ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { StatusBadge } from "@/components/StatusBadge";
+import { MysteryPackBadge } from "@/components/MysteryPackBadge";
 import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { parseConditionGrade } from "@/lib/conditionGrade";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
@@ -14,7 +15,7 @@ import { CardItem } from "@/types/marketplace";
 /** One quiet line under the title: condition or grade, then the set when we know it. Placeholder values ("Unknown Set", rarity "Other") say nothing and are left out. */
 function tileMeta(card: CardItem): string {
   const parts: string[] = [];
-  if (card.productType !== "SEALED") {
+  if (card.productType === "CARD") {
     const parsed = parseConditionGrade(card.conditionGrade);
     parts.push(parsed.type === "RAW" ? `Raw ${parsed.condition}` : `${parsed.grader} ${parsed.gradeNumber}`);
     if (card.rarity && card.rarity !== "Other") parts.push(card.rarity);
@@ -68,9 +69,10 @@ export function CardTile({
             <ImageOff size={28} />
           </div>
         )}
-        {(card.isFlashSale || card.productType === "SEALED") && (
+        {(card.isFlashSale || card.productType !== "CARD") && (
           <div className={cn("absolute left-2 top-2 flex flex-wrap gap-1.5", buyer ? "right-11" : "right-2")}>
             {card.productType === "SEALED" && <SealedTypeBadge sealedType={card.sealedType} />}
+            {card.productType === "MYSTERY" && <MysteryPackBadge />}
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
           </div>
         )}

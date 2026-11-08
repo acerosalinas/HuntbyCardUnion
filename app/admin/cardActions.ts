@@ -1,5 +1,6 @@
 "use server";
 
+import { MYSTERY_MAX_PACKS } from "@/lib/mysteryPack";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertOwnsOrSuper, requireAdmin } from "@/lib/adminAuth";
 import { validateImageFile } from "@/lib/imageValidation";
@@ -178,8 +179,8 @@ export interface CreateCardInput {
   rarity: string;
   /** Pokemon TCG energy type (see lib/pokemonType.ts) - null for every non-Pokemon card. */
   pokemonType: string | null;
-  /** 'CARD' (default) or 'SEALED' - see lib/sealedType.ts. The form is responsible for setting conditionGrade/rarity to the fixed placeholder values for a sealed item; this action just persists whatever it's given. */
-  productType: "CARD" | "SEALED";
+  /** 'CARD' (default), 'SEALED' (see lib/sealedType.ts) or 'MYSTERY' (a Fun Mystery Pack, see lib/mysteryPack.ts - quantity is the number of numbered packs). The form is responsible for setting conditionGrade/rarity to the fixed placeholder values for a sealed item; this action just persists whatever it's given. */
+  productType: "CARD" | "SEALED" | "MYSTERY";
   sealedType: string | null;
   images: string[];
   sellerHandle: string;
@@ -227,10 +228,17 @@ export async function updateCard(cardId: string, input: CreateCardInput): Promis
   return asResult("updateCard", () => updateCardOrThrow(cardId, input));
 }
 
+/** A Fun Mystery Pack is 1-10 numbered packs at one price and is never negotiated - anything else is refused. */
+function assertMysteryRules(input: CreateCardInput, quantity: number) {
+  if (input.productType !== "MYSTERY") return;
+  if (quantity < 1 || quantity > MYSTERY_MAX_PACKS) throw new Error(`A Fun Mystery Pack has 1 to ${MYSTERY_MAX_PACKS} packs.`);
+}
+
 async function createCardOrThrow(input: CreateCardInput) {
   const admin = await requireAdmin();
   const supabase = createAdminClient();
   const quantity = normalizeQuantity(input.quantity);
+  assertMysteryRules(input, quantity);
   const row: Record<string, unknown> = {
     title: input.title,
     set_name: input.setName,
@@ -245,7 +253,7 @@ async function createCardOrThrow(input: CreateCardInput) {
     seller_handle: input.sellerHandle,
     seller_messenger: input.sellerMessenger,
     is_flash_sale: input.isFlashSale,
-    is_negotiable: input.isNegotiable,
+    is_negotiable: input.productType === "MYSTERY" ? false : input.isNegotiable,
     franchise: input.franchise,
     admin_id: admin.id,
     quantity,
@@ -270,6 +278,13 @@ async function updateCardOrThrow(cardId: string, input: CreateCardInput) {
   if (existingError || !existing) throw new Error(existingError?.message ?? "Card not found");
 
   const quantity = normalizeQuantity(input.quantity);
+  assertMysteryRules(input, quantity);
+  if (input.productType === "MYSTERY") {
+    // Packs already picked keep their numbers, so the pack count can't drop below the highest one taken.
+    const { data: taken } = await supabase.from("card_claims").select("pack_number").eq("card_id", cardId).in("status", ["PENDING", "SOLD"]).not("pack_number", "is", null);
+    const highest = Math.max(0, ...(taken ?? []).map((t) => Number(t.pack_number)));
+    if (quantity < highest) throw new Error(`Pack #${highest} is already taken, so there must be at least ${highest} packs.`);
+  }
   const claimed = existing.quantity - existing.quantity_available;
   if (quantity < claimed) {
     throw new Error(`Quantity can't be less than ${claimed} - that many units are already claimed.`);
@@ -299,7 +314,7 @@ async function updateCardOrThrow(cardId: string, input: CreateCardInput) {
       seller_handle: input.sellerHandle,
       seller_messenger: input.sellerMessenger,
       is_flash_sale: input.isFlashSale,
-      is_negotiable: input.isNegotiable,
+      is_negotiable: input.productType === "MYSTERY" ? false : input.isNegotiable,
       franchise: input.franchise,
       quantity,
       quantity_available: quantityAvailable,

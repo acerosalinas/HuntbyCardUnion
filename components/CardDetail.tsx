@@ -10,6 +10,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ConditionBadges } from "@/components/ConditionBadges";
 import { RarityBadge } from "@/components/RarityBadge";
 import { SealedTypeBadge } from "@/components/SealedTypeBadge";
+import { MysteryPackBadge } from "@/components/MysteryPackBadge";
+import { MysteryPackPicker } from "@/components/MysteryPackPicker";
 import { OfferModal } from "@/components/OfferModal";
 import { Input } from "@/components/ui/Input";
 import { useCart } from "@/components/CartProvider";
@@ -23,6 +25,7 @@ import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { useCountdown } from "@/hooks/useCountdown";
 import { cn, formatCountdown, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { weekdayLabel } from "@/lib/codSchedule";
+import { createClient } from "@/lib/supabase/client";
 import { CardItem, FulfillmentMethod, PaymentMethod, SellerProfile } from "@/types/marketplace";
 
 export function CardDetail({
@@ -65,6 +68,25 @@ export function CardDetail({
   const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentMethod>("SHIP");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("PREPAID");
   const codAvailable = Boolean(initialSellerProfile?.codEnabled);
+
+  // Fun Mystery Pack: numbered packs, the buyer picks one. Which numbers are taken is read from the server (numbers only, never who
+  // took them) and refreshed whenever the listing's stock changes; place_order re-checks the pick atomically at checkout.
+  const isMystery = card.productType === "MYSTERY";
+  const [pack, setPack] = useState<number | null>(null);
+  const [takenPacks, setTakenPacks] = useState<number[]>([]);
+  useEffect(() => {
+    if (!isMystery) return;
+    let cancelled = false;
+    createClient()
+      .rpc("taken_pack_numbers", { p_card_id: card.id })
+      .then(({ data }) => {
+        if (!cancelled && Array.isArray(data)) setTakenPacks(data.map(Number));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMystery, card.id, card.quantityAvailable]);
+  const pickedPack = pack !== null && !takenPacks.includes(pack) ? pack : null;
 
   // An open offer (PENDING/COUNTERED/ACCEPTED - see useMyOffer) blocks a
   // new one (submit_offer's own duplicate guard) and drives the status
@@ -109,7 +131,8 @@ export function CardDetail({
   // second unit of something they already have, at the card's regular
   // listed price instead of their negotiated one, since a plain cart add
   // has no idea an offer/claim exists.
-  const alreadyHoldsClaim = myClaims.length > 0;
+  // A mystery pack buyer can always pick another numbered pack, so an earlier claim never blocks it.
+  const alreadyHoldsClaim = !isMystery && myClaims.length > 0;
   const myQueueIndex = buyer ? queue.findIndex((q) => q.buyerId === buyer.id) : -1;
   const isQueued = myQueueIndex !== -1;
   const inCart = isInCart(card.id);
@@ -140,6 +163,12 @@ export function CardDetail({
     cartDisabled = true;
   } else if (inCart) {
     cartLabel = "Remove from Cart";
+  } else if (isMystery && !inStock) {
+    cartLabel = "Sold Out";
+    cartDisabled = true;
+  } else if (isMystery && pickedPack === null) {
+    cartLabel = "Choose a pack";
+    cartDisabled = true;
   }
 
   const handleCartToggle = () => {
@@ -148,7 +177,7 @@ export function CardDetail({
       removeFromCart(card.id);
       return;
     }
-    addToCart(card.id, qty, fulfillmentMethod, codAvailable && fulfillmentMethod === "SHIP" ? paymentMethod : "PREPAID");
+    addToCart(card.id, qty, fulfillmentMethod, codAvailable && fulfillmentMethod === "SHIP" ? paymentMethod : "PREPAID", undefined, isMystery ? pickedPack : null);
     setAddedNotice(true);
     setTimeout(() => setAddedNotice(false), 3000);
   };
@@ -217,6 +246,8 @@ export function CardDetail({
           <div className="flex flex-wrap items-center gap-2">
             {card.productType === "SEALED" ? (
               <SealedTypeBadge sealedType={card.sealedType} />
+            ) : isMystery ? (
+              <MysteryPackBadge />
             ) : (
               <>
                 <ConditionBadges conditionGrade={card.conditionGrade} />
@@ -362,7 +393,7 @@ export function CardDetail({
             </p>
           )}
 
-          {inStock && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
+          {inStock && !isMystery && card.quantityAvailable > 1 && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
             <div className="flex items-center gap-3">
               <label className="text-xs font-medium uppercase tracking-wide text-foreground-muted">Quantity</label>
               <div className="inline-flex items-center rounded-lg border border-card-border">
@@ -395,6 +426,10 @@ export function CardDetail({
               </div>
               <span className="text-xs text-foreground-muted">{card.quantityAvailable} available</span>
             </div>
+          )}
+
+          {isMystery && inStock && !inCart && !heldByOther && (
+            <MysteryPackPicker count={card.quantity} taken={takenPacks} value={pickedPack} onChange={setPack} />
           )}
 
           {inStock && !inCart && !isQueued && !alreadyHoldsClaim && !offerAccepted && (
@@ -471,7 +506,7 @@ export function CardDetail({
             </div>
           )}
 
-          <div className={cn("grid gap-3", card.isNegotiable ? "grid-cols-2" : "grid-cols-1")}>
+          <div className={cn("grid gap-3", card.isNegotiable && !isMystery ? "grid-cols-2" : "grid-cols-1")}>
             <Button
               variant={cartDisabled ? "disabled" : inCart ? "outline" : "primary"}
               disabled={cartDisabled}
@@ -480,7 +515,7 @@ export function CardDetail({
               <ShoppingCart size={15} />
               {cartLabel}
             </Button>
-            {card.isNegotiable && (
+            {card.isNegotiable && !isMystery && (
               <Button
                 variant={inStock && !alreadyHoldsClaim && !hasOpenOffer && !heldByOther ? "gold" : "disabled"}
                 disabled={!inStock || alreadyHoldsClaim || hasOpenOffer || heldByOther}

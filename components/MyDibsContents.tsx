@@ -38,6 +38,8 @@ interface ClaimedCardView {
   fulfillmentMethod: FulfillmentMethod;
   paymentMethod: PaymentMethod;
   shipRequestedAt: number | null;
+  /** Fun Mystery Pack: which numbered pack this claim took. */
+  packNumber: number | null;
 }
 
 function claimStage(c: ClaimedCardView): ClaimStage {
@@ -68,6 +70,7 @@ interface ClaimJoinRow {
   fulfillment_method: FulfillmentMethod;
   payment_method: PaymentMethod;
   ship_requested_at: string | null;
+  pack_number: number | null;
   cards: CardRow | null;
 }
 
@@ -111,7 +114,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, cards(*)")
+        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, pack_number, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -130,6 +133,7 @@ export function MyDibsContents() {
           fulfillmentMethod: row.fulfillment_method,
           paymentMethod: row.payment_method,
           shipRequestedAt: row.ship_requested_at ? new Date(row.ship_requested_at).getTime() : null,
+          packNumber: row.pack_number ?? null,
         }));
       setClaims(mappedClaims);
 
@@ -393,6 +397,7 @@ export function MyDibsContents() {
           </div>
           <div className="flex flex-col gap-1 p-3">
             <p className="line-clamp-1 text-sm font-semibold text-foreground">{claim.card.title}</p>
+            {claim.packNumber !== null && <p className="text-xs font-semibold text-gold-ink">Pack #{claim.packNumber}</p>}
             <p className="text-sm text-foreground-muted">
               {claim.card.setName} • {formatCurrency(claim.card.price)}
               {claim.quantity > 1 ? ` × ${claim.quantity}` : ""}

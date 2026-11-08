@@ -36,9 +36,10 @@ export function matchesCardFilter(
     pokemonType = "ALL",
   }: { query: string; category: CategoryFilter; rarity: string; pokemonType?: string },
 ): boolean {
-  if (category === "RAW" && (card.productType === "SEALED" || isGraded(card.conditionGrade))) return false;
-  if (category === "GRADED" && (card.productType === "SEALED" || !isGraded(card.conditionGrade))) return false;
+  if (category === "RAW" && (card.productType !== "CARD" || isGraded(card.conditionGrade))) return false;
+  if (category === "GRADED" && (card.productType !== "CARD" || !isGraded(card.conditionGrade))) return false;
   if (category === "SEALED" && card.productType !== "SEALED") return false;
+  if (category === "MYSTERY" && card.productType !== "MYSTERY") return false;
   if (category === "FLASH_SALE" && !card.isFlashSale) return false;
   if (rarity !== "ALL" && card.rarity !== rarity) return false;
   if (pokemonType !== "ALL" && card.pokemonType !== pokemonType) return false;

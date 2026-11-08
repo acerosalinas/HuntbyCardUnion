@@ -1,7 +1,7 @@
 import { normalizeFranchise } from "@/lib/franchises";
 
 export type CardStatus = "DRAFT" | "AVAILABLE" | "PENDING" | "SOLD";
-export type ProductType = "CARD" | "SEALED";
+export type ProductType = "CARD" | "SEALED" | "MYSTERY";
 export type OfferStatus =
   | "PENDING"
   | "COUNTERED"
@@ -106,6 +106,8 @@ export interface CardClaim {
   offerId: string | null;
   /** Buyer-set via requestShipping() (app/account/actions.ts) on a paid, stashed, not-yet-shipped claim - "please ship this now" instead of holding it. One-time; null until requested. */
   shipRequestedAt: number | null;
+  /** Which numbered pack of a Fun Mystery Pack this claim took, or null for any other product. */
+  packNumber: number | null;
 }
 
 export interface CardClaimRow {
@@ -125,6 +127,7 @@ export interface CardClaimRow {
   payment_method: PaymentMethod;
   offer_id: string | null;
   ship_requested_at: string | null;
+  pack_number?: number | null;
 }
 
 export function cardClaimFromRow(row: CardClaimRow): CardClaim {
@@ -145,6 +148,7 @@ export function cardClaimFromRow(row: CardClaimRow): CardClaim {
     fulfillmentMethod: row.fulfillment_method,
     paymentMethod: row.payment_method,
     offerId: row.offer_id,
+    packNumber: row.pack_number ?? null,
   };
 }
 
@@ -174,7 +178,7 @@ export function orderFromRow(row: OrderRow): Order {
   };
 }
 
-export type PlaceOrderItemResult = "claimed" | "queued" | "not_found" | "offer_stock_unavailable" | "card_on_hold";
+export type PlaceOrderItemResult = "claimed" | "queued" | "not_found" | "offer_stock_unavailable" | "card_on_hold" | "pack_taken" | "pack_invalid";
 
 export interface PlaceOrderItem {
   cardId: string;
@@ -183,6 +187,7 @@ export interface PlaceOrderItem {
   price?: number;
   quantity?: number;
   position?: number;
+  packNumber?: number;
 }
 
 export interface PlaceOrderCartItem {
@@ -192,6 +197,8 @@ export interface PlaceOrderCartItem {
   paymentMethod: PaymentMethod;
   /** Set when this item is being purchased at a negotiated price via an accepted offer - see offers.agreed_amount. */
   offerId?: string | null;
+  /** Fun Mystery Pack only: the numbered pack the buyer picked. */
+  packNumber?: number | null;
 }
 
 export interface PlaceOrderResult {
