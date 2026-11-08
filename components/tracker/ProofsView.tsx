@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { confirmClaim, rejectClaim, setProofDistributed } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
+import { DayEntry, dayLabel, groupByDay } from "@/lib/tracker/proofDays";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 export interface ProofItem {
@@ -23,6 +24,8 @@ export interface ProofItem {
   rejectReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
+  /** yyyy-mm-dd the customer paid: the payment date picked when it was confirmed, else the day it was sent or reviewed. */
+  day: string;
   /** When the confirmed payment was split between the card owners, or null while it is still waiting. */
   distributedAt: string | null;
   /** Short-lived signed link to the private screenshot. */
@@ -60,10 +63,24 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
   // Marketplace screenshots only exist while they wait for review: confirming or rejecting one takes it off the list.
   const shownMarket = tab === "PENDING" ? marketItems : [];
   const toReview = pending.length + marketItems.length;
-  const inbox = [
-    ...shown.map((item) => ({ at: item.createdAt, node: <ProofCard key={item.id} item={item} /> })),
-    ...shownMarket.map((item) => ({ at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  // One divider per day the customers paid, with that day's total by card owner and by person; newest first inside each day.
+  const entries: (DayEntry<{ at: string; node: React.ReactNode }>)[] = [
+    ...shown.map((item) => ({
+      date: item.day,
+      total: item.cardsAmount + item.sfAmount,
+      person: item.customerName,
+      owners: groupByOwner(item.cards).map((g) => ({ name: g.owner, amount: g.total })),
+      item: { at: item.createdAt, node: <ProofCard key={item.id} item={item} /> },
+    })),
+    ...shownMarket.map((item) => ({
+      date: item.day,
+      total: item.total,
+      person: item.customerName ?? item.buyerHandle,
+      owners: [],
+      item: { at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> },
+    })),
+  ].sort((a, b) => b.item.at.localeCompare(a.item.at));
+  const days = groupByDay(entries);
 
   return (
     <div className="space-y-4">
@@ -91,7 +108,7 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
         ))}
       </div>
 
-      {inbox.length === 0 ? (
+      {days.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-12 text-center text-sm text-foreground-muted">
           {
             {
@@ -103,7 +120,36 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
           }
         </p>
       ) : (
-        inbox.map((entry) => entry.node)
+        days.map((day) => (
+          <div key={day.date} className="space-y-3">
+            <div className="rounded-xl border border-card-border bg-background-elevated px-3 py-2 text-sm shadow-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 className="font-semibold">{dayLabel(day.date)}</h2>
+                <span className="font-bold tabular-nums">
+                  {formatCurrency(day.total)} <span className="text-xs font-normal text-foreground-muted">· {day.items.length} proof{day.items.length === 1 ? "" : "s"}</span>
+                </span>
+              </div>
+              {day.owners.length > 0 && (
+                <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-foreground-muted">
+                  {day.owners.map((o) => (
+                    <span key={o.name}>
+                      {o.name} <span className="font-semibold text-foreground">{formatCurrency(o.amount)}</span>
+                    </span>
+                  ))}
+                </p>
+              )}
+              <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-foreground-muted">
+                {day.people.map((p) => (
+                  <span key={p.name}>
+                    {p.name} <span className="font-semibold text-foreground">{formatCurrency(p.amount)}</span>
+                    {p.proofs > 1 && ` (${p.proofs})`}
+                  </span>
+                ))}
+              </p>
+            </div>
+            {day.items.map((entry) => entry.node)}
+          </div>
+        ))
       )}
     </div>
   );
