@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Select } from "@/components/ui/Select";
 import { LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout } from "@/app/admin/accountActions";
@@ -19,42 +20,46 @@ const baseTabs = [
 
 export function AdminTabs({ isSuperAdmin, showTracker = false }: { isSuperAdmin: boolean; showTracker?: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
   const navRef = useRef<HTMLElement>(null);
-
-  // Ten tabs overflow a phone screen: bring the current one into view after
-  // navigating so you never land on a page whose tab is off-screen.
-  useEffect(() => {
-    const current = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    current?.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [pathname]);
 
   const withTracker = showTracker ? [...baseTabs, { href: "/tracker", label: "Live Tracker" }] : baseTabs;
   const tabs = isSuperAdmin
     ? [...withTracker, { href: "/admin/live-sales", label: "Live Sales" }, { href: "/admin/manage", label: "Manage Admins" }]
     : withTracker;
 
+  const isActive = (href: string) => (href === "/admin" ? pathname === "/admin" : Boolean(pathname?.startsWith(href)));
+  const current = tabs.find((tab) => isActive(tab.href));
+
   return (
-    <div className="mb-6 flex items-center justify-between gap-2 border-b border-card-border">
-      <nav
-        ref={navRef}
-        aria-label="Admin sections"
-        className="flex min-w-0 flex-1 gap-1 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] pr-8 sm:[mask-image:none] sm:pr-0"
-      >
+    <div className="mb-6 flex items-start justify-between gap-2 border-b border-card-border pb-2">
+      {/* Phone: one dropdown instead of a strip you have to swipe through. */}
+      <div className="min-w-0 flex-1 sm:hidden">
+        <label htmlFor="admin-section" className="sr-only">
+          Admin section
+        </label>
+        <Select id="admin-section" value={current?.href ?? ""} onChange={(e) => router.push(e.target.value)}>
+          {!current && <option value="">Choose a section</option>}
+          {tabs.map((tab) => (
+            <option key={tab.href} value={tab.href}>
+              {tab.label}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {/* Desktop: every tab visible, wrapping onto a second row instead of scrolling sideways. */}
+      <nav ref={navRef} aria-label="Admin sections" className="hidden min-w-0 flex-1 flex-wrap gap-1 sm:flex">
         {tabs.map((tab) => {
-          // Disputes has a nested [id] detail route, so it needs prefix
-          // matching to stay highlighted there - "/admin" itself must stay
-          // an exact match, or it'd match every other tab's path too.
-          const active = tab.href === "/admin" ? pathname === "/admin" : pathname?.startsWith(tab.href);
+          const active = isActive(tab.href);
           return (
             <Link
               key={tab.href}
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "shrink-0 whitespace-nowrap border-b-2 px-2.5 py-3 text-sm font-medium transition-colors",
-                active
-                  ? "border-gold text-foreground"
-                  : "border-transparent text-foreground-muted hover:text-foreground",
+                "whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                active ? "bg-gold/15 text-foreground ring-1 ring-gold/60" : "text-foreground-muted hover:bg-foreground/5 hover:text-foreground",
               )}
             >
               {tab.label}
