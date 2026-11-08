@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 
 export type AdminRole = "ADMIN" | "SUPER_ADMIN";
@@ -15,8 +16,11 @@ export function roleFromMetadata(appMetadata: Record<string, unknown> | undefine
   return role === "SUPER_ADMIN" || role === "ADMIN" ? role : null;
 }
 
-/** Resolves the signed-in admin from the Supabase Auth session cookie, or null if not signed in / not an admin. */
-export async function getCurrentAdmin(): Promise<CurrentAdmin | null> {
+/**
+ * Resolves the signed-in admin from the Supabase Auth session cookie, or null if not signed in / not an admin. Cached for the length of one
+ * request, so a layout and its page asking the same question share one round trip to Supabase Auth instead of making two.
+ */
+export const getCurrentAdmin = cache(async (): Promise<CurrentAdmin | null> => {
   const supabase = await createAuthServerClient("admin");
   const {
     data: { user },
@@ -32,7 +36,7 @@ export async function getCurrentAdmin(): Promise<CurrentAdmin | null> {
     email: user.email,
     role,
   };
-}
+});
 
 /** Throws if there's no signed-in admin. Convenience for Server Actions. */
 export async function requireAdmin(): Promise<CurrentAdmin> {

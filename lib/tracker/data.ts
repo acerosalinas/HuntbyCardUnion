@@ -168,6 +168,46 @@ function addressLine(c: { street: string | null; barangay: string | null; provin
 export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
   const supabase = createAdminClient();
 
+  // Tables added by later migrations. Each is fetched up front, IN PARALLEL with the main ledger below (they used to run one after
+  // another, which put four extra round trips to the database on every page). One that doesn't exist yet just reads as empty.
+  const optional = <T,>(missing: RegExp, run: () => Promise<T>, empty: T): Promise<T> => {
+    const promise = run().catch((err: unknown) => {
+      if (!missing.test(err instanceof Error ? err.message : "")) throw err;
+      return empty;
+    });
+    promise.catch(() => undefined); // keep an early failure from being reported as unhandled while the main queries are still running
+    return promise;
+  };
+  const allocationsP = optional(
+    /tracker_payment_allocations|schema cache|does not exist/i,
+    () => fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_payment_allocations").select("payment_id, sale_id, amount").eq("owner_id", ownerId).range(f, t)),
+    [] as Record<string, unknown>[],
+  );
+  const plansP = optional(
+    /tracker_installment_plans|tracker_plan_installments|schema cache|does not exist/i,
+    async () => {
+      const planRows = await fetchAll<Record<string, unknown>>((f, t) =>
+        supabase.from("tracker_installment_plans").select("*").eq("owner_id", ownerId).in("status", ["REQUESTED", "ACTIVE"]).range(f, t),
+      );
+      const planIds = planRows.map((r) => r.id as string);
+      const installmentRows = planIds.length
+        ? await fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_plan_installments").select("*").in("plan_id", planIds).range(f, t))
+        : [];
+      return { planRows, installmentRows };
+    },
+    { planRows: [] as Record<string, unknown>[], installmentRows: [] as Record<string, unknown>[] },
+  );
+  const payoutsP = optional(
+    /tracker_payouts|schema cache|does not exist/i,
+    () => fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_payouts").select("*").eq("owner_id", ownerId).order("paid_on", { ascending: false }).range(f, t)),
+    [] as Record<string, unknown>[],
+  );
+  const payoutLinesP = optional(
+    /tracker_payout_cards|schema cache|does not exist/i,
+    () => fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_payout_cards").select("payout_id, sale_id, card_name, customer_name, amount").eq("owner_id", ownerId).range(f, t)),
+    [] as Record<string, unknown>[],
+  );
+
   const [settingsRes, customerRows, liveRows, saleRows, paymentRows, shipmentRows] = await Promise.all([
     supabase.from("tracker_settings").select("*").eq("owner_id", ownerId).maybeSingle(),
     fetchAll<Record<string, string | null>>((f, t) =>
@@ -281,35 +321,21 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     order: `${liveDateById.get(x.liveId) ?? ""}|${x.createdAt}`,
   }));
   // Cards a payment was ticked against. The table was added later; without its migration payments simply apply automatically.
-  try {
-    const allocationRows = await fetchAll<Record<string, unknown>>((f, t) =>
-      supabase.from("tracker_payment_allocations").select("payment_id, sale_id, amount").eq("owner_id", ownerId).range(f, t),
-    );
-    const byPayment = new Map<string, { saleId: string; amount: number }[]>();
-    for (const r of allocationRows) {
-      const list = byPayment.get(r.payment_id as string) ?? [];
-      list.push({ saleId: r.sale_id as string, amount: Number(r.amount) });
-      byPayment.set(r.payment_id as string, list);
-    }
-    for (const p of payments) p.allocations = byPayment.get(p.id) ?? [];
-  } catch (err) {
-    if (!/tracker_payment_allocations|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+  const byPayment = new Map<string, { saleId: string; amount: number }[]>();
+  for (const r of await allocationsP) {
+    const list = byPayment.get(r.payment_id as string) ?? [];
+    list.push({ saleId: r.sale_id as string, amount: Number(r.amount) });
+    byPayment.set(r.payment_id as string, list);
   }
+  for (const p of payments) p.allocations = byPayment.get(p.id) ?? [];
 
   const paidMap = allocateCardPayments(splitSales, payments, { strict: settings.strictPayments });
   const liveBreakdown = liveBalances(splitSales, paidMap);
   const paidBySale = Object.fromEntries(paidMap);
-
   // Installment plans (tables arrive with migration_live_tracker_installments.sql; the rest of the tracker works without them).
   const plans: TrackerPlan[] = [];
-  try {
-    const planRows = await fetchAll<Record<string, unknown>>((f, t) =>
-      supabase.from("tracker_installment_plans").select("*").eq("owner_id", ownerId).in("status", ["REQUESTED", "ACTIVE"]).range(f, t),
-    );
-    const planIds = planRows.map((r) => r.id as string);
-    const installmentRows = planIds.length
-      ? await fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_plan_installments").select("*").in("plan_id", planIds).range(f, t))
-      : [];
+  {
+    const { planRows, installmentRows } = await plansP;
     for (const r of planRows) {
       plans.push({
         id: r.id as string,
@@ -326,8 +352,6 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
           .sort((a, b) => a.seq - b.seq),
       });
     }
-  } catch (err) {
-    if (!/tracker_installment_plans|tracker_plan_installments|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
   }
   // Cards that still owe money AND are being paid in parts: on an approved plan, or already partly paid. Used to ask
   // before such a card is shipped or handed over early (nothing is blocked).
@@ -340,40 +364,25 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
   }
 
   // Payouts live in a table added later; if its migration hasn't run yet the rest of the tracker must still work.
-  let payouts: TrackerPayout[] = [];
-  try {
-    const rows = await fetchAll<Record<string, unknown>>((f, t) =>
-      supabase.from("tracker_payouts").select("*").eq("owner_id", ownerId).order("paid_on", { ascending: false }).range(f, t),
-    );
-    payouts = rows.map((r) => ({
-      id: r.id as string,
-      liveId: r.live_id as string,
-      recipientTag: normalizeOwnerTag(r.recipient_tag as string | null),
-      amount: Number(r.amount),
-      paidOn: r.paid_on as string,
-      note: (r.note as string | null) ?? null,
-      cards: [],
-    }));
-  } catch (err) {
-    if (!/tracker_payouts|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
-  }
+  const payouts: TrackerPayout[] = (await payoutsP).map((r) => ({
+    id: r.id as string,
+    liveId: r.live_id as string,
+    recipientTag: normalizeOwnerTag(r.recipient_tag as string | null),
+    amount: Number(r.amount),
+    paidOn: r.paid_on as string,
+    note: (r.note as string | null) ?? null,
+    cards: [],
+  }));
 
   // Which cards each handover covers (table added later; handovers still work as plain amounts without it).
   if (payouts.length > 0) {
-    try {
-      const lineRows = await fetchAll<Record<string, unknown>>((f, t) =>
-        supabase.from("tracker_payout_cards").select("payout_id, sale_id, card_name, customer_name, amount").eq("owner_id", ownerId).range(f, t),
-      );
-      const byPayout = new Map<string, TrackerPayout["cards"]>();
-      for (const r of lineRows) {
-        const list = byPayout.get(r.payout_id as string) ?? [];
-        list.push({ saleId: (r.sale_id as string | null) ?? null, cardName: r.card_name as string, customerName: r.customer_name as string, amount: Number(r.amount) });
-        byPayout.set(r.payout_id as string, list);
-      }
-      for (const p of payouts) p.cards = byPayout.get(p.id) ?? [];
-    } catch (err) {
-      if (!/tracker_payout_cards|schema cache|does not exist/i.test(err instanceof Error ? err.message : "")) throw err;
+    const byPayout = new Map<string, TrackerPayout["cards"]>();
+    for (const r of await payoutLinesP) {
+      const list = byPayout.get(r.payout_id as string) ?? [];
+      list.push({ saleId: (r.sale_id as string | null) ?? null, cardName: r.card_name as string, customerName: r.customer_name as string, amount: Number(r.amount) });
+      byPayout.set(r.payout_id as string, list);
     }
+    for (const p of payouts) p.cards = byPayout.get(p.id) ?? [];
   }
 
   return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts, plans, planUnpaidBySale };

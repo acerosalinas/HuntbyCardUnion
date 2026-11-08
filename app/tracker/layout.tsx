@@ -23,24 +23,14 @@ export default async function TrackerLayout({ children }: { children: React.Reac
   }
   const admin = await requireTrackerAdminOrRedirect();
 
-  // Proofs waiting for review, for the menu badge. Quietly 0 until the claims migration has been run.
-  const { count: planCount } = await createAdminClient()
-    .from("tracker_installment_plans")
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", admin.id)
-    .eq("status", "REQUESTED");
-  const { count: proofCount } = await createAdminClient()
-    .from("tracker_payment_claims")
-    .select("id", { count: "exact", head: true })
-    .eq("owner_id", admin.id)
-    .eq("status", "PENDING");
-  // Marketplace payment screenshots waiting on this seller (quiet 0 until the order-proofs migration has been run).
-  const { count: marketProofCount } = await createAdminClient()
-    .from("card_claims")
-    .select("id, cards!inner(admin_id)", { count: "exact", head: true })
-    .eq("cards.admin_id", admin.id)
-    .eq("status", "PENDING")
-    .not("proof_path", "is", null);
+  // Badge counts for the menu, fetched together (they used to run one after another). Quietly 0 until their migrations have been run.
+  const db = createAdminClient();
+  const [{ count: planCount }, { count: proofCount }, { count: marketProofCount }] = await Promise.all([
+    db.from("tracker_installment_plans").select("id", { count: "exact", head: true }).eq("owner_id", admin.id).eq("status", "REQUESTED"),
+    db.from("tracker_payment_claims").select("id", { count: "exact", head: true }).eq("owner_id", admin.id).eq("status", "PENDING"),
+    // Marketplace payment screenshots waiting on this seller.
+    db.from("card_claims").select("id, cards!inner(admin_id)", { count: "exact", head: true }).eq("cards.admin_id", admin.id).eq("status", "PENDING").not("proof_path", "is", null),
+  ]);
 
   return (
     <div className="min-h-screen">
