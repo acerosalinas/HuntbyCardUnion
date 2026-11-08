@@ -690,8 +690,8 @@ export function MyDibsContents() {
       <h1 className="mb-6 text-2xl font-bold text-foreground">My Dibs {buyer ? `— ${buyer.handle}` : ""}</h1>
 
       {loading && (
-        <div className="flex flex-col items-center gap-2 py-10">
-          <LogoSpinner size={96} />
+        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
+          <LogoSpinner size={64} />
           <p className="text-sm text-foreground-muted">Loading...</p>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /** The Card Union mark, spinning - the branded stand-in for a generic loading spinner. */
-export function LogoSpinner({ size = 96, className }: { size?: number; className?: string }) {
+export function LogoSpinner({ size = 64, className }: { size?: number; className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element -- small local brand asset, not worth next/image's overhead for a spinner
     <img

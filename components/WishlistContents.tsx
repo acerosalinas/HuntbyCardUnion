@@ -77,8 +77,8 @@ export function WishlistContents() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <h1 className="mb-4 text-lg font-bold text-foreground">My Wishlist</h1>
       {loading ? (
-        <div className="flex flex-col items-center gap-2 py-16">
-          <LogoSpinner size={96} />
+        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
+          <LogoSpinner size={64} />
           <p className="text-sm text-foreground-muted">Loading...</p>
         </div>
       ) : error ? (

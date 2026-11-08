@@ -396,8 +396,8 @@ export function CartContents() {
       )}
 
       {loading && (
-        <div className="flex flex-col items-center gap-2 py-10">
-          <LogoSpinner size={96} />
+        <div className="flex min-h-[55vh] flex-col items-center justify-center gap-2">
+          <LogoSpinner size={64} />
           <p className="text-sm text-foreground-muted">Loading...</p>
         </div>
       )}
