@@ -10,6 +10,32 @@ import { CardItem } from "@/types/marketplace";
 const MAX_CARDS = 48;
 
 /**
+ * Folds separate listings of the same card (same seller, title, set and condition) into one tile, so a repeat
+ * listing does not show twice in a row. The tile keeps the cheapest listing and counts the units of all of them.
+ */
+function foldDuplicates(cards: CardItem[]): CardItem[] {
+  const folded = new Map<string, CardItem>();
+  for (const card of cards) {
+    const key = [card.adminId ?? card.sellerHandle, card.title, card.setName, card.conditionGrade, card.productType]
+      .map((part) => String(part).trim().toLowerCase())
+      .join("|");
+    const seen = folded.get(key);
+    if (!seen) {
+      folded.set(key, card);
+      continue;
+    }
+    const cheaper = card.price < seen.price ? card : seen;
+    folded.set(key, {
+      ...cheaper,
+      quantity: seen.quantity + card.quantity,
+      quantityAvailable: seen.quantityAvailable + card.quantityAvailable,
+      createdAt: Math.max(seen.createdAt, card.createdAt),
+    });
+  }
+  return [...folded.values()];
+}
+
+/**
  * Takes one card from each seller in turn (newest first within a seller), so no single seller can fill the row by
  * listing a lot at once. Sellers are ordered by their newest listing; a seller with fewer cards simply drops out
  * of later rounds.
@@ -39,7 +65,7 @@ function mixSellers(cards: CardItem[]): CardItem[] {
 export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
   const live = useRealtimeCards(initialCards);
   const forSale = useMemo(() => live.filter((c) => c.status === "AVAILABLE" || c.status === "PENDING"), [live]);
-  const cards = useMemo(() => mixSellers(forSale).slice(0, MAX_CARDS), [forSale]);
+  const cards = useMemo(() => mixSellers(foldDuplicates(forSale)).slice(0, MAX_CARDS), [forSale]);
 
   if (cards.length === 0) return null;
 
