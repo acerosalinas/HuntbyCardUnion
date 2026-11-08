@@ -73,6 +73,7 @@ export default async function TrackerProofsPage() {
     rejectReason: (c.reject_reason as string | null) ?? null,
     createdAt: c.created_at as string,
     reviewedAt: (c.reviewed_at as string | null) ?? null,
+    distributedAt: (c.distributed_at as string | null | undefined) ?? null,
     proofUrl: urlOf.get(c.proof_path as string) ?? null,
     cards: (cardRes.data ?? [])
       .filter((r) => r.claim_id === c.id)

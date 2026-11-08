@@ -6,7 +6,7 @@ import { Check, ExternalLink, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
+import { confirmClaim, rejectClaim, setProofDistributed } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 
@@ -23,6 +23,8 @@ export interface ProofItem {
   rejectReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
+  /** When the confirmed payment was split between the card owners, or null while it is still waiting. */
+  distributedAt: string | null;
   /** Short-lived signed link to the private screenshot. */
   proofUrl: string | null;
   cards: { name: string; amount: number; liveTitle: string; owner: string }[];
@@ -48,10 +50,13 @@ function todayLocal(): string {
 
 /** Live Tracker proofs and marketplace payment screenshots in one inbox, newest first. */
 export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[] }) {
-  const [tab, setTab] = useState<"PENDING" | "DONE">("PENDING");
+  type Tab = "PENDING" | "TO_DISTRIBUTE" | "DISTRIBUTED" | "REJECTED";
+  const [tab, setTab] = useState<Tab>("PENDING");
   const pending = items.filter((i) => i.status === "PENDING");
-  const done = items.filter((i) => i.status !== "PENDING");
-  const shown = tab === "PENDING" ? pending : done;
+  const toDistribute = items.filter((i) => i.status === "CONFIRMED" && !i.distributedAt);
+  const distributed = items.filter((i) => i.status === "CONFIRMED" && i.distributedAt);
+  const rejected = items.filter((i) => i.status === "REJECTED");
+  const shown = { PENDING: pending, TO_DISTRIBUTE: toDistribute, DISTRIBUTED: distributed, REJECTED: rejected }[tab];
   // Marketplace screenshots only exist while they wait for review: confirming or rejecting one takes it off the list.
   const shownMarket = tab === "PENDING" ? marketItems : [];
   const toReview = pending.length + marketItems.length;
@@ -63,11 +68,13 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Payment proofs</h1>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {(
           [
             ["PENDING", "To review", toReview],
-            ["DONE", "Reviewed", done.length],
+            ["TO_DISTRIBUTE", "To distribute", toDistribute.length],
+            ["DISTRIBUTED", "Distributed", distributed.length],
+            ["REJECTED", "Rejected", rejected.length],
           ] as const
         ).map(([id, text, count]) => (
           <button
@@ -86,7 +93,14 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
 
       {inbox.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-12 text-center text-sm text-foreground-muted">
-          {tab === "PENDING" ? "No payment proofs waiting for review." : "Nothing reviewed yet."}
+          {
+            {
+              PENDING: "No payment proofs waiting for review.",
+              TO_DISTRIBUTE: "Every confirmed payment has been distributed.",
+              DISTRIBUTED: "Nothing distributed yet.",
+              REJECTED: "No rejected proofs.",
+            }[tab]
+          }
         </p>
       ) : (
         inbox.map((entry) => entry.node)
@@ -110,6 +124,14 @@ function ProofCard({ item }: { item: ProofItem }) {
       } catch (err) {
         setError(extractErrorMessage(err) ?? "Something went wrong.");
       }
+    });
+  };
+
+  const setDistributed = (distributed: boolean) => {
+    setError(null);
+    startTransition(async () => {
+      const result = await setProofDistributed(item.id, distributed);
+      if (result.error) setError(result.error);
     });
   };
 
@@ -178,6 +200,26 @@ function ProofCard({ item }: { item: ProofItem }) {
           )}
           {item.note && <p className="rounded-lg bg-foreground/5 px-3 py-2 text-xs">&ldquo;{item.note}&rdquo;</p>}
           {item.status === "REJECTED" && item.rejectReason && <p className="text-xs text-sold">Reason given: {item.rejectReason}</p>}
+
+          {item.status === "CONFIRMED" && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-card-border pt-3">
+              {item.distributedAt ? (
+                <>
+                  <Badge tone="available">Distributed {item.distributedAt.slice(0, 10)}</Badge>
+                  <Button variant="outline" type="button" disabled={pending} onClick={() => setDistributed(false)}>
+                    Undo
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Badge tone="pending">Not distributed yet</Badge>
+                  <Button variant="gold" type="button" disabled={pending} onClick={() => setDistributed(true)}>
+                    <Check size={14} /> Mark as distributed
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-sm text-sold">{error}</p>}
 

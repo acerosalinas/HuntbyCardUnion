@@ -346,3 +346,20 @@ export async function markCardUnpaid(saleId: string): Promise<{ error?: string; 
   revalidatePath("/account/orders");
   return { amount: Number(data ?? 0) };
 }
+
+/** Marks a confirmed proof as split between the card owners (or takes the mark back), so everyone can see which payments are still waiting to be distributed. */
+export async function setProofDistributed(claimId: string, distributed: boolean): Promise<{ error?: string }> {
+  const admin = await requireTrackerAdmin();
+  const v = parse(z.object({ claimId: z.string().uuid(), distributed: z.boolean() }), { claimId, distributed });
+  const { data, error } = await createAdminClient()
+    .from("tracker_payment_claims")
+    .update({ distributed_at: v.distributed ? new Date().toISOString() : null })
+    .eq("id", v.claimId)
+    .eq("owner_id", admin.id)
+    .eq("status", "CONFIRMED")
+    .select("id");
+  if (error) return { error: /distributed_at/i.test(error.message) ? "Run supabase/migration_proof_distributed.sql in the Supabase SQL editor first." : error.message };
+  if (!data || data.length === 0) return { error: "Only a confirmed proof can be marked as distributed." };
+  refresh();
+  return {};
+}
