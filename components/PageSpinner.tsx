@@ -4,7 +4,7 @@ import { LogoSpinner } from "@/components/LogoSpinner";
 export function PageSpinner() {
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-4 py-24 text-center">
-      <LogoSpinner size={36} />
+      <LogoSpinner size={112} />
       <p className="text-sm text-foreground-muted">Loading...</p>
     </div>
   );
