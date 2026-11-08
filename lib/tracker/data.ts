@@ -61,6 +61,8 @@ export interface TrackerSale {
   shipmentId: string | null;
   /** When a not-for-shipping card was handed over, or null. */
   distributedAt: string | null;
+  /** Raw catalog picture of the card this was picked from (pass it through catalogImageUrl), or null when it was typed in by name. */
+  image: string | null;
   createdAt: string;
 }
 export interface TrackerPayment {
@@ -219,6 +221,13 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     address: addressLine(c as { street: string | null; barangay: string | null; province_city: string | null; zip: string | null }),
   }));
   const lives: TrackerLive[] = liveRows.map((l) => ({ id: l.id, title: l.title, liveDate: l.live_date }));
+  // Pictures of the catalog cards the sales were picked from (best-effort: a card without a picture just has none).
+  const imageByCatalogId = new Map<string, string>();
+  const catalogIds = [...new Set(saleRows.map((r) => r.catalog_card_id as string | null | undefined).filter((id): id is string => Boolean(id)))];
+  for (let i = 0; i < catalogIds.length; i += 100) {
+    const { data: pics } = await supabase.from("pokemon_catalog_cards").select("id, image_url").in("id", catalogIds.slice(i, i + 100));
+    for (const pic of pics ?? []) if (pic.image_url) imageByCatalogId.set(pic.id as string, pic.image_url as string);
+  }
   const sales: TrackerSale[] = saleRows.map((r) => ({
     id: r.id as string,
     customerId: r.customer_id as string,
@@ -229,6 +238,7 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     ownerTag: normalizeOwnerTag(r.owner_tag as string | null | undefined),
     shipmentId: (r.shipment_id as string | null) ?? null,
     distributedAt: (r.distributed_at as string | null | undefined) ?? null,
+    image: imageByCatalogId.get(r.catalog_card_id as string) ?? null,
     createdAt: r.created_at as string,
   }));
   const payments: TrackerPayment[] = paymentRows.map((r) => ({

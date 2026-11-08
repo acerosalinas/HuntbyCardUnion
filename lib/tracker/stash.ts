@@ -1,3 +1,4 @@
+import { catalogImageUrl } from "@/lib/pokemonCatalog";
 import { round2 } from "./money";
 
 /** Everything we are holding for customers: Live Tracker cards not yet shipped or handed over, plus marketplace orders buyers chose to stash. */
@@ -18,6 +19,8 @@ export interface StashSaleInput {
   forShipping: boolean;
   shipmentId: string | null;
   distributedAt: string | null;
+  /** Raw catalog picture, when the card was picked from the catalog. */
+  image?: string | null;
   createdAt: string;
 }
 
@@ -110,7 +113,7 @@ export function buildStash(input: {
       source: "LIVE",
       name: s.cardName,
       origin: live ? `${live.title} · ${live.liveDate}` : "Live",
-      image: null,
+      image: catalogImageUrl(s.image ?? null),
       amount: s.amount,
       unpaid: round2(Math.max(0, s.amount - (paidBySale[s.id] ?? 0))),
       shipRequested: s.forShipping,

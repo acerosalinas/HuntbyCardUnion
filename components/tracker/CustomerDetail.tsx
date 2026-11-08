@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { ShipDialog } from "@/components/tracker/ShipDialog";
 import { PayDialog } from "@/components/tracker/PayDialog";
 import { CardPaymentDialog } from "@/components/tracker/CardPaymentDialog";
+import { SaleThumb } from "@/components/tracker/SaleThumb";
 import { ShippingFeeToggle } from "@/components/tracker/ShippingFeeToggle";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { evaluatePlan } from "@/lib/tracker/installments";
@@ -227,6 +228,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           onChange={() => toggle(s.id)}
           className="h-4 w-4 rounded border-card-border accent-gold disabled:opacity-30"
         />
+        <SaleThumb image={s.image} name={s.cardName} />
         <span className="min-w-0 flex-1">
           <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
         </span>
@@ -612,6 +614,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                             onChange={() => toggle(s.id)}
                             className="h-4 w-4 rounded border-card-border accent-gold"
                           />
+                          <SaleThumb image={s.image} name={s.cardName} />
                           <span className="min-w-0 basis-[calc(100%-2rem)] flex-1 sm:min-w-40 sm:basis-0">
                             <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
                           </span>

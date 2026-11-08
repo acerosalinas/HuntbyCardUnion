@@ -1,5 +1,6 @@
 "use client";
 
+import { SaleThumb } from "@/components/tracker/SaleThumb";
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Package, Search, Truck, Undo2 } from "lucide-react";
@@ -247,6 +248,7 @@ export function DistributionView({ customers, lives, sales, shipments, totalsByC
                           className="h-4 w-4 rounded border-card-border accent-gold"
                         />
                       )}
+                      <SaleThumb image={s.image} name={s.cardName} />
                       <span className="min-w-0 basis-[calc(100%-2rem)] flex-1 sm:min-w-40 sm:basis-0">
                         <span className={cn("inline-block max-w-full truncate rounded-md px-2 py-0.5 align-middle font-medium", color?.name)}>{s.cardName}</span>
                         <span className="ml-2 text-xs text-foreground-muted">{liveById.get(s.liveId)?.title}</span>
