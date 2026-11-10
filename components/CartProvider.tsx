@@ -38,7 +38,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     // the signed-in identity doesn't match whoever the stored cart last
     // belonged to, drop it instead of carrying it over.
     const ownerId = buyer?.id ?? null;
-    if (getStoredCartOwner() !== ownerId) {
+    const storedOwner = getStoredCartOwner();
+    // A cart with no owner yet was started in this browser before the buyer's identity finished loading (an item added in the first moment
+    // after landing on a page). The whole site needs a session, so it is theirs: adopt it instead of wiping what they just added.
+    if (storedOwner === null && ownerId !== null) setStoredCartOwner(ownerId);
+    if (storedOwner !== null && storedOwner !== ownerId) {
       setStoredCartOwner(ownerId);
       setStoredCartItems([]);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing a cart that belonged to a different (or no) signed-in identity
