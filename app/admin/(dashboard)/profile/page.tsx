@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { SellerProfileForm } from "@/components/admin/SellerProfileForm";
+import { NotificationEmailForm } from "@/components/admin/NotificationEmailForm";
 import { getMySellerProfile } from "@/app/admin/sellerActions";
+import { getMyNotificationEmail } from "@/app/admin/notificationEmailActions";
 
 export default async function AdminProfilePage() {
-  const profile = await getMySellerProfile();
+  const [profile, mail] = await Promise.all([getMySellerProfile(), getMyNotificationEmail()]);
 
   return (
     <div className="space-y-4">
@@ -25,6 +27,7 @@ export default async function AdminProfilePage() {
           </Link>
         )}
       </div>
+      <NotificationEmailForm loginEmail={mail.loginEmail} notificationEmail={mail.notificationEmail} setUp={mail.setUp} />
       <SellerProfileForm profile={profile} />
     </div>
   );

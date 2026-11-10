@@ -74,7 +74,10 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient();
   const { data, error } = await supabase.auth.admin.getUserById(record.recipient_id);
-  const email = data?.user?.email;
+  // An admin can choose a different inbox for notification emails (private table, see migration_admin_notification_email.sql);
+  // anyone else, or an admin who hasn't, is emailed at the address they sign in with.
+  const { data: chosen } = await supabase.from("admin_settings").select("notification_email").eq("admin_id", record.recipient_id).maybeSingle();
+  const email = (chosen?.notification_email as string | null | undefined) || data?.user?.email;
 
   if (error || !email) {
     console.error("notifications webhook: couldn't resolve recipient email:", error);
