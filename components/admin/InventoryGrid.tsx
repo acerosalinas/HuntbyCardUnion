@@ -69,9 +69,11 @@ export function InventoryGrid({
             <div
               key={card.id}
               className={cn(
-                "flex flex-col overflow-hidden rounded-2xl border bg-card",
+                "flex flex-col overflow-hidden rounded-2xl border",
+                // A sold-out listing reads as red at a glance instead of looking like every other card.
+                card.status === "SOLD" ? "bg-sold-bg" : "bg-card",
                 busy && "opacity-60",
-                selected ? "border-gold ring-2 ring-gold/40" : "border-card-border",
+                selected ? "border-gold ring-2 ring-gold/40" : card.status === "SOLD" ? "border-sold/60" : "border-card-border",
               )}
             >
               <div className="relative aspect-3/4 w-full bg-navy-950/5">
