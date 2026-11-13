@@ -13,6 +13,7 @@ import { sendWishlistAdminEmail } from "@/lib/email";
 import { wishlistRecipients } from "@/lib/wishlistNotify";
 import { allowRequest, TOO_MANY } from "@/lib/rateLimit";
 import { adminAlertText, MAX_WISHLIST_ALERTS_PER_HOUR, WishlistKind } from "@/lib/wishlistText";
+import { budgetLabel } from "@/lib/wantedBudget";
 
 export async function logout() {
   const supabase = await createAuthServerClient("buyer");
@@ -187,12 +188,16 @@ export async function announceWishlistAdded(kind: WishlistKind, ref: string): Pr
     let table: "wishlists" | "wanted_cards";
     let rowId: string;
     let cardName: string;
+    let budget: string | null = null;
     if (kind === "wanted") {
       const { data } = await db.from("wanted_cards").select("id, card_name, notified_at").eq("id", ref).eq("buyer_id", buyer.id).maybeSingle();
       if (!data || data.notified_at) return;
       table = "wanted_cards";
       rowId = data.id as string;
       cardName = data.card_name as string;
+      // Best effort: the budget columns arrive with their own migration, so a missing column must never stop the alert.
+      const { data: extra } = await db.from("wanted_cards").select("budget_amount, budget_type").eq("id", rowId).maybeSingle();
+      budget = budgetLabel(extra?.budget_type as string | null | undefined, extra?.budget_amount as number | string | null | undefined);
     } else {
       const { data } = await db.from("wishlists").select("id, notified_at, cards(title)").eq("card_id", ref).eq("buyer_id", buyer.id).maybeSingle();
       if (!data || data.notified_at) return;
@@ -207,7 +212,7 @@ export async function announceWishlistAdded(kind: WishlistKind, ref: string): Pr
     if (!claimed) return;
 
     const { emails, adminIds } = await wishlistRecipients(db);
-    const { title, body } = adminAlertText(kind, buyer.handle, cardName);
+    const { title, body } = adminAlertText(kind, buyer.handle, cardName, budget);
 
     // Rate limit per buyer: skip the alert (the entry itself is still saved) if they've already triggered plenty this hour.
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();

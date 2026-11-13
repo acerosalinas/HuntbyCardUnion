@@ -10,6 +10,9 @@ import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { extractErrorMessage } from "@/lib/utils";
+import { BUDGET_TYPE_LABEL, BudgetType, budgetLabel, parseBudget } from "@/lib/wantedBudget";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFile } from "@/lib/imageNormalize";
 import { announceWishlistAdded, uploadWantedCardPhoto } from "@/app/account/actions";
@@ -25,6 +28,9 @@ export function WantedCardForm() {
   const { buyer } = useBuyerIdentity();
   const [cardName, setCardName] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  // Optional: what the buyer is willing to spend, so sellers know whether the request is worth chasing.
+  const [budgetType, setBudgetType] = useState<BudgetType>("UNDER");
+  const [budgetAmount, setBudgetAmount] = useState("");
   // True while the photo is the catalog picture of the picked card (replaced if another card is picked; never overwrites an upload).
   const [photoFromCatalog, setPhotoFromCatalog] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -92,13 +98,25 @@ export function WantedCardForm() {
       setError("Add a reference photo.");
       return;
     }
+    const parsedBudget = parseBudget(budgetType, budgetAmount);
+    if (parsedBudget.error) {
+      setError(parsedBudget.error);
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
       const supabase = createClient();
       const { data, error: insertError } = await supabase
         .from("wanted_cards")
-        .insert({ buyer_id: buyer.id, buyer_handle: buyer.handle, card_name: cardName.trim(), photo_url: photoUrl })
+        .insert({
+          buyer_id: buyer.id,
+          buyer_handle: buyer.handle,
+          card_name: cardName.trim(),
+          photo_url: photoUrl,
+          // Only sent when a budget was given, so a request without one never depends on the budget columns.
+          ...(parsedBudget.budget ? { budget_amount: parsedBudget.budget.amount, budget_type: parsedBudget.budget.type } : {}),
+        })
         .select("*")
         .single();
       if (insertError) throw insertError;
@@ -107,6 +125,7 @@ export function WantedCardForm() {
       void announceWishlistAdded("wanted", (data as WantedCardRow).id).catch(() => {});
       setCardName("");
       setPhotoUrl("");
+      setBudgetAmount("");
       setPhotoFromCatalog(false);
     } catch (err) {
       setError(extractErrorMessage(err) ?? "Failed to submit request");
@@ -188,6 +207,34 @@ export function WantedCardForm() {
         </div>
       </form>
 
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <label htmlFor="wanted-budget-type" className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
+            Budget (optional)
+          </label>
+          <Select id="wanted-budget-type" value={budgetType} onChange={(e) => setBudgetType(e.target.value as BudgetType)} className="w-auto">
+            <option value="UNDER">{BUDGET_TYPE_LABEL.UNDER}</option>
+            <option value="OVER">{BUDGET_TYPE_LABEL.OVER}</option>
+          </Select>
+        </div>
+        <div className="w-36">
+          <label htmlFor="wanted-budget-amount" className="sr-only">
+            Budget amount in pesos
+          </label>
+          <Input
+            id="wanted-budget-amount"
+            type="number"
+            inputMode="decimal"
+            min={0.01}
+            step="0.01"
+            value={budgetAmount}
+            onChange={(e) => setBudgetAmount(e.target.value)}
+            placeholder="₱ amount"
+          />
+        </div>
+        <p className="min-w-48 flex-1 pb-2 text-xs text-foreground-muted">How much you&apos;re willing to spend, so sellers know if it&apos;s worth finding. Leave it empty if you&apos;re not sure.</p>
+      </div>
+
       {error && <p className="text-sm text-sold">{error}</p>}
 
       {wanted.length > 0 && (
@@ -197,6 +244,9 @@ export function WantedCardForm() {
               {/* eslint-disable-next-line @next/next/no-img-element -- uploaded to Supabase Storage, not a local asset */}
               <img src={w.photoUrl} alt="" className="h-8 w-8 rounded object-cover" />
               <span className="max-w-32 truncate text-xs text-foreground">{w.cardName}</span>
+              {budgetLabel(w.budgetType, w.budgetAmount) && (
+                <span className="rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-semibold text-gold-ink">{budgetLabel(w.budgetType, w.budgetAmount)}</span>
+              )}
               {w.status !== "OPEN" && (
                 <span className="rounded-full bg-available-bg px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-available">
                   {w.status === "FULFILLED" ? "Found" : "Closed"}

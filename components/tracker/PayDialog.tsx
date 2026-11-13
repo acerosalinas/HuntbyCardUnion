@@ -10,6 +10,7 @@ import { deletePayment, recordPayments, setPaymentLive } from "@/app/tracker/pay
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { TrackerLive, TrackerPayment } from "@/lib/tracker/data";
+import { PendingProofInfo, proofsWaitingFor, waitingProofText } from "@/lib/tracker/proofWarnings";
 import { ISLAND_GROUP_LABELS, IslandGroup, ShippingRates, shippingFeeFor } from "@/lib/tracker/regions";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 
@@ -49,6 +50,8 @@ interface Props {
   payments: TrackerPayment[];
   /** Cards ticked on the customer page: this payment is recorded against exactly these, in this order. `left` = still unpaid. */
   selectedCards?: { id: string; name: string; amount: number; left: number }[];
+  /** This customer's proofs still waiting for review: paying the same cards by hand now would count them twice, so it asks first. */
+  pendingProofs?: PendingProofInfo[];
 }
 
 /** Records one payment - optionally together with the shipping fee ("paid with SF"), saved as a cards part and a prepaid-shipping part in a single step. */
@@ -60,7 +63,7 @@ export function PayDialog(props: Props) {
   );
 }
 
-function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, otherLivesDue, shippingUnpaid, lives, customerLiveIds, selectedCards }: Props) {
+function PayDialogBody({ onClose, customer, balance, rates, payments, live, liveDue, otherLivesDue, shippingUnpaid, lives, customerLiveIds, selectedCards, pendingProofs = [] }: Props) {
   const confirm = useConfirm();
   const router = useRouter();
   const defaultFee = shippingFeeFor(customer.islandGroup, rates);
@@ -114,10 +117,14 @@ function PayDialogBody({ onClose, customer, balance, rates, payments, live, live
     });
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!Number.isFinite(cardsAmount) || cardsAmount < 0) return setError("Enter a valid amount for the cards.");
     if (withSf && (!Number.isFinite(sfAmount) || sfAmount <= 0)) return setError("Enter the shipping fee amount, or untick Paid with SF.");
     if (total <= 0) return setError("Enter the amount they paid.");
+    if (cardsAmount > 0) {
+      const waiting = proofsWaitingFor(pendingProofs, { saleIds: selectedCards?.map((c) => c.id), liveId: applyTo === "LIVE" && live ? live.id : null });
+      if (waiting.length > 0 && !(await confirm({ title: "A payment proof is already waiting", message: waitingProofText(customer.name, waiting), confirmLabel: "Mark paid anyway", tone: "danger" }))) return;
+    }
     setError(null);
     startTransition(async () => {
       try {

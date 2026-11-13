@@ -13,7 +13,7 @@ import { cn, formatCurrency, hasKnownSet } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 /** One quiet line under the title: condition or grade, then the set when we know it. Placeholder values ("Unknown Set", rarity "Other") say nothing and are left out. */
-function tileMeta(card: CardItem): string {
+export function tileMeta(card: CardItem): string {
   const parts: string[] = [];
   if (card.productType === "CARD") {
     const parsed = parseConditionGrade(card.conditionGrade);
@@ -28,11 +28,14 @@ export function CardTile({
   card,
   isNegotiating = false,
   decorative = false,
+  onQuickLook,
 }: {
   card: CardItem;
   isNegotiating?: boolean;
   /** A repeated copy of a tile (the second half of a looping row): still clickable, but skipped by keyboard tabbing. Pair it with aria-hidden on the wrapper. */
   decorative?: boolean;
+  /** When given, a plain click opens a quick look instead of navigating (ctrl/cmd/middle click still open the card page in a new tab). */
+  onQuickLook?: (card: CardItem) => void;
 }) {
   const { buyer } = useBuyerIdentity();
   const { isWishlisted, toggle } = useWishlist();
@@ -45,6 +48,15 @@ export function CardTile({
     <Link
       href={`/card/${card.id}`}
       tabIndex={decorative ? -1 : undefined}
+      onClick={
+        onQuickLook
+          ? (e) => {
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              onQuickLook(card);
+            }
+          : undefined
+      }
       className={cn(
         "group flex flex-col overflow-hidden rounded-2xl border outline-none transition-[transform,box-shadow,border-color] duration-200 ease-out",
         "focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-background",

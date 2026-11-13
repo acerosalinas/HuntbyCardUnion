@@ -19,9 +19,9 @@ export function escapeHtml(text: string): string {
 export type WishlistKind = "wishlist" | "wanted";
 
 /** The alert an admin gets when a buyer adds something new. */
-export function adminAlertText(kind: WishlistKind, buyerHandle: string, cardName: string): { title: string; body: string } {
+export function adminAlertText(kind: WishlistKind, buyerHandle: string, cardName: string, budget?: string | null): { title: string; body: string } {
   return kind === "wanted"
-    ? { title: `New card request from @${buyerHandle}`, body: `@${buyerHandle} is looking for "${cardName}".` }
+    ? { title: `New card request from @${buyerHandle}`, body: `@${buyerHandle} is looking for "${cardName}".${budget ? ` Budget: ${budget}.` : ""}` }
     : { title: `New wishlist card from @${buyerHandle}`, body: `@${buyerHandle} added "${cardName}" to their wishlist.` };
 }
 

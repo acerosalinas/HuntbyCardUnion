@@ -29,6 +29,7 @@ export default async function TrackerCustomerPage({ params }: { params: Promise<
     <CustomerDetail
       linkedBuyer={linkedBuyer}
       marketplace={marketplace}
+      pendingProofs={data.pendingProofs.filter((p) => p.customerId === id)}
       customer={customer}
       totals={data.totalsByCustomer[id]}
       lives={data.lives}

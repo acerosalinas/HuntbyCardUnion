@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CardTile } from "@/components/CardTile";
-import { useRealtimeCards } from "@/hooks/useRealtimeCards";
+import { QuickLook } from "@/components/QuickLook";
+import { useHomeCards } from "@/components/HomeCardsProvider";
+import { buildChips } from "@/lib/homeFilters";
+import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 
 /** The most cards the row carries. Beyond this the page would get heavy on phones; "See all" opens the full marketplace. */
@@ -62,12 +65,18 @@ function mixSellers(cards: CardItem[]): CardItem[] {
  * the time it is the one on screen, so it must never be inert. It pauses on hover or focus; with reduced motion it becomes a plain
  * scrollable strip and the second copy is hidden.
  */
-export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
-  const live = useRealtimeCards(initialCards);
+export function CardShowcase() {
+  const live = useHomeCards();
   const forSale = useMemo(() => live.filter((c) => c.status === "AVAILABLE" || c.status === "PENDING"), [live]);
-  const cards = useMemo(() => mixSellers(foldDuplicates(forSale)).slice(0, MAX_CARDS), [forSale]);
+  // Quick filters above the shelf (a game, a price, graded, sealed...) reshape what drifts past, in place.
+  const chips = useMemo(() => buildChips(forSale), [forSale]);
+  const [chipId, setChipId] = useState("all");
+  const activeChip = chips.find((c) => c.id === chipId) ?? chips[0];
+  const shown = useMemo(() => (activeChip ? forSale.filter(activeChip.test) : forSale), [forSale, activeChip]);
+  const cards = useMemo(() => mixSellers(foldDuplicates(shown)).slice(0, MAX_CARDS), [shown]);
+  const [lookCard, setLookCard] = useState<CardItem | null>(null);
 
-  if (cards.length === 0) return null;
+  if (forSale.length === 0) return null;
 
   // A steady pace whatever the count: about 5 seconds per card, so a long list never speeds up.
   const duration = Math.max(40, cards.length * 5);
@@ -82,6 +91,24 @@ export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
           See all {forSale.length}
         </Link>
       </div>
+      {chips.length > 2 && (
+        <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0" role="group" aria-label="Filter the shelf">
+          {chips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              aria-pressed={chip.id === activeChip?.id}
+              onClick={() => setChipId(chip.id)}
+              className={cn(
+                "shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-medium tracking-wide transition-colors",
+                chip.id === activeChip?.id ? "border-gold bg-gold text-navy-950" : "border-card-border text-foreground-muted hover:border-gold/50 hover:text-foreground",
+              )}
+            >
+              {chip.label} <span className="opacity-70">{chip.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="vouch-marquee -mx-4 w-[calc(100%+2rem)] sm:mx-0 sm:w-full" role="region" aria-label="All cards for sale">
       <div className="vouch-track" data-reverse="" style={{ ["--vouch-duration" as string]: `${duration}s` }}>
         {[0, 1].map((copy) => (
@@ -92,13 +119,14 @@ export function CardShowcase({ initialCards }: { initialCards: CardItem[] }) {
           >
             {cards.map((card) => (
               <div key={card.id} className="w-40 shrink-0 sm:w-52">
-                <CardTile card={card} decorative={copy === 1} />
+                <CardTile card={card} decorative={copy === 1} onQuickLook={setLookCard} />
               </div>
             ))}
           </div>
         ))}
       </div>
       </div>
+      {lookCard && <QuickLook card={lookCard} onClose={() => setLookCard(null)} />}
     </section>
   );
 }

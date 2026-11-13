@@ -7,6 +7,8 @@ import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createServerReadClient } from "@/lib/supabase/server";
 import { CardShowcase } from "@/components/CardShowcase";
+import { HeroSearch } from "@/components/HeroSearch";
+import { HomeCardsProvider } from "@/components/HomeCardsProvider";
 import { CardRow, SellerProfileRow, VouchRow, cardFromRow, sellerProfileFromRow, vouchFromRow } from "@/types/marketplace";
 
 // Was force-dynamic (refetched on every request) - this page has no
@@ -45,6 +47,7 @@ export default async function HomePage() {
     <div className="relative">
       <LandingBackdrop />
 
+      <HomeCardsProvider initialCards={fresh}>
       <div className="mx-auto flex w-full max-w-5xl flex-col items-center px-4 py-10 sm:py-12">
         <h1 className="mb-2 text-balance text-center font-display text-3xl font-medium tracking-tight text-foreground sm:text-5xl">
           Find your next card
@@ -52,7 +55,8 @@ export default async function HomePage() {
         <p className="mb-5 max-w-md text-balance text-center text-sm text-foreground-muted sm:text-base">
           Claim it, message the seller, done. No bidding wars, no waiting rooms.
         </p>
-        <div className="mb-8 flex flex-wrap items-center justify-center gap-3">
+        <HeroSearch />
+        <div className="mb-3 flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/marketplace"
             className="foil-shine overflow-hidden rounded-full bg-gold px-6 py-3 text-sm font-semibold text-navy-950 transition-colors hover:bg-gold-bright focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
@@ -66,8 +70,14 @@ export default async function HomePage() {
             How buying works
           </Link>
         </div>
+        <p className="mb-8 text-center text-sm text-foreground-muted">
+          Can&apos;t find it?{" "}
+          <Link href="/account/wishlist" className="font-medium text-gold-ink underline underline-offset-4 hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
+            Request a card and tell us your budget
+          </Link>
+        </p>
 
-        <CardShowcase initialCards={fresh} />
+        <CardShowcase />
 
         <h2 className="mb-1 text-balance text-center font-display text-xl font-medium text-foreground sm:text-2xl">Shop by seller</h2>
         <p className="mb-5 text-center text-sm text-foreground-muted">
@@ -88,6 +98,7 @@ export default async function HomePage() {
         )}
 
       </div>
+      </HomeCardsProvider>
 
       {vouches && <VouchWall initialVouches={vouches} />}
 

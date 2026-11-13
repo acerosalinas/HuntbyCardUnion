@@ -23,6 +23,7 @@ import { undoShipment } from "@/app/tracker/shippingActions";
 import { copyText } from "@/lib/tracker/clipboard";
 import { buildStatementText, computeStatement } from "@/lib/tracker/statement";
 import { CustomerTotals } from "@/lib/tracker/money";
+import { PendingProofInfo, proofsWaitingFor, waitingProofText } from "@/lib/tracker/proofWarnings";
 import { canShipWithParcel, combinedOwed, marketplaceSummary, MarketClaim } from "@/lib/tracker/marketplaceLink";
 import {
   ISLAND_GROUP_LABELS,
@@ -64,12 +65,14 @@ interface Props {
   plans: TrackerPlan[];
   /** Their marketplace orders on this seller's cards (empty when the customer isn't linked to an account). */
   marketplace: MarketClaim[];
+  /** This customer's proofs still waiting for review - paying the same cards by hand while one is waiting asks first. */
+  pendingProofs: PendingProofInfo[];
 }
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
 const panel = "rounded-2xl border border-card-border bg-card p-4";
 
-export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer, plans, marketplace }: Props) {
+export function CustomerDetail({ customer, totals, lives, sales, payments, shipments, settings, paidBySale, linkedBuyer, plans, marketplace, pendingProofs }: Props) {
   const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -111,10 +114,14 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
 
   // ---- Payment form ----
   const [pay, setPay] = useState({ liveId: "", amount: "", method: "GCASH" as "GCASH" | "MARIBANK", purpose: "CARDS" as "CARDS" | "SHIPPING", paidOn: todayLocal(), note: "" });
-  const submitPayment = (e: FormEvent) => {
+  const submitPayment = async (e: FormEvent) => {
     e.preventDefault();
     const amount = Number(pay.amount);
     if (!Number.isFinite(amount) || amount <= 0) return setError("Enter a payment amount above zero.");
+    if (pay.purpose === "CARDS") {
+      const waiting = proofsWaitingFor(pendingProofs, { liveId: pay.liveId || null });
+      if (waiting.length > 0 && !(await confirm({ title: "A payment proof is already waiting", message: waitingProofText(customer.name, waiting), confirmLabel: "Record anyway", tone: "danger" }))) return;
+    }
     run(async () => {
       await recordPayment({ customerId: customer.id, liveId: pay.liveId || null, amount, method: pay.method, purpose: pay.purpose, paidOn: pay.paidOn, note: pay.note });
       setPay((p) => ({ ...p, amount: "", note: "" }));
@@ -187,7 +194,9 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           type="button"
           className="px-3 py-1 text-xs"
           disabled={pending}
-          onClick={() =>
+          onClick={async () => {
+            const waiting = proofsWaitingFor(pendingProofs, { saleIds: due.map((c) => c.id) });
+            if (waiting.length > 0 && !(await confirm({ title: "A payment proof is already waiting", message: waitingProofText(customer.name, waiting), confirmLabel: "Mark paid anyway", tone: "danger" }))) return;
             run(async () => {
               await recordPayments({
                 customerId: customer.id,
@@ -199,8 +208,8 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 note: "",
                 allocations: due.map((c) => ({ saleId: c.id, amount: leftOf(c) })),
               });
-            })
-          }
+            });
+          }}
         >
           Paid · {formatCurrency(amount)}
         </Button>
@@ -1025,6 +1034,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
           lives={lives}
           customerLiveIds={[...new Set(sales.map((s) => s.liveId))]}
           payments={payments}
+          pendingProofs={pendingProofs}
           selectedCards={(payFromLives ? livePayCards : payableSelected).map((s) => ({ id: s.id, name: s.cardName, amount: s.amount, left: leftOf(s) }))}
         />
       )}
@@ -1037,6 +1047,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
             customer={{ id: customer.id, name: customer.name }}
             card={{ id: card.id, name: card.cardName, amount: card.amount, paid: paidOf(card.id), liveId: card.liveId }}
             payments={payments}
+            pendingProofs={pendingProofs}
           />
         );
       })()}

@@ -25,6 +25,7 @@ export default async function TrackerEntryPage({ searchParams }: { searchParams:
       payments={data.payments}
       liveBreakdown={data.liveBreakdown}
       planUnpaid={data.planUnpaidBySale}
+      pendingProofs={data.pendingProofs}
     />
   );
 }

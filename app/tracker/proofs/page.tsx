@@ -3,7 +3,9 @@ import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { ProofsView, ProofItem } from "@/components/tracker/ProofsView";
 import type { MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { loadMarketplaceClaims } from "@/lib/tracker/marketplaceData";
-import { parseOwnerLabels } from "@/lib/tracker/data";
+import { loadTrackerData, parseOwnerLabels } from "@/lib/tracker/data";
+import { paymentsCoveringSales } from "@/lib/tracker/coverage";
+import { overlapText, proofOverlap } from "@/lib/tracker/proofWarnings";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +62,25 @@ export default async function TrackerProofsPage() {
   const ownerLabels = parseOwnerLabels((settingsRes.data as { owner_labels?: unknown } | null)?.owner_labels);
   const ownerNameOf = (tag: string | null) => (tag === null ? "No owner" : (ownerLabels.find((o) => o.code === tag)?.name ?? tag));
 
+  // For a proof still waiting: is any of it for cards that are already paid (by hand, or by another proof)? Confirming it would count that money twice.
+  const ledger = await loadTrackerData(admin.id);
+  const ledgerSales = new Map(ledger.sales.map((s) => [s.id, { cardName: s.cardName, amount: s.amount }]));
+  const coveredBy = paymentsCoveringSales({
+    sales: ledger.sales,
+    liveDates: new Map(ledger.lives.map((l) => [l.id, l.liveDate])),
+    payments: ledger.payments,
+    strict: ledger.settings.strictPayments,
+  });
+  const overlapOf = (claimId: string, customerName: string): string | null => {
+    const o = proofOverlap({
+      claimCards: (cardRes.data ?? []).filter((r) => r.claim_id === claimId).map((r) => ({ saleId: r.sale_id as string, amount: Number(r.amount) })),
+      sales: ledgerSales,
+      paidBySale: ledger.paidBySale,
+      coveredBy,
+    });
+    return o ? overlapText(customerName, o) : null;
+  };
+
   const items: ProofItem[] = rows.map((c) => ({
     id: c.id as string,
     status: c.status as ProofItem["status"],
@@ -73,6 +94,7 @@ export default async function TrackerProofsPage() {
     rejectReason: (c.reject_reason as string | null) ?? null,
     createdAt: c.created_at as string,
     reviewedAt: (c.reviewed_at as string | null) ?? null,
+    overlapWarning: c.status === "PENDING" ? overlapOf(c.id as string, nameOf.get(c.customer_id as string) ?? "This customer") : null,
     proofUrl: urlOf.get(c.proof_path as string) ?? null,
     cards: (cardRes.data ?? [])
       .filter((r) => r.claim_id === c.id)

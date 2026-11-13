@@ -5,6 +5,7 @@ import { CheckCircle2, ImageOff, Search, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { extractErrorMessage } from "@/lib/utils";
+import { budgetLabel } from "@/lib/wantedBudget";
 import { updateWantedCardStatus } from "@/app/admin/sellerActions";
 import { ImageLightbox } from "@/components/admin/ImageLightbox";
 import { ViewToggle } from "@/components/admin/ViewToggle";
@@ -102,6 +103,7 @@ export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[
                   <p className="text-xs text-foreground-muted">
                     @{w.buyerHandle.replace(/^@/, "")} · {formatDate(w.createdAt)}
                   </p>
+                  {budgetLabel(w.budgetType, w.budgetAmount) && <p className="mt-0.5 text-sm font-semibold text-gold-ink">Budget: {budgetLabel(w.budgetType, w.budgetAmount)}</p>}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {w.status === "OPEN" ? (
@@ -152,6 +154,7 @@ export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[
                   <p className="text-xs text-foreground-muted">
                     {w.buyerHandle} · {formatDate(w.createdAt)}
                   </p>
+                  {budgetLabel(w.budgetType, w.budgetAmount) && <p className="text-xs font-semibold text-gold-ink">Budget: {budgetLabel(w.budgetType, w.budgetAmount)}</p>}
                   {w.status === "OPEN" ? (
                     <div className="mt-auto flex gap-1.5">
                       <Button
@@ -190,6 +193,12 @@ export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[
           subtitle={
             <>
               Requested by <span className="font-medium text-foreground">@{viewing.buyerHandle.replace(/^@/, "")}</span> · {formatDate(viewing.createdAt)}
+              {budgetLabel(viewing.budgetType, viewing.budgetAmount) && (
+                <>
+                  {" "}
+                  · Budget <span className="font-semibold text-foreground">{budgetLabel(viewing.budgetType, viewing.budgetAmount)}</span>
+                </>
+              )}
             </>
           }
           images={viewing.photoUrl ? [viewing.photoUrl] : []}

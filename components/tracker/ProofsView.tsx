@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { Check, ExternalLink, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
@@ -23,6 +24,8 @@ export interface ProofItem {
   rejectReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
+  /** Set when part of this waiting proof is for cards that are already paid: confirming would count that money twice. */
+  overlapWarning: string | null;
   /** Short-lived signed link to the private screenshot. */
   proofUrl: string | null;
   cards: { name: string; amount: number; liveTitle: string; owner: string }[];
@@ -96,6 +99,7 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
 }
 
 function ProofCard({ item }: { item: ProofItem }) {
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [paidOn, setPaidOn] = useState(todayLocal);
@@ -180,6 +184,12 @@ function ProofCard({ item }: { item: ProofItem }) {
           {item.status === "REJECTED" && item.rejectReason && <p className="text-xs text-sold">Reason given: {item.rejectReason}</p>}
 
           {error && <p className="text-sm text-sold">{error}</p>}
+          {item.status === "PENDING" && item.overlapWarning && (
+            <p role="alert" className="rounded-lg border border-pending/40 bg-pending-bg px-3 py-2 text-sm text-pending">
+              <span className="font-semibold">Already paid: </span>
+              {item.overlapWarning}
+            </p>
+          )}
 
           {item.status === "PENDING" && (
             <div className="space-y-2 border-t border-card-border pt-3">
@@ -189,8 +199,16 @@ function ProofCard({ item }: { item: ProofItem }) {
                     <label className="mb-1 block text-xs text-foreground-muted">Payment date</label>
                     <Input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
                   </div>
-                  <Button variant="gold" type="button" disabled={pending} onClick={() => run(() => confirmClaim(item.id, paidOn))}>
-                    <Check size={14} /> Confirm payment
+                  <Button
+                    variant="gold"
+                    type="button"
+                    disabled={pending}
+                    onClick={async () => {
+                      if (item.overlapWarning && !(await confirm({ title: "These cards are already paid", message: `${item.overlapWarning} Confirm only if ${item.customerName} really paid twice.`, confirmLabel: "Confirm anyway", tone: "danger" }))) return;
+                      run(() => confirmClaim(item.id, paidOn));
+                    }}
+                  >
+                    <Check size={14} /> {item.overlapWarning ? "Confirm anyway" : "Confirm payment"}
                   </Button>
                   <Button variant="outline" type="button" disabled={pending} onClick={() => setRejecting(true)}>
                     <X size={14} /> Reject

@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { deletePayment, recordPayments } from "@/app/tracker/paymentActions";
 import type { TrackerPayment } from "@/lib/tracker/data";
+import { PendingProofInfo, proofsWaitingFor, waitingProofText } from "@/lib/tracker/proofWarnings";
 import { extractErrorMessage, formatCurrency } from "@/lib/utils";
 
 const label = "mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted";
@@ -34,6 +35,8 @@ interface Props {
   card: { id: string; name: string; amount: number; paid: number; liveId: string };
   /** The customer's payments, any order; the ones recorded against this card are picked out here. */
   payments: TrackerPayment[];
+  /** This customer's proofs still waiting for review: recording a payment on a card one of them covers would count it twice, so it asks first. */
+  pendingProofs?: PendingProofInfo[];
 }
 
 /**
@@ -48,7 +51,7 @@ export function CardPaymentDialog(props: Props) {
   );
 }
 
-function Body({ onClose, customer, card, payments }: Props) {
+function Body({ onClose, customer, card, payments, pendingProofs }: Props) {
   const confirm = useConfirm();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -68,11 +71,13 @@ function Body({ onClose, customer, card, payments }: Props) {
   const fromGeneral = round2(card.paid - itemized);
   const pct = card.amount > 0 ? Math.min(100, Math.round((card.paid / card.amount) * 100)) : 0;
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) return setError("Enter how much they paid.");
     if (value > left + 0.001) return setError(`That's more than the ${formatCurrency(left)} still owed on this card.`);
+    const waiting = proofsWaitingFor(pendingProofs ?? [], { saleIds: [card.id] });
+    if (waiting.length > 0 && !(await confirm({ title: "A payment proof is already waiting", message: waitingProofText(customer.name, waiting), confirmLabel: "Record anyway", tone: "danger" }))) return;
     setError(null);
     setNotice(null);
     startTransition(async () => {

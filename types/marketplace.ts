@@ -559,6 +559,9 @@ export interface WantedCard {
   photoUrl: string;
   status: WantedCardStatus;
   createdAt: number;
+  /** What the buyer is willing to spend ("Under ₱500" / "Over ₱500"), or null when they gave no budget. */
+  budgetAmount: number | null;
+  budgetType: "UNDER" | "OVER" | null;
 }
 
 export interface WantedCardRow {
@@ -569,6 +572,8 @@ export interface WantedCardRow {
   photo_url: string;
   status: WantedCardStatus;
   created_at: string;
+  budget_amount?: number | string | null;
+  budget_type?: "UNDER" | "OVER" | null;
 }
 
 export function wantedCardFromRow(row: WantedCardRow): WantedCard {
@@ -580,6 +585,8 @@ export function wantedCardFromRow(row: WantedCardRow): WantedCard {
     photoUrl: row.photo_url,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
+    budgetAmount: row.budget_amount === null || row.budget_amount === undefined ? null : Number(row.budget_amount),
+    budgetType: row.budget_type ?? null,
   };
 }
 

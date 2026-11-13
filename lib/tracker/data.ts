@@ -4,6 +4,7 @@ import { computeCustomerTotals, CustomerTotals } from "./money";
 import { IslandGroup, islandGroupForRegion } from "./regions";
 import { DEFAULT_OWNER_LABELS, OwnerLabel, allocateCardPayments, liveBalances, normalizeOwnerTag } from "./split";
 import type { Installment } from "./installments";
+import type { PendingProofInfo } from "./proofWarnings";
 
 export interface TrackerSettings {
   luzonFee: number;
@@ -132,6 +133,8 @@ export interface TrackerData {
   plans: TrackerPlan[];
   /** For cards on an ACTIVE plan that still owe money: how much. Shipping such a card early gets a warning. */
   planUnpaidBySale: Record<string, number>;
+  /** Customer proofs still waiting for review, with the cards they cover - used to warn before the same payment is recorded twice. */
+  pendingProofs: PendingProofInfo[];
 }
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
@@ -185,6 +188,18 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     /tracker_payment_allocations|schema cache|does not exist/i,
     () => fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_payment_allocations").select("payment_id, sale_id, amount").eq("owner_id", ownerId).range(f, t)),
     [] as Record<string, unknown>[],
+  );
+  const pendingProofsP = optional(
+    /tracker_payment_claims|tracker_claim_cards|schema cache|does not exist/i,
+    async () => {
+      const claims = await fetchAll<Record<string, unknown>>((f, t) =>
+        supabase.from("tracker_payment_claims").select("id, customer_id, cards_amount, created_at").eq("owner_id", ownerId).eq("status", "PENDING").range(f, t),
+      );
+      const claimIds = claims.map((c) => c.id as string);
+      const cardRows = claimIds.length ? await fetchAll<Record<string, unknown>>((f, t) => supabase.from("tracker_claim_cards").select("claim_id, sale_id").in("claim_id", claimIds).range(f, t)) : [];
+      return { claims, cardRows };
+    },
+    { claims: [] as Record<string, unknown>[], cardRows: [] as Record<string, unknown>[] },
   );
   const plansP = optional(
     /tracker_installment_plans|tracker_plan_installments|schema cache|does not exist/i,
@@ -390,5 +405,19 @@ export async function loadTrackerData(ownerId: string): Promise<TrackerData> {
     for (const p of payouts) p.cards = byPayout.get(p.id) ?? [];
   }
 
-  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts, plans, planUnpaidBySale };
+  const { claims: pendingClaims, cardRows: pendingCardRows } = await pendingProofsP;
+  const liveOfSale = new Map(sales.map((x) => [x.id, x.liveId]));
+  const pendingProofs: PendingProofInfo[] = pendingClaims.map((c) => {
+    const saleIds = pendingCardRows.filter((r) => r.claim_id === c.id).map((r) => r.sale_id as string);
+    return {
+      id: c.id as string,
+      customerId: c.customer_id as string,
+      createdAt: c.created_at as string,
+      cardsAmount: Number(c.cards_amount),
+      saleIds,
+      liveIds: [...new Set(saleIds.map((id) => liveOfSale.get(id)).filter((id): id is string => Boolean(id)))],
+    };
+  });
+
+  return { settings, customers, lives, sales, payments, shipments, totalsByCustomer, liveBreakdown, paidBySale, payouts, plans, planUnpaidBySale, pendingProofs };
 }

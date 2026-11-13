@@ -19,6 +19,7 @@ import { CatalogPicker } from "@/components/CatalogPicker";
 import { CatalogCard, catalogCardLabel } from "@/lib/pokemonCatalog";
 import type { CardInsight } from "@/lib/tracker/wanted";
 import { copyImageFromUrl, copyText } from "@/lib/tracker/clipboard";
+import type { PendingProofInfo } from "@/lib/tracker/proofWarnings";
 import { shippingFeeFor } from "@/lib/tracker/regions";
 import { ownerColor } from "@/lib/tracker/ownerColors";
 import { CustomerTotals } from "@/lib/tracker/money";
@@ -45,10 +46,12 @@ interface Props {
   liveBreakdown: Record<string, Record<string, { cards: number; paid: number }>>;
   /** Cards on an approved installment plan that still owe money (sale id -> unpaid). Shipping one early asks first. */
   planUnpaid: Record<string, number>;
+  /** Customer proofs still waiting for review (every customer). Recording a payment by hand for the same cards asks first. */
+  pendingProofs: PendingProofInfo[];
   /** Open buyer requests that may be this live's cards (sale id -> matches). */
 }
 
-export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid }: Props) {
+export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid, pendingProofs }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   // Editing a card in place, and editing the live's title/date.
@@ -931,6 +934,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
           customerLiveIds={Object.keys(liveBreakdown[payingId] ?? {})}
           rates={settings}
           payments={payments.filter((p) => p.customerId === payingId)}
+          pendingProofs={pendingProofs.filter((p) => p.customerId === payingId)}
         />
       )}
     </div>
