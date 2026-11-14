@@ -53,3 +53,11 @@ test("set ids and colours", () => {
   assert.equal(setIdOfCode("P-012"), "P");
   assert.equal(jpColorToEnglish("紫"), "Purple");
 });
+
+test("Japanese card pictures are shown through the shop's own address; English ones stay direct", async () => {
+  const { catalogImageUrl } = await import("../../lib/pokemonCatalog");
+  const jp = "https://www.onepiece-cardgame.com/images/cardlist/card/OP01-001.png";
+  assert.equal(catalogImageUrl(jp), `/api/catalog-image?u=${encodeURIComponent(jp)}`);
+  const en = "https://optcgapi.com/media/static/Card_Images/OP01-001.jpg";
+  assert.equal(catalogImageUrl(en), en);
+});
