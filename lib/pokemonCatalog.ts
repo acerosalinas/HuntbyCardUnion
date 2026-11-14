@@ -1,4 +1,4 @@
-import { OPTCG_IMAGE_PREFIX } from "@/lib/onepieceCatalog";
+import { isCatalogImagePrefix } from "@/lib/onepieceCatalog";
 
 /** A card from a shared catalog (Pokemon, or One Piece), as the card search shows it. */
 export interface CatalogCard {
@@ -108,7 +108,7 @@ export function isCatalogImage(url: string): boolean {
 export function catalogImageUrl(image: string | null, size: "low" | "high" = "low"): string | null {
   if (!image) return null;
   // One Piece pictures are plain full-size images: one address for every size.
-  if (image.startsWith(OPTCG_IMAGE_PREFIX)) return image;
+  if (isCatalogImagePrefix(image)) return image;
   if (image.startsWith(TCGPLAYER_IMAGE_HOST)) return size === "high" ? image.replace(/_200w\.jpg$/, "_in_1000x1000.jpg") : image;
   if (image.startsWith(LIMITLESS_IMAGE_HOST)) return size === "high" ? image.replace(/_SM\.png$/, "_LG.png") : image;
   return `${image}/${size}.webp`;

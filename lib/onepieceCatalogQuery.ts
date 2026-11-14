@@ -7,6 +7,8 @@ function escapeLike(value: string) {
 }
 
 const looksLikeCode = (t: string) => /\d/.test(t);
+/** Typing JP / Japan / Japanese anywhere ("luffy jp 053") asks for the Japanese printings only. */
+const isJapaneseWord = (t: string) => t === "jp" || t === "japan" || t === "japanese";
 
 interface Row {
   id: string;
@@ -20,12 +22,16 @@ interface Row {
 
 /** Best matches first: the card whose code was typed, then names starting with the first word, then plain printings before art variants, then shorter names. */
 function rank(rows: Row[], tokens: string[]): Row[] {
-  const first = tokens.find((t) => !looksLikeCode(t)) ?? tokens[0] ?? "";
+  const first = tokens.find((t) => !looksLikeCode(t) && !isJapaneseWord(t)) ?? tokens[0] ?? "";
   const codes = tokens.filter(looksLikeCode);
   const score = (r: Row) => {
     const n = r.name.toLowerCase();
+    const code = r.card_code.toLowerCase();
+    // A bare number ("053") means the card whose code ends in it.
+    const endsWithNumber = codes.some((c) => /^\d+$/.test(c) && code.endsWith(`-${c}`)) ? -2000 : 0;
     const exactCode = codes.some((c) => r.card_code.toLowerCase() === c || r.card_code.toLowerCase().replace("-", "") === c.replace("-", "")) ? -5000 : 0;
-    return exactCode + (n === first ? 0 : n.startsWith(first) ? 1 : 2) * 1000 + (r.variant ? 200 : 0) + Math.min(n.length, 99);
+    const jp = r.id.startsWith("jp:") ? 50 : 0;
+    return endsWithNumber + exactCode + jp + (n === first ? 0 : n.startsWith(first) ? 1 : 2) * 1000 + (r.variant ? 200 : 0) + Math.min(n.length, 99);
   };
   return rows.map((r, i) => ({ r, i, s: score(r) })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.r);
 }
@@ -41,11 +47,15 @@ export async function queryOnePieceCatalog(query: string): Promise<{ cards: Cata
 
   const db = createAdminClient();
   // As typed first; then, if that finds nothing, just the words (a wrong or missing code still lists that character's cards).
-  const words = tokens.filter((t) => !looksLikeCode(t));
-  const attempts = words.length > 0 && words.length < tokens.length ? [tokens, words] : [tokens];
+  const japanese = tokens.some(isJapaneseWord);
+  const plainTokens = tokens.filter((t) => !isJapaneseWord(t));
+  if (plainTokens.length === 0 || plainTokens.join("").length < 2) return { cards: [] };
+  const words = plainTokens.filter((t) => !looksLikeCode(t));
+  const attempts = words.length > 0 && words.length < plainTokens.length ? [plainTokens, words] : [plainTokens];
   for (const attempt of attempts) {
-    let q = db.from("onepiece_catalog_cards").select("id, card_code, name, variant, set_name, rarity, image_url").order("card_code", { ascending: true }).limit(CATALOG_MAX_RESULTS * 3);
+    let q = db.from("onepiece_catalog_cards").select("id, card_code, name, variant, set_name, rarity, image_url").order("card_code", { ascending: true }).limit(CATALOG_MAX_RESULTS * 6);
     for (const t of attempt) q = q.ilike("search", `%${escapeLike(t)}%`);
+    if (japanese) q = q.like("id", "jp:%");
     const { data, error } = await q;
     if (error) {
       const missing = /onepiece_catalog_cards|schema cache|does not exist/i.test(error.message);
@@ -55,7 +65,7 @@ export async function queryOnePieceCatalog(query: string): Promise<{ cards: Cata
     return {
       cards: rank(data as Row[], attempt)
         .slice(0, CATALOG_MAX_RESULTS)
-        .map((r) => ({ id: r.id, name: r.name, setName: r.set_name, number: r.card_code, image: r.image_url, lang: "en", year: null, variant: r.variant, rarity: r.rarity })),
+        .map((r) => ({ id: r.id, name: r.name, setName: r.set_name, number: r.card_code, image: r.image_url, lang: r.id.startsWith("jp:") ? "ja" : "en", year: null, variant: r.variant, rarity: r.rarity })),
     };
   }
   return { cards: [] };

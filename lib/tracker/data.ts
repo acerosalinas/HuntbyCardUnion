@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeCustomerTotals, CustomerTotals } from "./money";
 import { IslandGroup, islandGroupForRegion } from "./regions";
-import { DEFAULT_OWNER_LABELS, OwnerLabel, allocateCardPayments, liveBalances, normalizeOwnerTag } from "./split";
+import { NEW_ACCOUNT_OWNER_LABELS, OwnerLabel, allocateCardPayments, liveBalances, normalizeOwnerTag } from "./split";
 import type { Installment } from "./installments";
 import type { PendingProofInfo } from "./proofWarnings";
 
@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS: TrackerSettings = {
   paymentInstructions: "",
   showAddressOnInvoice: true,
   strictPayments: false,
-  ownerLabels: DEFAULT_OWNER_LABELS,
+  ownerLabels: NEW_ACCOUNT_OWNER_LABELS,
   gcashQrUrl: null,
   maribankQrUrl: null,
 };
@@ -139,7 +139,7 @@ export interface TrackerData {
 
 /** owner_labels is jsonb; fall back to the defaults if it's missing (migration not run yet) or malformed. */
 export function parseOwnerLabels(raw: unknown): OwnerLabel[] {
-  if (!Array.isArray(raw)) return DEFAULT_OWNER_LABELS;
+  if (!Array.isArray(raw)) return NEW_ACCOUNT_OWNER_LABELS;
   const labels = raw
     .map((x) => ({
       code: normalizeOwnerTag((x as { code?: string })?.code) ?? "",
@@ -147,7 +147,7 @@ export function parseOwnerLabels(raw: unknown): OwnerLabel[] {
       active: (x as { active?: boolean })?.active !== false,
     }))
     .filter((l) => l.code !== "" && l.name !== "");
-  return labels.length > 0 ? labels : DEFAULT_OWNER_LABELS;
+  return labels.length > 0 ? labels : NEW_ACCOUNT_OWNER_LABELS;
 }
 
 const PAGE = 1000;

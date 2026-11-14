@@ -12,6 +12,9 @@ export const DEFAULT_OWNER_LABELS: OwnerLabel[] = [
   { code: "S", name: "Shane" },
 ];
 
+/** What a Super Admin who hasn't set up owners yet starts with: just themselves (never another shop's people). */
+export const NEW_ACCOUNT_OWNER_LABELS: OwnerLabel[] = [{ code: "ME", name: "Me" }];
+
 /** "a " -> "A"; empty -> null. Codes are stored upper-case so filters and labels always match. */
 export function normalizeOwnerTag(tag: string | null | undefined): string | null {
   const t = (tag ?? "").trim().toUpperCase();

@@ -103,10 +103,14 @@ export function normalizeOnePieceCard(raw: OptcgRawCard): OnePieceCatalogRow | n
 }
 
 /** How a card reads in a listing title: "Roronoa Zoro OP01-001 (Parallel)". */
-export function onePieceListingTitle(card: { name: string; number: string; variant?: string | null }): string {
-  return `${card.name} ${card.number}${card.variant ? ` (${card.variant})` : ""}`;
+export function onePieceListingTitle(card: { name: string; number: string; variant?: string | null; lang?: string | null }): string {
+  const tags = [card.variant, card.lang === "ja" ? "Japanese" : null].filter(Boolean).join(", ");
+  return `${card.name} ${card.number}${tags ? ` (${tags})` : ""}`;
 }
 
 /** Only pictures from the OPTCG API's own image folder may be copied into the shop's storage. */
 export const OPTCG_IMAGE_PREFIX = "https://optcgapi.com/media/static/Card_Images/";
-export const isOptcgImage = (url: string) => url.startsWith(OPTCG_IMAGE_PREFIX) && !url.includes("..") && /\.(jpe?g|png|webp)$/i.test(url);
+/** ...and the official Japanese card list's own picture folder (Japanese cards). */
+export const JP_IMAGE_PREFIX = "https://www.onepiece-cardgame.com/images/cardlist/card/";
+export const isCatalogImagePrefix = (url: string) => url.startsWith(OPTCG_IMAGE_PREFIX) || url.startsWith(JP_IMAGE_PREFIX);
+export const isOptcgImage = (url: string) => isCatalogImagePrefix(url) && !url.includes("..") && /\.(jpe?g|png|webp)$/i.test(url);

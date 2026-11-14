@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { checkImageTypeClientSide, ACCEPTED_IMAGE_ACCEPT_ATTR } from "@/lib/imageAccept";
 import { normalizeImageFiles } from "@/lib/imageNormalize";
-import { FRANCHISES } from "@/lib/franchises";
+import { FRANCHISES, getFranchiseBySlug } from "@/lib/franchises";
 import { raritiesForFranchise, DEFAULT_RARITY } from "@/lib/rarity";
 import { POKEMON_TYPES } from "@/lib/pokemonType";
 import { MYSTERY_CONDITION_GRADE, MYSTERY_MAX_PACKS, MYSTERY_PACK_LABEL, MYSTERY_RARITY, MYSTERY_SET_NAME } from "@/lib/mysteryPack";
@@ -149,12 +149,24 @@ interface InventoryFormProps {
   onSuccess?: () => void;
 }
 
+/** A blank new listing for this seller: their handle, and the franchise they said they sell (so a One Piece seller starts on One Piece, not Pokémon). */
+function startingForm(profile: SellerProfile | null): FormState {
+  const sells = getFranchiseBySlug(profile?.tags?.[0] ?? "")?.slug ?? emptyForm.franchise;
+  return {
+    ...emptyForm,
+    sellerHandle: profile ? `@${profile.handle}` : "",
+    franchise: sells,
+    rarity: raritiesForFranchise(sells).includes(emptyForm.rarity) ? emptyForm.rarity : DEFAULT_RARITY,
+    pokemonType: sells === "pokemon" ? POKEMON_TYPES[0] : null,
+  };
+}
+
 export function InventoryForm({ card, sellerProfile = null, onSuccess }: InventoryFormProps) {
   const isEdit = Boolean(card);
   const [form, setForm] = useState<FormState>(() =>
     card
       ? formStateFromCard(card)
-      : { ...emptyForm, sellerHandle: sellerProfile ? `@${sellerProfile.handle}` : "" },
+      : startingForm(sellerProfile),
   );
   const [images, setImages] = useState<string[]>(card?.images ?? []);
   // The catalog card picked for this listing, so the Live Tracker can show its marketplace price.
@@ -314,7 +326,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           // initial mount - a bare emptyForm would blank it back to "" and
           // incorrectly show the "set up your Seller Profile" message even
           // though it's already set up.
-          setForm({ ...emptyForm, sellerHandle: sellerProfile ? `@${sellerProfile.handle}` : "" });
+          setForm(startingForm(sellerProfile));
           setImages([]);
         }
         setSuccess(true);
@@ -354,7 +366,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             onPick={(c) => {
               setForm((f) => ({
                 ...f,
-                title: onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant }),
+                title: onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant, lang: c.lang }),
                 setName: c.setName,
                 rarity: c.rarity && raritiesForFranchise("one-piece").includes(c.rarity) ? c.rarity : f.rarity,
               }));

@@ -4,7 +4,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { CatalogPicker } from "@/components/CatalogPicker";
-import { searchPokemonCards } from "@/app/catalog/actions";
+import { searchOnePieceCards, searchPokemonCards } from "@/app/catalog/actions";
+import { onePieceListingTitle } from "@/lib/onepieceCatalog";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
@@ -357,6 +358,25 @@ export function RapidFillQueue({ initialDrafts }: { initialDrafts: CardItem[] })
                 search={searchPokemonCards}
                 onFocus={(e) => e.target.select()}
                 placeholder="Type to search Pokémon cards"
+                required
+              />
+            ) : form.franchise === "one-piece" ? (
+              <CatalogPicker
+                inputRef={titleRef}
+                autoFocus
+                value={form.title}
+                onValueChange={(v) => set("title", v)}
+                onPick={(c) =>
+                  setForm((f) => ({
+                    ...f,
+                    title: onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant, lang: c.lang }),
+                    setName: c.setName,
+                    rarity: c.rarity && raritiesForFranchise("one-piece").includes(c.rarity) ? c.rarity : f.rarity,
+                  }))
+                }
+                search={searchOnePieceCards}
+                onFocus={(e) => e.target.select()}
+                placeholder="Type to search One Piece cards (e.g. luffy OP01)"
                 required
               />
             ) : (
