@@ -3,7 +3,8 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { ImagePlus, Search, Trash2, X } from "lucide-react";
 import { CatalogPicker } from "@/components/CatalogPicker";
-import { searchPokemonCards } from "@/app/catalog/actions";
+import { searchOnePieceCards, searchPokemonCards } from "@/app/catalog/actions";
+import { onePieceListingTitle } from "@/lib/onepieceCatalog";
 import { catalogCardLabel, catalogImageUrl } from "@/lib/pokemonCatalog";
 import { Button } from "@/components/ui/Button";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
@@ -27,6 +28,8 @@ import { WantedCard, WantedCardRow, wantedCardFromRow } from "@/types/marketplac
 export function WantedCardForm() {
   const { buyer } = useBuyerIdentity();
   const [cardName, setCardName] = useState("");
+  // Which game the card search looks in (both are always available; the buyer picks).
+  const [game, setGame] = useState<"pokemon" | "one-piece">("pokemon");
   const [photoUrl, setPhotoUrl] = useState("");
   // Optional: what the buyer is willing to spend, so sellers know whether the request is worth chasing.
   const [budgetType, setBudgetType] = useState<BudgetType>("UNDER");
@@ -156,19 +159,33 @@ export function WantedCardForm() {
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="flex-1">
+          <div className="mb-1.5 flex gap-1.5" role="group" aria-label="Which game">
+            {([["pokemon", "Pokémon"], ["one-piece", "One Piece"]] as const).map(([slug, label]) => (
+              <button
+                key={slug}
+                type="button"
+                onClick={() => setGame(slug)}
+                aria-pressed={game === slug}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${game === slug ? "border-gold bg-gold/15 text-gold-ink" : "border-card-border text-foreground-muted hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <CatalogPicker
+            key={game}
             value={cardName}
             onValueChange={setCardName}
             onPick={(c) => {
-              setCardName(catalogCardLabel(c));
+              setCardName(game === "one-piece" ? onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant, lang: c.lang }) : catalogCardLabel(c));
               const picture = catalogImageUrl(c.image, "high");
               if (picture && (!photoUrl || photoFromCatalog)) {
                 setPhotoUrl(picture);
                 setPhotoFromCatalog(true);
               }
             }}
-            search={searchPokemonCards}
-            placeholder="Card name (e.g. Charizard ex Base Set)"
+            search={game === "one-piece" ? searchOnePieceCards : searchPokemonCards}
+            placeholder={game === "one-piece" ? "Card name (e.g. Luffy OP01, add JP for Japanese)" : "Card name (e.g. Charizard ex Base Set)"}
           />
         </div>
         <div className="flex items-center gap-2">

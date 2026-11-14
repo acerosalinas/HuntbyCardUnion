@@ -25,6 +25,7 @@ import { ownerColor } from "@/lib/tracker/ownerColors";
 import { CustomerTotals } from "@/lib/tracker/money";
 import type { TrackerCustomer, TrackerLive, TrackerPayment, TrackerSale, TrackerSettings } from "@/lib/tracker/data";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { onePieceListingTitle } from "@/lib/onepieceCatalog";
 
 function todayLocal(): string {
   const d = new Date();
@@ -33,6 +34,8 @@ function todayLocal(): string {
 }
 
 interface Props {
+  /** What the seller sells (their profile): decides which cards the card box suggests. */
+  franchise?: string | null;
   liveId: string | null;
   lives: TrackerLive[];
   customers: TrackerCustomer[];
@@ -51,7 +54,7 @@ interface Props {
   /** Open buyer requests that may be this live's cards (sale id -> matches). */
 }
 
-export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid, pendingProofs }: Props) {
+export function EntryView({ franchise, liveId, lives, customers, sales, totalsByCustomer, settings, payments, liveBreakdown, planUnpaid, pendingProofs }: Props) {
   const router = useRouter();
   const confirm = useConfirm();
   // Editing a card in place, and editing the live's title/date.
@@ -117,11 +120,13 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
     cardRef.current?.focus();
   };
 
+  const onePiece = franchise === "one-piece";
   const pickCard = (c: CatalogCard) => {
-    setCardName(catalogCardLabel(c));
-    setCatalogId(c.id);
+    setCardName(onePiece ? onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant, lang: c.lang }) : catalogCardLabel(c));
+    // Sales history is kept for the Pokémon catalog only; a One Piece pick just fills in the name.
+    setCatalogId(onePiece ? null : c.id);
     setHistory(null);
-    cardHistory(c.id).then(setHistory).catch(() => {});
+    if (!onePiece) cardHistory(c.id).then(setHistory).catch(() => {});
     amountRef.current?.focus();
   };
 
@@ -525,7 +530,7 @@ export function EntryView({ liveId, lives, customers, sales, totalsByCustomer, s
                 }}
                 onPick={pickCard}
                 search={searchCatalog}
-                placeholder="Card name - search Pokémon cards (add JP for Japanese)"
+                placeholder={onePiece ? "Card name - search One Piece cards (e.g. luffy OP01, add JP for Japanese)" : "Card name - search Pokémon cards (add JP for Japanese)"}
               />
               {catalogId && history && (
                 <p className="mt-1 text-xs text-foreground-muted">

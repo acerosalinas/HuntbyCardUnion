@@ -1,5 +1,6 @@
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { loadTrackerData } from "@/lib/tracker/data";
+import { sellerFranchise } from "@/lib/sellerFranchise";
 import { EntryView } from "@/components/tracker/EntryView";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function TrackerEntryPage({ searchParams }: { searchParams: Promise<{ live?: string }> }) {
   const admin = await requireTrackerAdminOrRedirect();
   const { live } = await searchParams;
-  const data = await loadTrackerData(admin.id);
+  const [data, franchise] = await Promise.all([loadTrackerData(admin.id), sellerFranchise(admin.id)]);
 
   // Default to the most recent live (lives are loaded newest-first).
   const liveId = data.lives.some((l) => l.id === live) ? live! : (data.lives[0]?.id ?? null);
@@ -16,6 +17,7 @@ export default async function TrackerEntryPage({ searchParams }: { searchParams:
 
   return (
     <EntryView
+      franchise={franchise}
       liveId={liveId}
       lives={data.lives}
       customers={data.customers}

@@ -4,6 +4,8 @@ import type { CatalogCard } from "@/lib/pokemonCatalog";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
+import { sellerFranchise } from "@/lib/sellerFranchise";
+import { queryOnePieceCatalog } from "@/lib/onepieceCatalogQuery";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 import { queryCatalog } from "@/lib/pokemonCatalogQuery";
 import { CardInsight, summarizeHistory } from "@/lib/tracker/wanted";
@@ -129,10 +131,10 @@ export async function addSale(input: {
   return { customerId: customer.id, newCustomer: customer.created };
 }
 
-/** Pokemon cards matching what's typed in the card box (name, set or number), best matches first. Never throws. */
+/** Cards matching what's typed in the card box (name, set or number), best matches first - from the franchise the seller sells (One Piece sellers get One Piece cards, English or Japanese). Never throws. */
 export async function searchCatalog(query: string): Promise<{ cards: CatalogCard[]; error?: string }> {
-  await requireTrackerAdmin();
-  return queryCatalog(query);
+  const admin = await requireTrackerAdmin();
+  return (await sellerFranchise(admin.id)) === "one-piece" ? queryOnePieceCatalog(query) : queryCatalog(query);
 }
 
 export async function updateSale(id: string, input: { cardName: string; amount: number; forShipping: boolean; customerName?: string }) {
