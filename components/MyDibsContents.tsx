@@ -8,9 +8,14 @@ import { PageSpinner } from "@/components/PageSpinner";
 import { ClaimStageTracker, ClaimStage } from "@/components/ClaimStageTracker";
 import { HoldCountdown } from "@/components/HoldCountdown";
 import { OrderProofDialog } from "@/components/OrderProofDialog";
+import { InstallmentProofDialog, InstallmentRequestDialog } from "@/components/InstallmentDialogs";
 import { useBuyerIdentity } from "@/components/BuyerIdentityProvider";
 import { useCart } from "@/components/CartProvider";
 import { requestShipping } from "@/app/account/actions";
+import { getMyInstallments } from "@/app/account/installmentActions";
+import type { ClaimPlanData } from "@/lib/claimInstallmentsData";
+import { maxInstallmentPayment, readPlan } from "@/lib/claimInstallments";
+import { formatShortDate } from "@/lib/tracker/statement";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { buildMessengerUrl, cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
@@ -33,6 +38,8 @@ interface ClaimedCardView {
   claimId: string;
   card: CardItem;
   quantity: number;
+  /** What this order was claimed at (an accepted offer can differ from the card's listed price). */
+  unitPrice: number;
   status: ClaimStatus;
   shipped: boolean;
   receivedAt: number | null;
@@ -67,6 +74,7 @@ interface OfferedCardView {
 interface ClaimJoinRow {
   id: string;
   quantity: number;
+  unit_price: number | string;
   status: ClaimStatus;
   shipped: boolean;
   received_at: string | null;
@@ -98,6 +106,24 @@ export function MyDibsContents() {
   const [actionError, setActionError] = useState<string | null>(null);
   // The claim whose payment-proof dialog is open.
   const [proofFor, setProofFor] = useState<string | null>(null);
+  // Installments: plans on the buyer's unpaid orders, the order a plan is being asked for, and the installment a proof is being sent for.
+  const [plans, setPlans] = useState<Record<string, ClaimPlanData>>({});
+  const [requestFor, setRequestFor] = useState<string | null>(null);
+  const [instProofFor, setInstProofFor] = useState<string | null>(null);
+  const [plansTick, setPlansTick] = useState(0);
+  const pendingClaimIds = claims.filter((c) => c.status === "PENDING" && c.paymentMethod === "PREPAID" && c.card.allowInstallments).map((c) => c.claimId).join(",");
+  useEffect(() => {
+    if (!pendingClaimIds) return;
+    let active = true;
+    getMyInstallments(pendingClaimIds.split(","))
+      .then((result) => {
+        if (active) setPlans(result);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [pendingClaimIds, plansTick]);
   const confirm = useConfirm();
   const [loadError, setLoadError] = useState<string | null>(null);
   // All negotiation actions (accept/decline a counter, add an accepted
@@ -120,7 +146,7 @@ export function MyDibsContents() {
     Promise.all([
       supabase
         .from("card_claims")
-        .select("id, quantity, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, pack_number, proof_uploaded_at, cards(*)")
+        .select("id, quantity, unit_price, status, shipped, received_at, fulfillment_method, payment_method, ship_requested_at, pack_number, proof_uploaded_at, cards(*)")
         .eq("buyer_id", buyer.id)
         .in("status", ["PENDING", "SOLD"]),
       supabase.from("dibs_queue").select("*").eq("buyer_id", buyer.id).eq("status", "WAITING"),
@@ -133,6 +159,7 @@ export function MyDibsContents() {
           claimId: row.id,
           card: cardFromRow(row.cards),
           quantity: row.quantity,
+          unitPrice: Number(row.unit_price),
           status: row.status,
           shipped: row.shipped,
           receivedAt: row.received_at ? new Date(row.received_at).getTime() : null,
@@ -441,16 +468,58 @@ export function MyDibsContents() {
               </span>
             </a>
           )}
-          {stage === "PENDING_PAYMENT" && claim.paymentMethod === "PREPAID" && (
-            <>
-              {claim.proofSentAt && (
-                <p className="rounded-lg bg-pending-bg px-3 py-1.5 text-center text-xs font-medium text-pending">Proof sent - waiting for the seller to confirm</p>
-              )}
-              <Button variant={claim.proofSentAt ? "outline" : "gold"} disabled={busy} onClick={() => setProofFor(claim.claimId)} className="w-full">
-                {claim.proofSentAt ? "Send a different screenshot" : "Send proof of payment"}
-              </Button>
-            </>
-          )}
+          {stage === "PENDING_PAYMENT" && claim.paymentMethod === "PREPAID" && (() => {
+            const plan = plans[claim.claimId];
+            const total = Math.round(claim.unitPrice * claim.quantity * 100) / 100;
+            if (plan?.status === "ACTIVE") {
+              const view = readPlan(plan.installments, plan.confirmed, new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }));
+              const most = maxInstallmentPayment(total, plan.confirmed, plan.waiting);
+              return (
+                <div className="space-y-1.5 rounded-lg border border-gold/40 bg-gold/5 p-2.5 text-xs">
+                  <p className="font-semibold text-foreground">
+                    Installments · {formatCurrency(view.paid)} of {formatCurrency(total)} paid
+                  </p>
+                  <ul className="space-y-0.5 text-foreground-muted">
+                    {view.evaluation.rows.map((r) => (
+                      <li key={r.seq} className="flex justify-between gap-2">
+                        <span>
+                          {formatShortDate(r.dueDate)} · {formatCurrency(r.amount)}
+                        </span>
+                        <span className={r.state === "PAID" ? "text-available" : r.state === "OVERDUE" ? "font-semibold text-sold" : r.state === "DUE" ? "font-semibold text-pending" : ""}>
+                          {r.state === "PAID" ? "Paid" : r.state === "OVERDUE" ? "Overdue" : r.state === "DUE" ? "Due today" : "Upcoming"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {plan.waiting > 0 && <p className="text-pending">{formatCurrency(plan.waiting)} sent - waiting for the seller to confirm</p>}
+                  {most > 0 && (
+                    <Button variant="gold" disabled={busy} onClick={() => setInstProofFor(claim.claimId)} className="w-full">
+                      Send installment proof
+                    </Button>
+                  )}
+                </div>
+              );
+            }
+            if (plan?.status === "REQUESTED") {
+              return <p className="rounded-lg bg-pending-bg px-3 py-1.5 text-center text-xs font-medium text-pending">Installment plan sent - waiting for the seller to approve it</p>;
+            }
+            return (
+              <>
+                {plan?.status === "DECLINED" && <p className="rounded-lg bg-sold-bg px-3 py-1.5 text-xs text-sold">The seller didn&apos;t approve your plan{plan.declineReason ? `: ${plan.declineReason}` : "."} You can still pay in full.</p>}
+                {claim.proofSentAt && (
+                  <p className="rounded-lg bg-pending-bg px-3 py-1.5 text-center text-xs font-medium text-pending">Proof sent - waiting for the seller to confirm</p>
+                )}
+                <Button variant={claim.proofSentAt ? "outline" : "gold"} disabled={busy} onClick={() => setProofFor(claim.claimId)} className="w-full">
+                  {claim.proofSentAt ? "Send a different screenshot" : "Send proof of payment"}
+                </Button>
+                {claim.card.allowInstallments && !claim.proofSentAt && (
+                  <Button variant="outline" disabled={busy} onClick={() => setRequestFor(claim.claimId)} className="w-full">
+                    Pay in installments
+                  </Button>
+                )}
+              </>
+            );
+          })()}
           {stage === "PENDING_PAYMENT" && (
             <Button variant="danger" disabled={busy} onClick={() => handleCancel(claim)} className="w-full">
               {busy ? "Cancelling..." : "Cancel"}
@@ -792,13 +861,44 @@ export function MyDibsContents() {
         const open = claims.find((c) => c.claimId === proofFor);
         if (!open) return null;
         const toProof = (c: ClaimedCardView) => ({ claimId: c.claimId, title: c.card.title + (c.packNumber ? ` (Pack #${c.packNumber})` : ""), total: c.card.price * c.quantity });
-        const siblings = claims.filter((c) => c.claimId !== open.claimId && c.status === "PENDING" && c.paymentMethod === "PREPAID" && c.card.adminId === open.card.adminId);
+        const siblings = claims.filter((c) => c.claimId !== open.claimId && c.status === "PENDING" && c.paymentMethod === "PREPAID" && c.card.adminId === open.card.adminId && !plans[c.claimId]);
         return (
           <OrderProofDialog
             claim={toProof(open)}
             siblings={siblings.map(toProof)}
             onClose={() => setProofFor(null)}
             onSent={(ids) => setClaims((prev) => prev.map((c) => (ids.includes(c.claimId) ? { ...c, proofSentAt: new Date().getTime() } : c)))}
+          />
+        );
+      })()}
+      {requestFor && (() => {
+        const open = claims.find((c) => c.claimId === requestFor);
+        if (!open) return null;
+        return (
+          <InstallmentRequestDialog
+            claimId={open.claimId}
+            title={open.card.title + (open.packNumber ? ` (Pack #${open.packNumber})` : "")}
+            total={Math.round(open.unitPrice * open.quantity * 100) / 100}
+            onClose={() => setRequestFor(null)}
+            onRequested={() => setPlansTick((n) => n + 1)}
+          />
+        );
+      })()}
+      {instProofFor && (() => {
+        const open = claims.find((c) => c.claimId === instProofFor);
+        const plan = plans[instProofFor];
+        if (!open || !plan) return null;
+        const total = Math.round(open.unitPrice * open.quantity * 100) / 100;
+        const view = readPlan(plan.installments, plan.confirmed, new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }));
+        const most = maxInstallmentPayment(total, plan.confirmed, plan.waiting);
+        return (
+          <InstallmentProofDialog
+            claimId={open.claimId}
+            title={open.card.title + (open.packNumber ? ` (Pack #${open.packNumber})` : "")}
+            suggested={view.evaluation.payNext || most}
+            most={most}
+            onClose={() => setInstProofFor(null)}
+            onSent={() => setPlansTick((n) => n + 1)}
           />
         );
       })()}

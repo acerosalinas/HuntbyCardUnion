@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CheckCheck, ImageOff, LayoutGrid, List, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -8,6 +8,7 @@ import { cn, extractErrorMessage, formatRelativeTime, formatCurrency, isStalePen
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { confirmPaid, confirmPaidMany, promoteNextInQueue, cancelRelist } from "@/app/admin/orderActions";
 import { PaymentProofButton } from "@/components/admin/PaymentProofButton";
+import { ClaimPlanPanel, ClaimPlanView } from "@/components/admin/ClaimPlanPanel";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 
 /** One PENDING card_claims row joined to its card - a card can now have several of these at once, one per buyer. */
@@ -24,6 +25,8 @@ export interface PendingClaimView {
   /** Short-lived link to the buyer's payment screenshot, when they sent one. */
   proofUrl: string | null;
   proofNote: string | null;
+  /** The buyer's installment plan on this order (requested or approved), when there is one. */
+  plan: ClaimPlanView | null;
 }
 
 type View = "list" | "tiles";
@@ -45,6 +48,8 @@ export function PendingPaymentsTable({
   queueCounts: Record<string, number>;
 }) {
   const negotiatingCardIds = useNegotiatingCardIds();
+  // Today in the Philippines, for reading installment plans (which date is due, which is overdue).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -223,6 +228,11 @@ export function PendingPaymentsTable({
                         )}
                       </div>
 
+                      {claim.plan && (
+                        <div className="px-3 pb-3">
+                          <ClaimPlanPanel claimId={claim.id} title={claim.cardTitle} plan={claim.plan} today={today} />
+                        </div>
+                      )}
                       <div className="flex flex-col gap-1.5 p-3 pt-0">
                         {claim.proofUrl && <PaymentProofButton url={claim.proofUrl} note={claim.proofNote} title={claim.cardTitle} className="px-2 py-1.5 text-xs" />}
                         <Button variant="primary" disabled={busy} onClick={() => run(claim.id, () => confirmPaid(claim.id))} className="px-2 py-1.5 text-xs">
@@ -269,7 +279,8 @@ export function PendingPaymentsTable({
                       const queueCount = queueCounts[claim.cardId] ?? 0;
                       const busy = pending && busyId === claim.id;
                       return (
-                        <tr key={claim.id} className="border-t border-card-border">
+                        <Fragment key={claim.id}>
+                        <tr className="border-t border-card-border">
                           <td className="px-4 py-3 font-medium">
                             <div className="flex flex-wrap items-center gap-1.5">
                               {claim.cardTitle}
@@ -328,6 +339,14 @@ export function PendingPaymentsTable({
                             </div>
                           </td>
                         </tr>
+                        {claim.plan && (
+                          <tr>
+                            <td colSpan={6} className="px-4 pb-3">
+                              <ClaimPlanPanel claimId={claim.id} title={claim.cardTitle} plan={claim.plan} today={today} />
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </tbody>

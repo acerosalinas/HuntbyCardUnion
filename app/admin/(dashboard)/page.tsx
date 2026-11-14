@@ -1,6 +1,8 @@
 import { PendingPaymentsTable, PendingClaimView } from "@/components/admin/PendingPaymentsTable";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
+import { loadClaimPlans } from "@/lib/claimInstallmentsData";
+import type { ClaimPlanView } from "@/components/admin/ClaimPlanPanel";
 
 interface ClaimJoinRow {
   id: string;
@@ -46,6 +48,31 @@ export default async function AdminPendingPaymentsPage() {
     }),
   );
 
+  // Installment plans on these orders (quietly none until the installments migration has been run), with a signed link for every screenshot waiting on the seller.
+  const rawRows = (data as unknown as ClaimJoinRow[] | null) ?? [];
+  const plansByClaim = await loadClaimPlans(supabase, rawRows.map((r) => r.id));
+  const planViewByClaim = new Map<string, ClaimPlanView>();
+  for (const [claimId, plan] of plansByClaim) {
+    if (plan.status === "DECLINED") continue;
+    const row = rawRows.find((r) => r.id === claimId);
+    const waitingPayments = await Promise.all(
+      plan.payments
+        .filter((p) => p.status === "PENDING")
+        .map(async (p) => {
+          const { data: signed } = await supabase.storage.from("order-proofs").createSignedUrl(p.proofPath, 600);
+          return { id: p.id, amount: p.amount, note: p.note, proofUrl: signed?.signedUrl ?? null, createdAt: p.createdAt };
+        }),
+    );
+    planViewByClaim.set(claimId, {
+      status: plan.status,
+      installments: plan.installments,
+      confirmed: plan.confirmed,
+      waiting: plan.waiting,
+      total: Math.round(Number(row?.unit_price ?? 0) * (row?.quantity ?? 1) * 100) / 100,
+      waitingPayments,
+    });
+  }
+
   const claims: PendingClaimView[] = ((data as unknown as ClaimJoinRow[] | null) ?? []).map((row) => ({
     id: row.id,
     cardId: row.card_id,
@@ -58,6 +85,7 @@ export default async function AdminPendingPaymentsPage() {
     claimedAt: new Date(row.claimed_at).getTime(),
     proofUrl: row.proof_path ? (proofUrlByPath.get(row.proof_path) ?? null) : null,
     proofNote: row.proof_note,
+    plan: planViewByClaim.get(row.id) ?? null,
   }));
 
   const queueCounts: Record<string, number> = {};

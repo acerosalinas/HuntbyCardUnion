@@ -68,6 +68,8 @@ export interface CardItem {
   isFlashSale: boolean;
   /** Whether buyers can Make Offer on this listing - admin-set per card, defaults to true. */
   isNegotiable: boolean;
+  /** Whether a buyer can ask to pay this in 2-4 weekly installments (the seller approves each plan) - see supabase/migration_marketplace_installments.sql. */
+  allowInstallments: boolean;
   adminId: string | null;
   franchise: string | null; // slug, e.g. 'pokemon', 'one-piece' - see lib/franchises.ts
   createdAt: number;
@@ -457,6 +459,8 @@ export interface CardRow {
   quantity_available: number;
   is_flash_sale: boolean;
   is_negotiable: boolean;
+  /** Absent until migration_marketplace_installments.sql has been run. */
+  allow_installments?: boolean;
   admin_id: string | null;
   franchise: string | null;
   created_at: string;
@@ -510,6 +514,7 @@ export function cardFromRow(row: CardRow): CardItem {
     quantityAvailable: row.quantity_available,
     isFlashSale: row.is_flash_sale,
     isNegotiable: row.is_negotiable,
+    allowInstallments: row.allow_installments ?? false,
     adminId: row.admin_id,
     franchise: normalizeFranchise(row.franchise),
     createdAt: new Date(row.created_at).getTime(),

@@ -1,6 +1,8 @@
 "use server";
 
 import { MYSTERY_MAX_PACKS } from "@/lib/mysteryPack";
+import { isOptcgImage } from "@/lib/onepieceCatalog";
+import { allowRequest } from "@/lib/rateLimit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertOwnsOrSuper, requireAdmin } from "@/lib/adminAuth";
 import { validateImageFile } from "@/lib/imageValidation";
@@ -143,6 +145,29 @@ export async function uploadCardImages(formData: FormData): Promise<string[]> {
   return urls;
 }
 
+/**
+ * Copies a One Piece catalog picture into the shop's own storage, so a listing never depends on the free API's server staying up. Only pictures
+ * from the API's own card-image folder are accepted. Returns the shop's address for it, or the reason it couldn't.
+ */
+export async function importCatalogPhoto(imageUrl: string): Promise<{ url?: string; error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    if (!isOptcgImage(imageUrl)) return { error: "That picture isn't from the card catalog." };
+    if (!(await allowRequest("catalog-photo", admin.id, 60, 3600))) return { error: "Too many pictures in a short time. Try again in a few minutes." };
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000), headers: { "User-Agent": "CardUnionShop/1.0" } });
+    if (!res.ok) return { error: "The catalog picture couldn't be fetched." };
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength === 0 || buf.byteLength > 5 * 1024 * 1024) return { error: "The catalog picture is the wrong size." };
+    const type = res.headers.get("content-type")?.split(";")[0] ?? "image/jpeg";
+    const { bytes, contentType } = await validateImageFile(new File([buf], "catalog.jpg", { type }));
+    const ext = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+    return { url: await uploadToR2(`${crypto.randomUUID()}.${ext}`, bytes, contentType) };
+  } catch (err) {
+    console.error("[importCatalogPhoto]", err);
+    return { error: extractErrorMessage(err) ?? "Couldn't copy the catalog picture." };
+  }
+}
+
 /** Uploads a seller's avatar image, reusing the same public R2 bucket as card photos. */
 export async function uploadAvatarImage(formData: FormData): Promise<string> {
   await requireAdmin();
@@ -188,6 +213,8 @@ export interface CreateCardInput {
   isFlashSale: boolean;
   /** Whether buyers can Make Offer on this listing - see cards.is_negotiable. */
   isNegotiable: boolean;
+  /** Buyers can ask to pay in 2-4 weekly installments (the seller approves each plan) - cards.allow_installments. */
+  allowInstallments?: boolean;
   franchise: string;
   quantity: number;
   /** The shared Pokemon catalog card this listing was picked from, when it was (see cards.catalog_card_id). */
@@ -198,6 +225,8 @@ export interface CreateCardInput {
 function missingCatalogColumn(error: { message: string } | null): boolean {
   return Boolean(error && /catalog_card_id/i.test(error.message));
 }
+
+const INSTALLMENTS_SETUP = "Installments need a one-time setup: run supabase/migration_marketplace_installments.sql in the Supabase SQL editor first.";
 
 /** 0 is a valid, meaningful quantity now (an explicitly sold-out listing - see updateCard) - only truly invalid input (blank/NaN) falls back to 1, same default as before. */
 function normalizeQuantity(raw: number): number {
@@ -259,9 +288,12 @@ async function createCardOrThrow(input: CreateCardInput) {
     admin_id: admin.id,
     quantity,
     quantity_available: quantity,
+    // Only sent when switched on, so a listing without installments never depends on the new column.
+    ...(input.allowInstallments ? { allow_installments: true } : {}),
   };
   let { error } = await supabase.from("cards").insert(input.catalogCardId ? { ...row, catalog_card_id: input.catalogCardId } : row);
   if (missingCatalogColumn(error)) ({ error } = await supabase.from("cards").insert(row));
+  if (error && /allow_installments/i.test(error.message)) throw new Error(INSTALLMENTS_SETUP);
   if (error) throw new Error(error.message);
   revalidateAdmin();
 }
@@ -321,8 +353,15 @@ async function updateCardOrThrow(cardId: string, input: CreateCardInput) {
       quantity_available: quantityAvailable,
       status,
   };
+  if (input.allowInstallments !== undefined) changes.allow_installments = input.allowInstallments;
   let { error } = await supabase.from("cards").update(input.catalogCardId ? { ...changes, catalog_card_id: input.catalogCardId } : changes).eq("id", cardId);
   if (missingCatalogColumn(error)) ({ error } = await supabase.from("cards").update(changes).eq("id", cardId));
+  if (error && /allow_installments/i.test(error.message)) {
+    // Before the migration the column doesn't exist: switching installments OFF is then a no-op, switching them ON says what to run.
+    if (input.allowInstallments) throw new Error(INSTALLMENTS_SETUP);
+    delete changes.allow_installments;
+    ({ error } = await supabase.from("cards").update(changes).eq("id", cardId));
+  }
   if (error) throw new Error(error.message);
   revalidateAdmin();
 }

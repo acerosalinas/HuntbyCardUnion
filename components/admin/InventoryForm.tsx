@@ -4,7 +4,9 @@ import { ChangeEvent, FormEvent, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { Camera, Gift, ImagePlus, Minus, Package, Plus, Sparkles, X } from "lucide-react";
 import { CatalogPicker } from "@/components/CatalogPicker";
-import { searchPokemonCards } from "@/app/catalog/actions";
+import { searchOnePieceCards, searchPokemonCards } from "@/app/catalog/actions";
+import { importCatalogPhoto } from "@/app/admin/cardActions";
+import { onePieceListingTitle } from "@/lib/onepieceCatalog";
 import { catalogImageUrl, isCatalogImage } from "@/lib/pokemonCatalog";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -47,6 +49,8 @@ interface FormState {
   isFlashSale: boolean;
   /** Whether buyers can Make Offer on this listing - see cards.is_negotiable. */
   isNegotiable: boolean;
+  /** Buyers can ask to pay in 2-4 weekly installments (you approve each plan). */
+  allowInstallments: boolean;
   franchise: string;
   quantity: string;
   rarity: string;
@@ -70,6 +74,7 @@ const emptyForm: FormState = {
   sellerMessenger: "CardUnion1",
   isFlashSale: false,
   isNegotiable: true,
+  allowInstallments: false,
   franchise: FRANCHISES[0].slug,
   quantity: "1",
   rarity: DEFAULT_RARITY,
@@ -112,6 +117,7 @@ function formStateFromCard(card: CardItem): FormState {
     sellerMessenger: card.sellerMessenger,
     isFlashSale: card.isFlashSale,
     isNegotiable: card.isNegotiable,
+    allowInstallments: card.allowInstallments,
     franchise,
     quantity: String(card.quantity),
     // Falls back to DEFAULT_RARITY if the stored value isn't in this
@@ -154,6 +160,8 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
   // The catalog card picked for this listing, so the Live Tracker can show its marketplace price.
   const [catalogId, setCatalogId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // The photo copied in from the One Piece catalog (so a re-pick can replace it, but never a photo the seller added).
+  const [onePiecePhoto, setOnePiecePhoto] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -287,6 +295,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       sellerMessenger: form.sellerMessenger,
       isFlashSale: form.isFlashSale,
       isNegotiable: isMysteryPack ? false : form.isNegotiable,
+      allowInstallments: form.allowInstallments,
       franchise: form.franchise,
       // 0 is valid and intentional here - the stepper is the only way to
       // change this value, so there's no stray/invalid typed input to guard
@@ -335,6 +344,34 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
             }}
             search={searchPokemonCards}
             placeholder="Type to search Pokémon cards"
+            required
+          />
+        ) : form.franchise === "one-piece" && form.productType === "CARD" ? (
+          // One Piece seller: the same kind of catalog search, fed by the OPTCG API (imported into our own table).
+          <CatalogPicker
+            value={form.title}
+            onValueChange={(v) => set("title", v)}
+            onPick={(c) => {
+              setForm((f) => ({
+                ...f,
+                title: onePieceListingTitle({ name: c.name, number: c.number, variant: c.variant }),
+                setName: c.setName,
+                rarity: c.rarity && raritiesForFranchise("one-piece").includes(c.rarity) ? c.rarity : f.rarity,
+              }));
+              // Fill the photo from the catalog (copied into the shop's storage) unless the seller already added their own.
+              if (c.image && (images.length === 0 || (onePiecePhoto && images.length === 1 && images[0] === onePiecePhoto))) {
+                setUploading(true);
+                void importCatalogPhoto(c.image).then((result) => {
+                  setUploading(false);
+                  if (result.url) {
+                    setOnePiecePhoto(result.url);
+                    setImages([result.url]);
+                  }
+                });
+              }
+            }}
+            search={searchOnePieceCards}
+            placeholder="Type to search One Piece cards (e.g. luffy OP01)"
             required
           />
         ) : (
@@ -605,6 +642,18 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
           Negotiable - buyers can Make Offer on this listing
         </label>
       )}
+
+      <label className="flex items-start gap-2 text-sm text-foreground-muted sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={form.allowInstallments}
+          onChange={(e) => set("allowInstallments", e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-card-border accent-gold"
+        />
+        <span>
+          Allow installments - a buyer can ask to pay in 2 to 4 weekly payments, within 4 weeks. You approve each plan, and the card stays reserved until it&apos;s fully paid.
+        </span>
+      </label>
 
       {error && <p className="text-sm text-sold sm:col-span-2">{error}</p>}
       {success && !isEdit && <p className="text-sm text-available sm:col-span-2">Listing created.</p>}

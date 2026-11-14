@@ -20,7 +20,7 @@ interface Props {
 }
 
 /**
- * A text box that suggests Pokemon cards from the shared catalog while typing. Enter / click pick a match;
+ * A text box that suggests cards from a shared catalog (Pokemon or One Piece, whichever `search` reads) while typing. Enter / click pick a match;
  * Tab and Escape leave whatever was typed as it is, so custom items always work.
  */
 export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, placeholder, maxLength = 200, required, autoFocus, onFocus }: Props) {
@@ -129,6 +129,7 @@ export function CatalogPicker({ value, onValueChange, onPick, search, inputRef, 
                 <span className="min-w-0">
                   <span className="block truncate font-medium">
                     {c.name}
+                    {c.variant && <span className="ml-1.5 rounded bg-gold/15 px-1 py-px align-middle text-[10px] font-semibold text-gold-ink">{c.variant}</span>}
                     {c.lang === "ja" && <span className="ml-1.5 rounded bg-foreground/10 px-1 py-px align-middle text-[10px] font-semibold text-foreground-muted">JP</span>}
                   </span>
                   <span className="block truncate text-xs text-foreground-muted">

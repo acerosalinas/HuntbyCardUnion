@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadClaimPlans } from "@/lib/claimInstallmentsData";
 import type { MarketClaim } from "./marketplaceLink";
 
 type Db = ReturnType<typeof createAdminClient>;
@@ -43,6 +44,8 @@ export async function loadMarketplaceClaims(db: Db, ownerId: string, buyerIds: s
   if (buyerIds) query = query.in("buyer_id", buyerIds);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
+  // Orders being paid in installments owe less than their price: the installments the seller has confirmed so far come off it.
+  const plans = await loadClaimPlans(db, ((data ?? []) as unknown as Row[]).filter((r) => r.status === "PENDING").map((r) => r.id));
   return ((data ?? []) as unknown as Row[]).map((r) => {
     const card = Array.isArray(r.cards) ? r.cards[0] : r.cards;
     return {
@@ -53,6 +56,7 @@ export async function loadMarketplaceClaims(db: Db, ownerId: string, buyerIds: s
       packNumber: r.pack_number,
       image: card?.images?.[0] ?? null,
       amount: Math.round(Number(r.unit_price) * r.quantity * 100) / 100,
+      paid: plans.get(r.id)?.status === "ACTIVE" ? plans.get(r.id)?.confirmed : undefined,
       status: r.status,
       paymentMethod: r.payment_method,
       fulfillment: r.fulfillment_method,

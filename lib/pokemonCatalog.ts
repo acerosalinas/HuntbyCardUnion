@@ -1,4 +1,6 @@
-/** A Pokemon card from the shared catalog, as the tracker's card search shows it. */
+import { OPTCG_IMAGE_PREFIX } from "@/lib/onepieceCatalog";
+
+/** A card from a shared catalog (Pokemon, or One Piece), as the card search shows it. */
 export interface CatalogCard {
   id: string;
   name: string;
@@ -11,6 +13,10 @@ export interface CatalogCard {
   lang: string;
   /** Release year of the card's set, when known - helps tell a vintage printing from a modern one at a glance. */
   year: number | null;
+  /** One Piece only: the art version ("Parallel", "Alternate Art", "Manga"), or null for the regular printing. */
+  variant?: string | null;
+  /** One Piece only: the shop's rarity tier for this printing (see lib/rarity.ts). */
+  rarity?: string | null;
 }
 
 /** The most cards one search shows. Common names (Pikachu) have hundreds of printings, so this is a window, not the full list. */
@@ -101,6 +107,8 @@ export function isCatalogImage(url: string): boolean {
  */
 export function catalogImageUrl(image: string | null, size: "low" | "high" = "low"): string | null {
   if (!image) return null;
+  // One Piece pictures are plain full-size images: one address for every size.
+  if (image.startsWith(OPTCG_IMAGE_PREFIX)) return image;
   if (image.startsWith(TCGPLAYER_IMAGE_HOST)) return size === "high" ? image.replace(/_200w\.jpg$/, "_in_1000x1000.jpg") : image;
   if (image.startsWith(LIMITLESS_IMAGE_HOST)) return size === "high" ? image.replace(/_SM\.png$/, "_LG.png") : image;
   return `${image}/${size}.webp`;

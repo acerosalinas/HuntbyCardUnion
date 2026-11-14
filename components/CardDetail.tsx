@@ -255,6 +255,7 @@ export function CardDetail({
               </>
             )}
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
+            {card.allowInstallments && !isSold && <Badge tone="gold">Installments available</Badge>}
             {card.status !== "AVAILABLE" && <StatusBadge status={card.status} />}
             {isNegotiating && !isSold && <Badge tone="gold">Negotiating</Badge>}
           </div>
