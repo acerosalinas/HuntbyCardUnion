@@ -5,6 +5,13 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
 import { islandGroupForRegion, REGIONS } from "@/lib/tracker/regions";
+import { loadTrackerData } from "@/lib/tracker/data";
+import { loadMarketplaceClaims } from "@/lib/tracker/marketplaceData";
+import { marketplaceStatementItems } from "@/lib/tracker/marketplaceLink";
+import { evaluatePlan } from "@/lib/tracker/installments";
+import { manilaDay } from "@/lib/tracker/proofDays";
+import { buildStatementText } from "@/lib/tracker/statement";
+import { statementOrders } from "@/lib/tracker/statementOrders";
 import { refresh, text, parse, assertOwned, escapeLike } from "./trackerHelpers";
 
 export interface CustomerInput {
@@ -114,4 +121,58 @@ export async function deleteCustomer(id: string): Promise<{ error: string } | vo
   // Leave from the server: the page the user is on (this customer's) no longer exists, so letting the
   // revalidation rebuild it fails ("An error occurred in the Server Components render", React #441).
   redirect("/tracker/customers");
+}
+
+/**
+ * The text of a customer's FULL balance - their unpaid live cards and their unpaid marketplace orders added into one total, with the payment
+ * instructions and QR links - for the one-tap copy on the Customers list. Shipping fees are left out, like the default on the customer's page.
+ */
+export async function fullBalanceText(customerId: string): Promise<{ text?: string; error?: string }> {
+  try {
+    const admin = await requireTrackerAdmin();
+    const id = parse(z.string().uuid(), customerId);
+    const data = await loadTrackerData(admin.id);
+    const customer = data.customers.find((c) => c.id === id);
+    if (!customer) return { error: "Customer not found." };
+
+    const plans = data.plans.filter((p) => p.customerId === id);
+    const today = manilaDay(new Date().toISOString());
+    const paidOf = (saleId: string) => data.paidBySale[saleId] ?? 0;
+    // Shipped / handed-over cards count as settled, so only the cards still pending go on it.
+    const pendingCards = data.sales.filter((s) => s.customerId === id && s.shipmentId === null && s.distributedAt === null);
+    const marketplace = customer.buyerId ? await loadMarketplaceClaims(createAdminClient(), admin.id, [customer.buyerId]) : [];
+
+    const text = buildStatementText({
+      customerName: customer.name,
+      orders: statementOrders({
+        lives: data.lives,
+        pendingCards,
+        paidOf,
+        planFor: (saleId) => {
+          const plan = plans.find((p) => p.saleId === saleId);
+          if (plan?.status !== "ACTIVE") return null;
+          const ev = evaluatePlan(plan.installments, paidOf(saleId), today);
+          return { dueNow: ev.dueNow, next: ev.next ? { dueDate: ev.next.dueDate, amount: ev.next.amount } : null };
+        },
+      }),
+      marketplace: marketplaceStatementItems(marketplace),
+      includeShipping: false,
+      shippingUnpaid: 0,
+      awaitingShipCount: 0,
+      shippingFee: null,
+      islandGroup: customer.islandGroup,
+      prepaidCredit: 0,
+      address: null,
+      showAddress: false,
+      paymentInstructions: data.settings.paymentInstructions,
+      qrLinks: [
+        { label: "GCash", url: data.settings.gcashQrUrl ?? "" },
+        { label: "Maribank", url: data.settings.maribankQrUrl ?? "" },
+      ].filter((q) => q.url),
+    });
+    return { text };
+  } catch (err) {
+    console.error("[fullBalanceText]", err);
+    return { error: err instanceof Error ? err.message : "Couldn't prepare the balance." };
+  }
 }

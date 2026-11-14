@@ -24,9 +24,21 @@ export interface StatementOrder {
   }[];
 }
 
+/** One marketplace order on the statement (a card from the shop's listings, not from a live). */
+export interface StatementMarketplaceItem {
+  title: string;
+  packNumber: number | null;
+  amount: number;
+}
+
 export interface StatementInput {
   customerName: string;
   orders: StatementOrder[];
+  /**
+   * The customer's open marketplace orders. `unpaid` are pay-now orders still to be paid and are added to the total; `cod` are cash-on-delivery
+   * orders, paid to the courier, so they are listed for information and left out of the total.
+   */
+  marketplace?: { unpaid: StatementMarketplaceItem[]; cod: StatementMarketplaceItem[] };
   /** Shipping fees already charged (parcels sent) and still unpaid. */
   shippingUnpaid: number;
   /** Cards flagged for shipping that haven't gone out - a parcel fee is quoted for them. */
@@ -55,6 +67,11 @@ export interface Statement {
   /** Installments on plan cards that aren't due yet - listed for information, not added to the total. */
   upcoming: { cardName: string; amount: number; dueDate: string }[];
   cardsDue: number;
+  /** Pay-now marketplace orders still unpaid. */
+  marketplace: StatementMarketplaceItem[];
+  marketplaceDue: number;
+  /** Cash-on-delivery orders: not part of the total. */
+  cod: StatementMarketplaceItem[];
   shippingUnpaid: number;
   shippingFee: number | null;
   prepaidCovered: number;
@@ -100,26 +117,34 @@ export function computeStatement(input: StatementInput): Statement {
   const shippingDue = shippingFee === null ? 0 : round2(shippingFee - prepaidCovered);
   const cardsDue = sum(orders.map((o) => o.balance));
   const shippingUnpaid = includeShipping ? Math.max(0, input.shippingUnpaid) : 0;
+  const marketplace = input.marketplace?.unpaid ?? [];
+  const marketplaceDue = sum(marketplace.map((m) => m.amount));
 
   return {
     orders,
     upcoming,
     cardsDue,
+    marketplace,
+    marketplaceDue,
+    cod: input.marketplace?.cod ?? [],
     shippingUnpaid,
     shippingFee,
     prepaidCovered,
     shippingDue,
     shippingUnknown,
-    totalToPay: round2(cardsDue + shippingUnpaid + shippingDue),
+    totalToPay: round2(cardsDue + marketplaceDue + shippingUnpaid + shippingDue),
   };
 }
+
+const itemLabel = (m: StatementMarketplaceItem) => `${m.title}${m.packNumber !== null ? ` (Pack #${m.packNumber})` : ""}`;
 
 export function buildStatementText(input: StatementInput): string {
   const s = computeStatement(input);
   if (s.totalToPay <= 0 && !s.shippingUnknown) {
-    if (s.upcoming.length === 0) return `Hi ${input.customerName}! You're all settled - no pending balance. Thank you!`;
+    const codLine = s.cod.length > 0 ? `\nCash on delivery (pay the courier): ${s.cod.map((m) => `${itemLabel(m)} - ${formatCurrency(m.amount)}`).join(", ")}` : "";
+    if (s.upcoming.length === 0) return `Hi ${input.customerName}! You're all settled - no pending balance. Thank you!${codLine}`;
     const parts = s.upcoming.map((u) => `${u.cardName} - ${formatCurrency(u.amount)} on ${formatShortDate(u.dueDate)}`);
-    return `Hi ${input.customerName}! Nothing is due right now. Your next installment${parts.length === 1 ? "" : "s"}:\n${parts.join("\n")}`;
+    return `Hi ${input.customerName}! Nothing is due right now. Your next installment${parts.length === 1 ? "" : "s"}:\n${parts.join("\n")}${codLine}`;
   }
 
   const lines: string[] = [`Hi ${input.customerName}! Here's your pending balance:`, ""];
@@ -135,6 +160,12 @@ export function buildStatementText(input: StatementInput): string {
       lines.push(`${i + 1}. ${l.cardName} - ${partial ? formatCurrency(l.left) + partial : formatCurrency(l.amount)}`);
     });
     lines.push(`Order balance: ${formatCurrency(o.balance)}`, "");
+  }
+
+  if (s.marketplace.length > 0) {
+    lines.push("Marketplace orders:");
+    s.marketplace.forEach((m, i) => lines.push(`${i + 1}. ${itemLabel(m)} - ${formatCurrency(m.amount)}`));
+    lines.push(`Marketplace balance: ${formatCurrency(s.marketplaceDue)}`, "");
   }
 
   if (s.upcoming.length > 0) {
@@ -153,6 +184,7 @@ export function buildStatementText(input: StatementInput): string {
     lines.push("Shipping: to be confirmed (please send your address)");
   }
   lines.push(`TOTAL TO PAY: ${formatCurrency(s.totalToPay)}`);
+  if (s.cod.length > 0) lines.push(`Cash on delivery (pay the courier, not in the total): ${s.cod.map((m) => `${itemLabel(m)} - ${formatCurrency(m.amount)}`).join(", ")}`);
 
   if (input.showAddress && input.address && input.includeShipping !== false && input.awaitingShipCount > 0) {
     lines.push("", `Ship to: ${input.customerName}, ${input.address}`);

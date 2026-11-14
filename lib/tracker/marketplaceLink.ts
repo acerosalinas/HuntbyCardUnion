@@ -15,6 +15,8 @@ export interface MarketClaim {
   image: string | null;
   /** unit price x quantity */
   amount: number;
+  /** Confirmed installments so far on an order being paid in parts (0 or absent otherwise). What is still owed is amount - paid. */
+  paid?: number;
   /** PENDING = not paid yet, SOLD = paid. */
   status: "PENDING" | "SOLD";
   paymentMethod: "PREPAID" | "COD";
@@ -31,6 +33,13 @@ export interface MarketClaim {
 export const canShipWithParcel = (c: Pick<MarketClaim, "status" | "shipped" | "fulfillment" | "shipRequestedAt">) =>
   c.status === "SOLD" && !c.shipped && (c.fulfillment === "SHIP" || c.shipRequestedAt !== null);
 
+/** A linked customer's open marketplace orders as they go on a copied statement: pay-now orders still unpaid (added to the total), and cash-on-delivery ones (listed, not added). */
+export function marketplaceStatementItems(claims: MarketClaim[]): { unpaid: { title: string; packNumber: number | null; amount: number }[]; cod: { title: string; packNumber: number | null; amount: number }[] } {
+  const item = (c: MarketClaim) => ({ title: c.title, packNumber: c.packNumber, amount: claimOwed(c) });
+  const pending = claims.filter((c) => c.status === "PENDING");
+  return { unpaid: pending.filter((c) => c.paymentMethod === "PREPAID").map(item), cod: pending.filter((c) => c.paymentMethod === "COD").map(item) };
+}
+
 export interface MarketplaceSummary {
   /** Pay-now orders not paid yet. */
   unpaid: number;
@@ -44,15 +53,18 @@ export interface MarketplaceSummary {
   stashed: number;
 }
 
+/** What is still owed on an unpaid order: the price less any installments the seller has confirmed. */
+export const claimOwed = (c: Pick<MarketClaim, "amount" | "paid">) => round2(Math.max(0, c.amount - (c.paid ?? 0)));
+
 export function marketplaceSummary(claims: MarketClaim[]): MarketplaceSummary {
   const pending = claims.filter((c) => c.status === "PENDING");
   const prepaid = pending.filter((c) => c.paymentMethod === "PREPAID");
   const cod = pending.filter((c) => c.paymentMethod === "COD");
   const paid = claims.filter((c) => c.status === "SOLD" && !c.shipped);
   return {
-    unpaid: round2(prepaid.reduce((n, c) => n + c.amount, 0)),
+    unpaid: round2(prepaid.reduce((n, c) => n + claimOwed(c), 0)),
     unpaidCount: prepaid.length,
-    cod: round2(cod.reduce((n, c) => n + c.amount, 0)),
+    cod: round2(cod.reduce((n, c) => n + claimOwed(c), 0)),
     codCount: cod.length,
     readyToShip: claims.filter(canShipWithParcel),
     stashed: paid.filter((c) => !canShipWithParcel(c)).length,

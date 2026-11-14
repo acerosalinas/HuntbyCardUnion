@@ -24,7 +24,8 @@ import { copyText } from "@/lib/tracker/clipboard";
 import { buildStatementText, computeStatement } from "@/lib/tracker/statement";
 import { CustomerTotals } from "@/lib/tracker/money";
 import { PendingProofInfo, proofsWaitingFor, waitingProofText } from "@/lib/tracker/proofWarnings";
-import { canShipWithParcel, combinedOwed, marketplaceSummary, MarketClaim } from "@/lib/tracker/marketplaceLink";
+import { statementOrders } from "@/lib/tracker/statementOrders";
+import { canShipWithParcel, combinedOwed, marketplaceStatementItems, marketplaceSummary, MarketClaim } from "@/lib/tracker/marketplaceLink";
 import {
   ISLAND_GROUP_LABELS,
   islandGroupForRegion,
@@ -385,18 +386,19 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const statementInput = {
     customerName: customer.name,
     // Shipped / handed-over cards are treated as paid, so only PENDING cards of the ticked lives go on the invoice.
-    orders: lives
-      .filter((l) => (tickedLives.size === 0 || tickedLives.has(l.id)) && pendingCards.some((x) => x.liveId === l.id))
-      .map((l) => ({
-        liveTitle: l.title,
-        liveDate: l.liveDate,
-        cards: pendingCards
-          .filter((x) => x.liveId === l.id)
-          .map((x) => {
-            const ev = activeEval(x);
-            return { cardName: x.cardName, amount: x.amount, paid: paidOf(x.id), plan: ev ? { dueNow: ev.dueNow, next: ev.next ? { dueDate: ev.next.dueDate, amount: ev.next.amount } : null } : undefined };
-          }),
-      })),
+    orders: statementOrders({
+      lives,
+      pendingCards,
+      paidOf,
+      planFor: (id) => {
+        const sale = sales.find((x) => x.id === id);
+        const ev = sale ? activeEval(sale) : null;
+        return ev ? { dueNow: ev.dueNow, next: ev.next ? { dueDate: ev.next.dueDate, amount: ev.next.amount } : null } : null;
+      },
+      liveIds: tickedLives,
+    }),
+    // The full balance also lists the customer's unpaid marketplace orders; an invoice for just the ticked lives doesn't.
+    marketplace: tickedLives.size === 0 ? marketplaceStatementItems(marketplace) : undefined,
     includeShipping,
     shippingUnpaid: Math.max(0, totals.shippingCharged - totals.shippingPaid),
     awaitingShipCount: totals.awaitingShipCount,
@@ -486,6 +488,11 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 {market.readyToShip.length > 0 && `${market.readyToShip.length} paid and ready to ship - they can go in the same parcel as the live cards · `}
                 {market.stashed > 0 && `${market.stashed} stashed with you`}
               </p>
+              {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
+                <Button variant="outline" type="button" className="mb-2" onClick={copyPending}>
+                  <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy full balance (live + marketplace)"}
+                </Button>
+              )}
               <ul className="divide-y divide-card-border rounded-xl border border-card-border">
                 {marketplace.slice(0, 30).map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
@@ -533,7 +540,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
             <ShippingFeeToggle on={includeShipping} onChange={setIncludeShipping} />
             {tickedLives.size === 0 && pendingStatement.totalToPay > 0 && (
               <Button variant="outline" type="button" onClick={copyPending}>
-                <ClipboardCopy size={14} /> {copied ? "Copied!" : "Copy pending balance"}
+                <ClipboardCopy size={14} /> {copied ? "Copied!" : market.unpaidCount > 0 || market.codCount > 0 ? "Copy full balance" : "Copy pending balance"}
               </Button>
             )}
           </div>

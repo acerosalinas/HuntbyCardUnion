@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
+import { CopyBalanceButton } from "@/components/tracker/CopyBalanceButton";
 import { Input } from "@/components/ui/Input";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CustomerTotals } from "@/lib/tracker/money";
@@ -148,6 +149,11 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                     </div>
                   )}
                 </Link>
+                {owed(r) > 0 && (
+                  <div className="px-4 pb-3">
+                    <CopyBalanceButton customerId={r.id} customerName={r.name} />
+                  </div>
+                )}
               </li>
             );
           })}
@@ -163,6 +169,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                 <th scope="col" className="px-4 py-3">Paid progress</th>
                 <th scope="col" className="px-4 py-3">Last payment</th>
                 <th scope="col" className="px-4 py-3">Shipping</th>
+                <th scope="col" className="px-4 py-3"><span className="sr-only">Copy balance</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-card-border">
@@ -208,6 +215,7 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
                       {r.totals.prepaidShippingCredit > 0 && <Badge tone="gold">{formatCurrency(r.totals.prepaidShippingCredit)} prepaid</Badge>}
                     </div>
                   </td>
+                  <td className="px-4 py-3 text-right">{owed(r) > 0 && <CopyBalanceButton customerId={r.id} customerName={r.name} />}</td>
                 </tr>
               ))}
             </tbody>
