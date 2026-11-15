@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentBuyer } from "@/lib/buyerAuth";
-import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
+import { handleProblem, normalizeHandle } from "@/lib/handleFormat";
 import { validateImageFile } from "@/lib/imageValidation";
 import { uploadToR2 } from "@/lib/r2";
 import { notifyUser } from "@/lib/notify";
@@ -55,7 +55,8 @@ export async function updateBuyerProfile(input: UpdateBuyerProfileInput): Promis
   const email = input.email.trim();
 
   if (!fullName) throw new Error("Full name is required.");
-  if (!HANDLE_REGEX.test(handle)) throw new Error("Handle must be 3-20 letters, numbers, or underscores.");
+  const handleIssue = handleProblem(handle);
+  if (handleIssue) throw new Error(handleIssue);
   if (!email) throw new Error("Email is required.");
 
   const adminClient = createAdminClient();

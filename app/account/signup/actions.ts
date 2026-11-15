@@ -3,36 +3,45 @@
 import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
+import { handleProblem, normalizeHandle } from "@/lib/handleFormat";
 import { resolveOrigin } from "@/lib/origin";
 import { allowRequest, clientIp, TOO_MANY } from "@/lib/rateLimit";
 import { isEmailRemoved } from "@/lib/removedUsers";
 import { REMOVED_MESSAGE } from "@/lib/accessGate";
 
-export async function signup(_prevState: { error: string | null; removed?: boolean }, formData: FormData) {
+/** What the sign-up form shows after an attempt: the problem, which field it belongs to, and what was typed (so nothing has to be typed again). */
+export interface SignupState {
+  error: string | null;
+  removed?: boolean;
+  field?: "fullName" | "email" | "handle" | "password";
+  values?: { fullName: string; email: string; handle: string };
+}
+
+export async function signup(_prevState: SignupState, formData: FormData): Promise<SignupState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const fullName = String(formData.get("fullName") ?? "").trim();
   const handle = normalizeHandle(String(formData.get("handle") ?? ""));
   const from = String(formData.get("from") ?? "/");
+  // Handed back with every problem so the form keeps what was typed (the password is never sent back).
+  const values = { fullName, email, handle: handle.replace(/^@/, "") };
 
-  if (!email || !password || !fullName || !handle) {
-    return { error: "Fill in every field to continue." };
-  }
-  if (!HANDLE_REGEX.test(handle)) {
-    return { error: "Handle must be 3-20 letters, numbers, or underscores." };
-  }
+  if (!fullName) return { error: "Enter your full name.", field: "fullName", values };
+  if (!email) return { error: "Enter your email address.", field: "email", values };
+  const problem = handleProblem(handle);
+  if (problem) return { error: problem, field: "handle", values };
+  if (!password) return { error: "Choose a password (at least 8 characters).", field: "password", values };
   if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+    return { error: `Your password needs at least 8 characters (it has ${password.length}).`, field: "password", values };
   }
 
   if (!(await allowRequest("signup-ip", await clientIp(), 5, 3600))) {
-    return { error: TOO_MANY };
+    return { error: TOO_MANY, values };
   }
 
   // Someone an admin removed does not get a fresh account; they are told to message us.
   if (await isEmailRemoved(email)) {
-    return { error: REMOVED_MESSAGE, removed: true };
+    return { error: REMOVED_MESSAGE, removed: true, values };
   }
 
   // Pre-check via the service-role client, since `profiles` RLS is
@@ -47,7 +56,7 @@ export async function signup(_prevState: { error: string | null; removed?: boole
     .ilike("handle", escapedHandle)
     .maybeSingle();
   if (existing) {
-    return { error: "That handle is already taken." };
+    return { error: "That handle is already taken - try another one.", field: "handle", values };
   }
 
   const origin = await resolveOrigin();
@@ -70,12 +79,12 @@ export async function signup(_prevState: { error: string | null; removed?: boole
   if (error) {
     const message = error.message.toLowerCase();
     if (message.includes("already registered")) {
-      return { error: "An account with that email already exists." };
+      return { error: "An account with that email already exists. Try signing in instead.", field: "email", values };
     }
     if (message.includes("rate limit")) {
-      return { error: "Too many signups attempted just now - please try again in a few minutes." };
+      return { error: "Too many signups attempted just now - please try again in a few minutes.", values };
     }
-    return { error: "Something went wrong creating your account - please try again." };
+    return { error: "Something went wrong creating your account - please try again.", values };
   }
 
   redirect(`/account/check-email?from=${encodeURIComponent(from)}&email=${encodeURIComponent(email)}`);

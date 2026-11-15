@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { HANDLE_REGEX, normalizeHandle } from "@/lib/handleFormat";
+import { handleProblem, normalizeHandle } from "@/lib/handleFormat";
 
 export async function completeProfile(_prevState: { error: string | null }, formData: FormData) {
   const fullName = String(formData.get("fullName") ?? "").trim();
@@ -13,9 +13,8 @@ export async function completeProfile(_prevState: { error: string | null }, form
   if (!fullName || !handle) {
     return { error: "Fill in every field to continue." };
   }
-  if (!HANDLE_REGEX.test(handle)) {
-    return { error: "Handle must be 3-20 letters, numbers, or underscores." };
-  }
+  const problem = handleProblem(handle);
+  if (problem) return { error: problem };
 
   const supabase = await createAuthServerClient("buyer");
   const {
