@@ -9,6 +9,7 @@ import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
+import { PinListingButton } from "@/components/admin/PinListingButton";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -117,10 +118,12 @@ export function InventoryList({
                     {negotiatingCardIds.has(card.id) && card.status !== "SOLD" && (
                       <Badge tone="gold">Negotiating</Badge>
                     )}
+                    {card.pinnedAt !== null && <Badge tone="gold">Pinned</Badge>}
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {card.status !== "SOLD" && <PinListingButton cardId={card.id} pinned={card.pinnedAt !== null} />}
                     <Button variant="outline" onClick={() => setEditingCard(card)}>
                       <Pencil size={14} />
                       Edit

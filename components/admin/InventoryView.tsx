@@ -8,7 +8,7 @@ import { BulkEditModal } from "@/components/admin/BulkEditModal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { sortSoldLast } from "@/lib/cardFilter";
+import { pinnedFirst, sortSoldLast } from "@/lib/cardFilter";
 import { cn, extractErrorMessage } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
 import { deleteCards } from "@/app/admin/cardActions";
@@ -35,7 +35,8 @@ export function InventoryView({ cards }: { cards: CardItem[] }) {
     if (q) result = result.filter((c) => c.title.toLowerCase().includes(q) || c.setName.toLowerCase().includes(q));
     // Sold-out stock sinks to the end even with the filter off, instead of
     // being interspersed among what's still actually sellable.
-    return sortSoldLast(result);
+    // Pinned listings stay on top (still-for-sale first, sold-out ones last).
+    return sortSoldLast(pinnedFirst(result));
   }, [cards, query, soldOnly]);
 
   // Only ever act on what's currently visible AND still exists - a selection

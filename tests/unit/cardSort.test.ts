@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sortCards } from "../../lib/cardFilter";
+import { pinnedFirst, sortCards } from "../../lib/cardFilter";
 import { CardItem } from "../../types/marketplace";
 
 function card(id: string, price: number, createdAt: number): CardItem {
@@ -30,4 +30,12 @@ test("sorting never mutates the list it was given", () => {
   const before = ids(cards);
   sortCards(cards, "PRICE_HIGH");
   assert.deepEqual(ids(cards), before);
+});
+
+test("pinned listings stay first (latest pin on top) whatever the sort, and the rest keep their order", () => {
+  const pin = (c: CardItem, at: number): CardItem => ({ ...c, pinnedAt: at });
+  const list = [card("new", 100, 3000), pin(card("old-pin", 900, 1000), 10), card("mid", 500, 2000), pin(card("new-pin", 800, 500), 20)];
+  assert.deepEqual(ids(pinnedFirst(sortCards(list, "NEWEST"))), ["new-pin", "old-pin", "new", "mid"]);
+  assert.deepEqual(ids(pinnedFirst(sortCards(list, "PRICE_LOW"))), ["new-pin", "old-pin", "new", "mid"]);
+  assert.deepEqual(ids(pinnedFirst(sortCards(cards, "NEWEST"))), ids(sortCards(cards, "NEWEST")));
 });

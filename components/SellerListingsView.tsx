@@ -9,7 +9,7 @@ import { useRestorableGrid } from "@/hooks/useRestorableGrid";
 import { LiveModeStack } from "@/components/LiveModeStack";
 import { useMarketplaceFilter } from "@/components/MarketplaceFilterProvider";
 import { SortMenu } from "@/components/SortMenu";
-import { matchesCardFilter, sortCards } from "@/lib/cardFilter";
+import { matchesCardFilter, pinnedFirst, sortCards } from "@/lib/cardFilter";
 import { FRANCHISES } from "@/lib/franchises";
 import { cn } from "@/lib/utils";
 import { CardItem } from "@/types/marketplace";
@@ -52,11 +52,13 @@ export function SellerListingsView({
   const soldOutCount = useMemo(() => cards.filter((c) => c.status === "SOLD").length, [cards]);
   const filtered = useMemo(
     () =>
-      sortCards(
-        cards
-          .filter((c) => c.status !== "SOLD")
-          .filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
-        sort,
+      pinnedFirst(
+        sortCards(
+          cards
+            .filter((c) => c.status !== "SOLD")
+            .filter((card) => matchesCardFilter(card, { query, category, rarity, pokemonType })),
+          sort,
+        ),
       ),
     [cards, query, category, rarity, pokemonType, sort],
   );
@@ -107,7 +109,7 @@ export function SellerListingsView({
 
       {view === "grid" ? (
         <>
-          <CardGrid cards={visible} />
+          <CardGrid cards={visible} showPinned />
           {hasMore && (
             <div className="mt-6 flex justify-center">
               <Button variant="outline" onClick={loadMore}>

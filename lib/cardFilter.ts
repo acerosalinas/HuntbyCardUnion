@@ -68,3 +68,13 @@ export function matchesCardFilter(
 export function sortSoldLast(cards: CardItem[]): CardItem[] {
   return [...cards].sort((a, b) => Number(a.status === "SOLD") - Number(b.status === "SOLD"));
 }
+
+/**
+ * Pinned listings first (the one pinned most recently on top), everything else keeps the order it came in.
+ * A seller's shop and Inventory Manager use this on top of any sort, so a pinned listing stays first however many are added after it.
+ */
+export function pinnedFirst(cards: CardItem[]): CardItem[] {
+  const isPinned = (c: CardItem) => typeof c.pinnedAt === "number";
+  const pinned = cards.filter(isPinned).sort((a, b) => (b.pinnedAt as number) - (a.pinnedAt as number));
+  return pinned.length === 0 ? cards : [...pinned, ...cards.filter((c) => !isPinned(c))];
+}

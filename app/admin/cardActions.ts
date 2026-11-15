@@ -215,6 +215,8 @@ export interface CreateCardInput {
   isNegotiable: boolean;
   /** Buyers can ask to pay in 2-4 weekly installments (the seller approves each plan) - cards.allow_installments. */
   allowInstallments?: boolean;
+  /** Pin the new listing to the top of the seller's shop (cards.pinned_at). Only used when creating; pin or unpin later with setListingPinned. */
+  pinned?: boolean;
   franchise: string;
   quantity: number;
   /** The shared Pokemon catalog card this listing was picked from, when it was (see cards.catalog_card_id). */
@@ -226,6 +228,7 @@ function missingCatalogColumn(error: { message: string } | null): boolean {
   return Boolean(error && /catalog_card_id/i.test(error.message));
 }
 
+const PIN_SETUP = "Pinning needs a one-time setup: run supabase/migration_pin_listing.sql in the Supabase SQL editor first.";
 const INSTALLMENTS_SETUP = "Installments need a one-time setup: run supabase/migration_marketplace_installments.sql in the Supabase SQL editor first.";
 
 /** 0 is a valid, meaningful quantity now (an explicitly sold-out listing - see updateCard) - only truly invalid input (blank/NaN) falls back to 1, same default as before. */
@@ -290,12 +293,31 @@ async function createCardOrThrow(input: CreateCardInput) {
     quantity_available: quantity,
     // Only sent when switched on, so a listing without installments never depends on the new column.
     ...(input.allowInstallments ? { allow_installments: true } : {}),
+    // Likewise only sent when pinned.
+    ...(input.pinned ? { pinned_at: new Date().toISOString() } : {}),
   };
   let { error } = await supabase.from("cards").insert(input.catalogCardId ? { ...row, catalog_card_id: input.catalogCardId } : row);
   if (missingCatalogColumn(error)) ({ error } = await supabase.from("cards").insert(row));
   if (error && /allow_installments/i.test(error.message)) throw new Error(INSTALLMENTS_SETUP);
+  if (error && /pinned_at/i.test(error.message)) throw new Error(PIN_SETUP);
   if (error) throw new Error(error.message);
   revalidateAdmin();
+}
+
+/** Pin a listing to the top of its seller's shop, or take the pin off. Sellers can pin their own listings; a super admin can pin any. */
+export async function setListingPinned(cardId: string, pinned: boolean): Promise<{ error?: string }> {
+  try {
+    const admin = await requireAdmin();
+    const supabase = createAdminClient();
+    assertOwnsOrSuper(admin, await getCardOwner(supabase, cardId));
+    const { error } = await supabase.from("cards").update({ pinned_at: pinned ? new Date().toISOString() : null }).eq("id", cardId);
+    if (error) return { error: /pinned_at/i.test(error.message) ? PIN_SETUP : error.message };
+    revalidateAdmin();
+    return {};
+  } catch (err) {
+    console.error("[setListingPinned]", err);
+    return { error: extractErrorMessage(err) ?? "Couldn't change the pin." };
+  }
 }
 
 async function updateCardOrThrow(cardId: string, input: CreateCardInput) {

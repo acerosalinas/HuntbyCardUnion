@@ -29,6 +29,7 @@ export function CardTile({
   isNegotiating = false,
   decorative = false,
   onQuickLook,
+  showPinned = false,
 }: {
   card: CardItem;
   isNegotiating?: boolean;
@@ -36,6 +37,8 @@ export function CardTile({
   decorative?: boolean;
   /** When given, a plain click opens a quick look instead of navigating (ctrl/cmd/middle click still open the card page in a new tab). */
   onQuickLook?: (card: CardItem) => void;
+  /** Mark a pinned listing (used in a seller's own shop). */
+  showPinned?: boolean;
 }) {
   const { buyer } = useBuyerIdentity();
   const { isWishlisted, toggle } = useWishlist();
@@ -81,10 +84,11 @@ export function CardTile({
             <ImageOff size={28} />
           </div>
         )}
-        {(card.isFlashSale || card.productType !== "CARD") && (
+        {(card.isFlashSale || card.productType !== "CARD" || (showPinned && card.pinnedAt !== null)) && (
           <div className={cn("absolute left-2 top-2 flex flex-wrap gap-1.5", buyer ? "right-11" : "right-2")}>
             {card.productType === "SEALED" && <SealedTypeBadge sealedType={card.sealedType} />}
             {card.productType === "MYSTERY" && <MysteryPackBadge />}
+            {showPinned && card.pinnedAt !== null && <Badge tone="gold">Pinned</Badge>}
             {card.isFlashSale && <Badge tone="pending">Flash Sale</Badge>}
           </div>
         )}

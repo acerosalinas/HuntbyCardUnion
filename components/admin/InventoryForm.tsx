@@ -47,6 +47,8 @@ interface FormState {
   sellerHandle: string;
   sellerMessenger: string;
   isFlashSale: boolean;
+  /** Pin the new listing to the top of the seller's shop (new listings only; pin or unpin later from the Inventory Manager). */
+  pinned: boolean;
   /** Whether buyers can Make Offer on this listing - see cards.is_negotiable. */
   isNegotiable: boolean;
   /** Buyers can ask to pay in 2-4 weekly installments (you approve each plan). */
@@ -73,6 +75,7 @@ const emptyForm: FormState = {
   sellerHandle: "",
   sellerMessenger: "CardUnion1",
   isFlashSale: false,
+  pinned: false,
   isNegotiable: true,
   allowInstallments: false,
   franchise: FRANCHISES[0].slug,
@@ -116,6 +119,7 @@ function formStateFromCard(card: CardItem): FormState {
     sellerHandle: card.sellerHandle,
     sellerMessenger: card.sellerMessenger,
     isFlashSale: card.isFlashSale,
+    pinned: false,
     isNegotiable: card.isNegotiable,
     allowInstallments: card.allowInstallments,
     franchise,
@@ -306,6 +310,7 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
       sellerHandle: form.sellerHandle,
       sellerMessenger: form.sellerMessenger,
       isFlashSale: form.isFlashSale,
+      pinned: !isEdit && form.pinned,
       isNegotiable: isMysteryPack ? false : form.isNegotiable,
       allowInstallments: form.allowInstallments,
       franchise: form.franchise,
@@ -642,6 +647,18 @@ export function InventoryForm({ card, sellerProfile = null, onSuccess }: Invento
         />
         Mark as Flash Sale
       </label>
+
+      {!isEdit && (
+        <label className="flex items-center gap-2 text-sm text-foreground-muted sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={form.pinned}
+            onChange={(e) => set("pinned", e.target.checked)}
+            className="h-4 w-4 rounded border-card-border accent-gold"
+          />
+          Pin to the top of my shop - it stays first even when you add more listings
+        </label>
+      )}
 
       {!isMystery && (
         <label className="flex items-center gap-2 text-sm text-foreground-muted sm:col-span-2">

@@ -70,6 +70,8 @@ export interface CardItem {
   isNegotiable: boolean;
   /** Whether a buyer can ask to pay this in 2-4 weekly installments (the seller approves each plan) - see supabase/migration_marketplace_installments.sql. */
   allowInstallments: boolean;
+  /** When the seller pinned this listing to the top of their shop, or null when it is not pinned. */
+  pinnedAt: number | null;
   adminId: string | null;
   franchise: string | null; // slug, e.g. 'pokemon', 'one-piece' - see lib/franchises.ts
   createdAt: number;
@@ -461,6 +463,8 @@ export interface CardRow {
   is_negotiable: boolean;
   /** Absent until migration_marketplace_installments.sql has been run. */
   allow_installments?: boolean;
+  /** Absent until migration_pin_listing.sql has been run. */
+  pinned_at?: string | null;
   admin_id: string | null;
   franchise: string | null;
   created_at: string;
@@ -515,6 +519,7 @@ export function cardFromRow(row: CardRow): CardItem {
     isFlashSale: row.is_flash_sale,
     isNegotiable: row.is_negotiable,
     allowInstallments: row.allow_installments ?? false,
+    pinnedAt: row.pinned_at ? new Date(row.pinned_at).getTime() : null,
     adminId: row.admin_id,
     franchise: normalizeFranchise(row.franchise),
     createdAt: new Date(row.created_at).getTime(),

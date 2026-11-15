@@ -20,6 +20,7 @@ export function revalidateAdmin() {
   revalidatePath("/admin/profile");
   revalidatePath("/");
   revalidatePath("/sellers");
+  revalidatePath("/sellers/[handle]", "page");
 }
 
 export async function getCardOwner(supabase: ReturnType<typeof createAdminClient>, cardId: string) {

@@ -9,6 +9,7 @@ import { SealedTypeBadge } from "@/components/SealedTypeBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EditListingModal } from "@/components/admin/EditListingModal";
+import { PinListingButton } from "@/components/admin/PinListingButton";
 import { useNegotiatingCardIds } from "@/hooks/useNegotiatingCardIds";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -108,6 +109,7 @@ export function InventoryGrid({
                   {negotiatingCardIds.has(card.id) && card.status !== "SOLD" && (
                     <Badge tone="gold">Negotiating</Badge>
                   )}
+                  {card.pinnedAt !== null && <Badge tone="gold">Pinned</Badge>}
                 </div>
               </div>
 
@@ -125,7 +127,8 @@ export function InventoryGrid({
                 </span>
               </div>
 
-              <div className="flex gap-1.5 p-3 pt-0">
+              <div className="flex flex-wrap gap-1.5 p-3 pt-0">
+                {card.status !== "SOLD" && <PinListingButton cardId={card.id} pinned={card.pinnedAt !== null} compact />}
                 <Button
                   variant="outline"
                   disabled={busy}
