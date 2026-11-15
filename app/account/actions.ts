@@ -10,7 +10,7 @@ import { validateImageFile } from "@/lib/imageValidation";
 import { uploadToR2 } from "@/lib/r2";
 import { notifyUser } from "@/lib/notify";
 import { sendWishlistAdminEmail } from "@/lib/email";
-import { wishlistRecipients } from "@/lib/wishlistNotify";
+import { sellerWishlistRecipients, wishlistRecipients } from "@/lib/wishlistNotify";
 import { allowRequest, TOO_MANY } from "@/lib/rateLimit";
 import { adminAlertText, MAX_WISHLIST_ALERTS_PER_HOUR, WishlistKind } from "@/lib/wishlistText";
 import { budgetLabel } from "@/lib/wantedBudget";
@@ -189,6 +189,8 @@ export async function announceWishlistAdded(kind: WishlistKind, ref: string): Pr
     let rowId: string;
     let cardName: string;
     let budget: string | null = null;
+    // Whose listing was hearted (a hearted listing alerts only its own seller).
+    let sellerAdminId: string | null = null;
     if (kind === "wanted") {
       const { data } = await db.from("wanted_cards").select("id, card_name, notified_at").eq("id", ref).eq("buyer_id", buyer.id).maybeSingle();
       if (!data || data.notified_at) return;
@@ -199,19 +201,23 @@ export async function announceWishlistAdded(kind: WishlistKind, ref: string): Pr
       const { data: extra } = await db.from("wanted_cards").select("budget_amount, budget_type").eq("id", rowId).maybeSingle();
       budget = budgetLabel(extra?.budget_type as string | null | undefined, extra?.budget_amount as number | string | null | undefined);
     } else {
-      const { data } = await db.from("wishlists").select("id, notified_at, cards(title)").eq("card_id", ref).eq("buyer_id", buyer.id).maybeSingle();
+      const { data } = await db.from("wishlists").select("id, notified_at, cards(title, admin_id)").eq("card_id", ref).eq("buyer_id", buyer.id).maybeSingle();
       if (!data || data.notified_at) return;
       table = "wishlists";
       rowId = data.id as string;
-      const card = data.cards as unknown as { title: string } | { title: string }[] | null;
-      cardName = (Array.isArray(card) ? card[0]?.title : card?.title) ?? "a card";
+      const raw = data.cards as unknown as { title: string; admin_id: string | null } | { title: string; admin_id: string | null }[] | null;
+      const card = Array.isArray(raw) ? raw[0] : raw;
+      cardName = card?.title ?? "a card";
+      sellerAdminId = card?.admin_id ?? null;
     }
 
     // Claim the alert first: only one caller can flip notified_at from null, so a double-click can't double-send.
     const { data: claimed } = await db.from(table).update({ notified_at: new Date().toISOString() }).eq("id", rowId).is("notified_at", null).select("id").maybeSingle();
     if (!claimed) return;
 
-    const { emails, adminIds } = await wishlistRecipients(db);
+    // A "can't find it" request isn't any store's card, so the shop-wide list hears it; a hearted listing goes to its own seller only.
+    const { emails, adminIds } = kind === "wanted" ? await wishlistRecipients(db) : await sellerWishlistRecipients(db, sellerAdminId);
+    if (emails.length === 0 && adminIds.length === 0) return;
     const { title, body } = adminAlertText(kind, buyer.handle, cardName, budget);
 
     // Rate limit per buyer: skip the alert (the entry itself is still saved) if they've already triggered plenty this hour.
