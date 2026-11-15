@@ -1,4 +1,5 @@
 import { DisputesTable, DisputeRowView } from "@/components/admin/DisputesTable";
+import { seesAllStores } from "@/lib/adminView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 import { DisputeStatus } from "@/types/marketplace";
@@ -38,7 +39,7 @@ export default async function AdminDisputesPage({
     .select("id, card_id, reason, status, seller_admin_id, created_at, cards!inner(title, admin_id)")
     .order("created_at", { ascending: false });
 
-  if (admin.role !== "SUPER_ADMIN") {
+  if (!(await seesAllStores(admin))) {
     query = query.eq("seller_admin_id", admin.id);
   }
   if (activeStatus !== "ALL") {

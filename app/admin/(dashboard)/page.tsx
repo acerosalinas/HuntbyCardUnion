@@ -1,4 +1,5 @@
 import { PendingPaymentsTable, PendingClaimView } from "@/components/admin/PendingPaymentsTable";
+import { seesAllStores } from "@/lib/adminView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 import { loadClaimPlans } from "@/lib/claimInstallmentsData";
@@ -33,7 +34,7 @@ export default async function AdminPendingPaymentsPage() {
     // sensible on its own too.
     .order("claimed_at", { ascending: false });
 
-  if (admin.role !== "SUPER_ADMIN") {
+  if (!(await seesAllStores(admin))) {
     query = query.eq("cards.admin_id", admin.id);
   }
 

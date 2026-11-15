@@ -1,4 +1,5 @@
 import { SalesLogTable, SoldClaimView } from "@/components/admin/SalesLogTable";
+import { seesAllStores } from "@/lib/adminView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 
@@ -29,7 +30,7 @@ export default async function AdminLogsPage() {
     .eq("status", "SOLD")
     .order("confirmed_at", { ascending: false });
 
-  if (!isSuperAdmin) {
+  if (!(await seesAllStores(admin))) {
     query = query.eq("cards.admin_id", admin.id);
   }
 

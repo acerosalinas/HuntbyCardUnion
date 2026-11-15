@@ -1,10 +1,12 @@
 import { AdminTabs } from "@/components/admin/AdminTabs";
+import { AdminViewSwitch } from "@/components/admin/AdminViewSwitch";
 import { MetricCards } from "@/components/admin/MetricCards";
 import { PriceReviewBanner } from "@/components/admin/PriceReviewBanner";
 import { SetupNotice } from "@/components/SetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentAdmin } from "@/lib/adminAuth";
+import { seesAllStores } from "@/lib/adminView";
 import { isPriceReviewStale } from "@/lib/priceReview";
 import { canUseTracker } from "@/lib/tracker/accessList";
 
@@ -20,15 +22,17 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
 
   const supabase = createAdminClient();
   const isSuper = admin.role === "SUPER_ADMIN";
+  // A super admin sees only their own store unless they switch to "All stores" (see lib/adminView.ts).
+  const allStores = await seesAllStores(admin);
 
   let cardsQuery = supabase.from("cards").select("status");
-  if (!isSuper) cardsQuery = cardsQuery.eq("admin_id", admin.id);
+  if (!allStores) cardsQuery = cardsQuery.eq("admin_id", admin.id);
 
   // Pending/sold counts and sales value now live on card_claims (a card row
   // can have some units still available and others claimed at once), not on
   // cards.status - see supabase/schema.sql's card_claims table.
   let claimsQuery = supabase.from("card_claims").select("status, quantity, unit_price, cards!inner(admin_id)");
-  if (!isSuper) claimsQuery = claimsQuery.eq("cards.admin_id", admin.id);
+  if (!allStores) claimsQuery = claimsQuery.eq("cards.admin_id", admin.id);
 
   // cards!offers_card_id_fkey, not plain cards!inner - cards.holding_offer_id
   // (added by migration_offer_hold.sql) is a second FK between these two
@@ -36,7 +40,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
   // without this hint (it errors "more than one relationship was found",
   // which silently zeroed out this count since the error wasn't checked).
   let offersQuery = supabase.from("offers").select("status, cards!offers_card_id_fkey!inner(admin_id)");
-  if (!isSuper) offersQuery = offersQuery.eq("cards.admin_id", admin.id);
+  if (!allStores) offersQuery = offersQuery.eq("cards.admin_id", admin.id);
 
   const [{ data: cards }, { data: claims }, { data: offers }, { data: sellerProfile }] = await Promise.all([
     cardsQuery,
@@ -65,6 +69,11 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
           {admin.email} · <span className="font-medium text-gold">{isSuper ? "Super Admin" : "Admin"}</span>
         </span>
       </div>
+      {isSuper && (
+        <div className="mb-3">
+          <AdminViewSwitch allStores={allStores} />
+        </div>
+      )}
       <MetricCards metrics={metrics} />
       {showPriceReviewBanner && <PriceReviewBanner hasProfile={!!sellerProfile} />}
       <div className="mt-4 sm:mt-6">

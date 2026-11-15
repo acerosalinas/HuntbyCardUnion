@@ -1,4 +1,5 @@
 import { OffersTable, OfferRowView } from "@/components/admin/OffersTable";
+import { seesAllStores } from "@/lib/adminView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 
@@ -37,7 +38,7 @@ export default async function AdminOffersPage() {
     .in("status", ["PENDING", "ACCEPTED"])
     .order("created_at", { ascending: false });
 
-  if (admin.role !== "SUPER_ADMIN") {
+  if (!(await seesAllStores(admin))) {
     query = query.eq("cards.admin_id", admin.id);
   }
 

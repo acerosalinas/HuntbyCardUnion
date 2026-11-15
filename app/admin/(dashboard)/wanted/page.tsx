@@ -1,4 +1,5 @@
 import { WantedCardsView } from "@/components/admin/WantedCardsView";
+import { seesAllStores } from "@/lib/adminView";
 import { WishlistedCardsView, WishlistedItem } from "@/components/admin/WishlistedCardsView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
@@ -14,14 +15,14 @@ export default async function AdminWantedPage() {
   const { data } = await supabase.from("wanted_cards").select("*").order("created_at", { ascending: false });
   const wanted = ((data as WantedCardRow[] | null) ?? []).map(wantedCardFromRow);
 
-  // Hearted listings ARE tied to a seller (the card's owner), so an admin sees the ones on their own
-  // listings and a super admin sees all, the same scoping as Inventory.
+  // Hearted listings ARE tied to a seller (the card's owner), so everyone sees the ones on their own
+  // listings; a super admin sees every store's only after switching the dashboard to "All stores".
   let wishlistQuery = supabase
     .from("wishlists")
     .select("id, buyer_id, card_id, status, created_at, cards!inner(title, images, list_price, status, admin_id)")
     .order("created_at", { ascending: false })
     .limit(300);
-  if (admin.role !== "SUPER_ADMIN") wishlistQuery = wishlistQuery.eq("cards.admin_id", admin.id);
+  if (!(await seesAllStores(admin))) wishlistQuery = wishlistQuery.eq("cards.admin_id", admin.id);
   const { data: wishRows, error: wishError } = await wishlistQuery;
 
   let items: WishlistedItem[] = [];
