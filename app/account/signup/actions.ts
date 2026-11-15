@@ -78,5 +78,33 @@ export async function signup(_prevState: { error: string | null; removed?: boole
     return { error: "Something went wrong creating your account - please try again." };
   }
 
-  redirect(`/account/check-email?from=${encodeURIComponent(from)}`);
+  redirect(`/account/check-email?from=${encodeURIComponent(from)}&email=${encodeURIComponent(email)}`);
+}
+
+/**
+ * Sends the sign-up confirmation link again. Never says whether an account exists for the address (so it can't be used to look
+ * people up), and is rate limited per visitor and per address. Supabase also holds back repeats for about a minute.
+ */
+export async function resendConfirmation(emailInput: string, from: string): Promise<{ error?: string }> {
+  const email = String(emailInput ?? "").trim();
+  if (!email || !email.includes("@")) return { error: "Enter the email address you signed up with." };
+  if (!(await allowRequest("resend-confirm-ip", await clientIp(), 10, 3600)) || !(await allowRequest("resend-confirm-email", email, 3, 3600))) {
+    return { error: TOO_MANY };
+  }
+  const origin = await resolveOrigin();
+  const supabase = await createAuthServerClient("buyer");
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${origin}/auth/callback?from=${encodeURIComponent(from.startsWith("/") ? from : "/")}` },
+  });
+  if (error) {
+    const message = error.message.toLowerCase();
+    if (message.includes("rate limit") || message.includes("security purposes") || message.includes("seconds")) {
+      return { error: "Please wait a minute before asking for another email." };
+    }
+    console.error("[resendConfirmation]", error.message);
+    return { error: "We couldn't send the email just now. Please try again in a few minutes." };
+  }
+  return {};
 }

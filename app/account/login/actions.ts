@@ -23,7 +23,7 @@ import { isAllowedIn, REMOVED_MESSAGE } from "@/lib/accessGate";
  * ensureBuyerProfileForAdmin backfills the profiles row that action needs
  * (admin accounts don't get one at creation).
  */
-export async function login(_prevState: { error: string | null; removed?: boolean }, formData: FormData) {
+export async function login(_prevState: { error: string | null; removed?: boolean; unconfirmedEmail?: string }, formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const from = String(formData.get("from") ?? "/");
@@ -44,6 +44,10 @@ export async function login(_prevState: { error: string | null; removed?: boolea
   if (error || !data.user) {
     // A deleted account can never sign in; say why instead of "incorrect password" (the page shows a pop-up).
     if (await isEmailRemoved(email)) return { error: REMOVED_MESSAGE, removed: true };
+    // The right password on an account whose email was never confirmed: say so (and offer to resend) instead of "incorrect password".
+    if (error?.code === "email_not_confirmed" || /email not confirmed/i.test(error?.message ?? "")) {
+      return { error: "Please confirm your email first - we sent you a link when you signed up.", unconfirmedEmail: email };
+    }
     return { error: "Incorrect email or password." };
   }
 

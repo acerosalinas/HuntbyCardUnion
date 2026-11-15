@@ -8,13 +8,14 @@ import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { RemovedAccessModal } from "@/components/RemovedAccessModal";
+import { ResendConfirmation } from "@/components/ResendConfirmation";
 // import { GoogleSignInButton } from "@/components/GoogleSignInButton"; // temporarily disabled
 import { login } from "./actions";
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const from = searchParams.get("from") ?? "/";
-  const [state, formAction, pending] = useActionState<{ error: string | null; removed?: boolean }, FormData>(login, {
+  const [state, formAction, pending] = useActionState<{ error: string | null; removed?: boolean; unconfirmedEmail?: string }, FormData>(login, {
     error: null,
   });
   // Closing the pop-up is remembered per answer, so the next attempt can show it again.
@@ -45,6 +46,7 @@ function LoginForm() {
         </div>
         <RemovedAccessModal open={Boolean(state.removed) && closedFor !== state} onClose={() => setClosedFor(state)} />
         {state.error && <p className="text-sm text-sold">{state.error}</p>}
+        {state.unconfirmedEmail && <ResendConfirmation key={state.unconfirmedEmail} email={state.unconfirmedEmail} from={from} />}
         <Button type="submit" variant="gold" className="w-full" disabled={pending}>
           {pending ? "Signing in..." : "Sign In"}
         </Button>
