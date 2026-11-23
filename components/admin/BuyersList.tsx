@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, Check, Search, Trash2 } from "lucide-react";
-import { BuyerAccountSummary, deleteBuyer, setBuyerBlocked } from "@/app/admin/accountActions";
+import { Ban, Check, Search, ShieldPlus, Trash2 } from "lucide-react";
+import { BuyerAccountSummary, deleteBuyer, promoteBuyerToAdmin, setBuyerBlocked } from "@/app/admin/accountActions";
+import type { LinkTarget } from "@/app/tracker/customerActions";
+import { BuyerName } from "@/components/admin/BuyerName";
+import { BuyerTrackerLink } from "@/components/admin/BuyerTrackerLink";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -15,7 +18,19 @@ import { extractErrorMessage } from "@/lib/utils";
  */
 const PAGE_SIZE = 25;
 
-export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSummary[]; onHold?: boolean }) {
+export function BuyersList({
+  buyers,
+  onHold = false,
+  aliases = {},
+  trackerLinks,
+}: {
+  buyers: BuyerAccountSummary[];
+  onHold?: boolean;
+  /** This admin's own sub usernames, by account id (private to them). */
+  aliases?: Record<string, string>;
+  /** Set only when this admin has a Live Tracker: which of their tracker customers each account is linked to. Absent = no tracker, so no link column. */
+  trackerLinks?: Record<string, LinkTarget>;
+}) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +76,24 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
     run(buyer, (id) => setBuyerBlocked(id, true), "Couldn't put this account on hold.");
   };
 
+  const handlePromote = async (buyer: BuyerAccountSummary) => {
+    const confirmed = await confirm({
+      title: "Make this customer an admin?",
+      message: (
+        <div className="space-y-2">
+          <p>
+            <strong>{buyer.email}</strong>
+            {buyer.handle ? ` (${buyer.handle})` : ""} becomes a regular <strong>Admin</strong>. They keep the same email, password and customer account, and will see the admin dashboard the next time they sign in.
+          </p>
+          <p>They start with no extra permissions (for example no Live Tracker) - you can tick those in the Admins list. This never makes them a Super Admin.</p>
+        </div>
+      ),
+      confirmLabel: "Make admin",
+    });
+    if (!confirmed) return;
+    run(buyer, promoteBuyerToAdmin, "Couldn't make this account an admin.");
+  };
+
   const handleRelease = (buyer: BuyerAccountSummary) => run(buyer, (id) => setBuyerBlocked(id, false), "Couldn't release this account.");
 
   const handleDelete = async (buyer: BuyerAccountSummary) => {
@@ -84,7 +117,7 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
 
   const needle = search.trim().toLowerCase();
   const matches = needle
-    ? buyers.filter((b) => [b.email, b.fullName, b.handle].some((v) => v?.toLowerCase().includes(needle)))
+    ? buyers.filter((b) => [b.email, b.fullName, b.handle, aliases[b.id]].some((v) => v?.toLowerCase().includes(needle)))
     : buyers;
   const shown = matches.slice(0, limit);
 
@@ -100,7 +133,7 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
               setSearch(e.target.value);
               setLimit(PAGE_SIZE);
             }}
-            placeholder="Search email, name or handle"
+            placeholder="Search email, name, handle or sub username"
             aria-label="Search accounts"
             className="pl-9"
           />
@@ -108,12 +141,13 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
       )}
       {error && <p className="text-sm text-sold">{error}</p>}
       <div className="overflow-x-auto rounded-2xl border border-card-border">
-        <table className="w-full min-w-180 text-left text-sm">
+        <table className="w-full min-w-240 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
               <th scope="col" className="px-4 py-3">Email</th>
               <th scope="col" className="px-4 py-3">Name</th>
-              <th scope="col" className="px-4 py-3">Handle</th>
+              <th scope="col" className="px-4 py-3">Handle &amp; sub username</th>
+              {trackerLinks && !onHold && <th scope="col" className="px-4 py-3">Live tracker</th>}
               <th scope="col" className="px-4 py-3">Joined</th>
               <th scope="col" className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -137,7 +171,14 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
                     )}
                   </td>
                   <td className="px-4 py-3 text-foreground-muted">{buyer.fullName ?? "—"}</td>
-                  <td className="px-4 py-3 text-foreground-muted">{buyer.handle ?? "—"}</td>
+                  <td className="px-4 py-3 text-foreground-muted">
+                    {buyer.handle ? <BuyerName handle={buyer.handle} info={{ buyerId: buyer.id, alias: aliases[buyer.id] ?? null }} className="text-foreground-muted" /> : "—"}
+                  </td>
+                  {trackerLinks && !onHold && (
+                    <td className="px-4 py-3">
+                      <BuyerTrackerLink buyerId={buyer.id} handle={buyer.handle} linked={trackerLinks[buyer.id] ?? null} />
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-foreground-muted">{new Date(buyer.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
@@ -147,10 +188,16 @@ export function BuyersList({ buyers, onHold = false }: { buyers: BuyerAccountSum
                           Release
                         </Button>
                       ) : (
-                        <Button variant="outline" disabled={busy} onClick={() => handleHold(buyer)}>
-                          <Ban size={14} />
-                          Hold
-                        </Button>
+                        <>
+                          <Button variant="outline" disabled={busy} onClick={() => handlePromote(buyer)}>
+                            <ShieldPlus size={14} />
+                            Make admin
+                          </Button>
+                          <Button variant="outline" disabled={busy} onClick={() => handleHold(buyer)}>
+                            <Ban size={14} />
+                            Hold
+                          </Button>
+                        </>
                       )}
                       <Button variant="danger" disabled={busy} onClick={() => handleDelete(buyer)}>
                         <Trash2 size={14} />

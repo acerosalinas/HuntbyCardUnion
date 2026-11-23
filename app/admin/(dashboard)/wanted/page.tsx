@@ -1,5 +1,6 @@
 import { WantedCardsView } from "@/components/admin/WantedCardsView";
 import { seesAllStores } from "@/lib/adminView";
+import { loadAliasInfo } from "@/lib/buyerAliasData";
 import { WishlistedCardsView, WishlistedItem } from "@/components/admin/WishlistedCardsView";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
@@ -60,10 +61,11 @@ export default async function AdminWantedPage() {
     });
   }
 
+  const aliases = await loadAliasInfo(admin.id, [...wanted.map((w) => w.buyerHandle), ...items.map((i) => i.buyerHandle)]);
   return (
     <>
-      <WantedCardsView wanted={wanted} />
-      {wishlistNote ? <p className="mt-8 rounded-2xl border border-dashed border-card-border p-6 text-center text-sm text-foreground-muted">{wishlistNote}</p> : <WishlistedCardsView items={items} />}
+      <WantedCardsView wanted={wanted} aliases={aliases} />
+      {wishlistNote ? <p className="mt-8 rounded-2xl border border-dashed border-card-border p-6 text-center text-sm text-foreground-muted">{wishlistNote}</p> : <WishlistedCardsView items={items} aliases={aliases} />}
     </>
   );
 }

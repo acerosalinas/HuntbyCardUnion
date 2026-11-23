@@ -1,4 +1,6 @@
 "use client";
+import { BuyerName } from "@/components/admin/BuyerName";
+import type { BuyerAliasInfo } from "@/lib/buyerAlias";
 
 import { useMemo, useState, useTransition } from "react";
 import { Award, CalendarDays, Download, ImageOff, LayoutGrid, List, Search, Store, Wallet } from "lucide-react";
@@ -124,7 +126,10 @@ export function SalesLogTable({
   claims,
   isSuperAdmin,
   currentAdminId,
+  aliases = {},
 }: {
+  /** This admin's own sub usernames, by buyer @handle (private to them). */
+  aliases?: Record<string, BuyerAliasInfo>;
   claims: SoldClaimView[];
   isSuperAdmin: boolean;
   currentAdminId: string;
@@ -161,9 +166,9 @@ export function SalesLogTable({
     const q = search.trim().toLowerCase();
     if (!q) return filteredClaims;
     return filteredClaims.filter(
-      (c) => c.buyerHandle.toLowerCase().includes(q) || c.cardTitle.toLowerCase().includes(q),
+      (c) => c.buyerHandle.toLowerCase().includes(q) || c.cardTitle.toLowerCase().includes(q) || (aliases[c.buyerHandle]?.alias ?? "").toLowerCase().includes(q),
     );
-  }, [filteredClaims, search]);
+  }, [filteredClaims, search, aliases]);
 
   // A single pass, not a sort - filteredClaims already arrives newest-first
   // (see app/admin/(dashboard)/logs/page.tsx's query), so everything from
@@ -342,7 +347,7 @@ export function SalesLogTable({
                             {claim.sellerAdminId === currentAdminId ? <Badge tone="gold">You</Badge> : (claim.sellerName ?? "—")}
                           </p>
                         )}
-                        <p className="text-foreground-muted">{claim.buyerHandle}</p>
+                        <p className="text-foreground-muted"><BuyerName handle={claim.buyerHandle} info={aliases[claim.buyerHandle]} className="text-foreground-muted" /></p>
                         {claim.orderId && (
                           <Badge tone="neutral" className="w-fit" title={claim.orderId}>
                             Order #{claim.orderId.slice(0, 8)}
@@ -406,7 +411,7 @@ export function SalesLogTable({
                               <span className="text-foreground-muted">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-foreground-muted">{claim.buyerHandle}</td>
+                          <td className="px-4 py-3 text-foreground-muted"><BuyerName handle={claim.buyerHandle} info={aliases[claim.buyerHandle]} className="text-foreground-muted" /></td>
                           <td className="px-4 py-3">{claim.quantity}</td>
                           <td className="px-4 py-3">{formatCurrency(claim.unitPrice * claim.quantity)}</td>
                           <td className="px-4 py-3">

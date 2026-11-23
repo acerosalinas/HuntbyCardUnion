@@ -16,10 +16,14 @@ export default async function TrackerCustomerPage({ params }: { params: Promise<
   const customer = data.customers.find((c) => c.id === id);
   if (!customer) notFound();
 
-  let linkedBuyer: { id: string; handle: string; fullName: string } | null = null;
+  let linkedBuyer: { id: string; handle: string; fullName: string; alias: string | null } | null = null;
   if (customer.buyerId) {
     const { data: profile } = await createAdminClient().from("profiles").select("id, handle, full_name").eq("id", customer.buyerId).maybeSingle();
-    if (profile) linkedBuyer = { id: profile.id as string, handle: profile.handle as string, fullName: profile.full_name as string };
+    if (profile) {
+      // This admin's own sub username for the linked account (private to them; none until migration_buyer_aliases.sql has been run).
+      const { data: aliasRow } = await createAdminClient().from("buyer_aliases").select("alias").eq("admin_id", admin.id).eq("buyer_id", customer.buyerId).maybeSingle();
+      linkedBuyer = { id: profile.id as string, handle: profile.handle as string, fullName: profile.full_name as string, alias: (aliasRow?.alias as string | undefined) ?? null };
+    }
   }
 
   // Their marketplace orders on this seller's cards, so one page shows everything this person owes and is waiting on.

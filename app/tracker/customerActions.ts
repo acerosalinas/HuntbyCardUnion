@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
@@ -12,6 +13,7 @@ import { evaluatePlan } from "@/lib/tracker/installments";
 import { manilaDay } from "@/lib/tracker/proofDays";
 import { buildStatementText } from "@/lib/tracker/statement";
 import { statementOrders } from "@/lib/tracker/statementOrders";
+import { findBuyerIdsByAlias } from "@/lib/buyerAliasData";
 import { refresh, text, parse, assertOwned, escapeLike } from "./trackerHelpers";
 
 export interface CustomerInput {
@@ -54,14 +56,30 @@ export async function saveCustomer(id: string, input: CustomerInput) {
   refresh();
 }
 
-/** Handle search for the "link this customer to an account" box. */
-export async function findBuyers(query: string): Promise<{ id: string; handle: string; fullName: string }[]> {
-  await requireTrackerAdmin();
+/** Search for the "link this customer to an account" box: by @handle, or by the sub username this admin gave an account. */
+export async function findBuyers(query: string): Promise<{ id: string; handle: string; fullName: string; alias: string | null }[]> {
+  const admin = await requireTrackerAdmin();
   const q = query.trim().replace(/^@/, "");
   if (q.length < 2) return [];
-  const { data, error } = await createAdminClient().from("profiles").select("id, handle, full_name").ilike("handle", `%${escapeLike(q)}%`).limit(8);
+  const db = createAdminClient();
+  const [{ data, error }, aliasIds] = await Promise.all([
+    db.from("profiles").select("id, handle, full_name").ilike("handle", `%${escapeLike(q)}%`).limit(8),
+    findBuyerIdsByAlias(admin.id, q),
+  ]);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((r) => ({ id: r.id as string, handle: r.handle as string, fullName: r.full_name as string }));
+  const rows = [...(data ?? [])];
+  const missing = aliasIds.filter((id) => !rows.some((r) => r.id === id));
+  if (missing.length > 0) {
+    const { data: more } = await db.from("profiles").select("id, handle, full_name").in("id", missing);
+    rows.push(...(more ?? []));
+  }
+  const ids = rows.map((r) => r.id as string);
+  const aliasById = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: aliases } = await db.from("buyer_aliases").select("buyer_id, alias").eq("admin_id", admin.id).in("buyer_id", ids);
+    for (const a of aliases ?? []) aliasById.set(a.buyer_id as string, a.alias as string);
+  }
+  return rows.slice(0, 12).map((r) => ({ id: r.id as string, handle: r.handle as string, fullName: r.full_name as string, alias: aliasById.get(r.id as string) ?? null }));
 }
 
 /** Links a tracker customer to a marketplace account (or unlinks with null). One account can be linked to one customer. */
@@ -86,6 +104,55 @@ export async function linkCustomerBuyer(customerId: string, buyerId: string | nu
     throw new Error(error.message);
   }
   refresh();
+}
+
+/** One of the admin's own tracker customers, as offered when linking from Manage Admins > Buyers. */
+export interface LinkTarget {
+  id: string;
+  name: string;
+}
+
+/** The calling admin's own tracker customers that have no account linked yet and whose name matches what was typed. Never throws. */
+export async function findLinkTargets(query: string): Promise<LinkTarget[]> {
+  try {
+    const admin = await requireTrackerAdmin();
+    const q = String(query ?? "").trim();
+    if (q.length < 2) return [];
+    const { data } = await createAdminClient()
+      .from("tracker_customers")
+      .select("id, name")
+      .eq("owner_id", admin.id)
+      .is("buyer_id", null)
+      .ilike("name", `%${escapeLike(q)}%`)
+      .order("name")
+      .limit(8);
+    return (data ?? []).map((r) => ({ id: r.id as string, name: r.name as string }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Links a customer account to one of the admin's tracker customers, or (customerId null) unlinks it, from the Buyers list.
+ * Same rules as the Link/Unlink panel on a tracker customer: only the admin's own customers, one account per customer.
+ * Returns { error } for refusals so the message survives production (thrown messages are hidden there).
+ */
+export async function setBuyerLink(buyerId: string, customerId: string | null): Promise<{ error?: string }> {
+  try {
+    const admin = await requireTrackerAdmin();
+    const v = parse(z.object({ buyerId: z.string().uuid(), customerId: z.string().uuid().nullable() }), { buyerId, customerId });
+    if (v.customerId) {
+      await linkCustomerBuyer(v.customerId, v.buyerId);
+    } else {
+      const { error } = await createAdminClient().from("tracker_customers").update({ buyer_id: null }).eq("owner_id", admin.id).eq("buyer_id", v.buyerId);
+      if (error) return { error: error.message };
+      refresh();
+    }
+    revalidatePath("/admin/manage");
+    return {};
+  } catch (err) {
+    return { error: err instanceof Error && err.message ? err.message : "Couldn't change the link." };
+  }
 }
 
 /** Links several customers to the accounts the admin confirmed from the suggestions. Each goes through the same checks as a single link; failures are reported, the rest still link. */

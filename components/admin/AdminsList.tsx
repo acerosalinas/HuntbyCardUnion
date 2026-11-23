@@ -2,7 +2,8 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { KeyRound, Power } from "lucide-react";
-import { AdminAccount, resetAdminPassword, setAdminActive } from "@/app/admin/accountActions";
+import { AdminAccount, resetAdminPassword, setAdminActive, setAdminPermission } from "@/app/admin/accountActions";
+import { Permission, PERMISSIONS, PERMISSION_LABELS } from "@/lib/permissions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
@@ -44,6 +45,21 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
     });
   };
 
+  const handlePermission = (admin: AdminAccount, permission: Permission, enabled: boolean) => {
+    setError(null);
+    setBusyId(admin.id);
+    startTransition(async () => {
+      try {
+        const result = await setAdminPermission(admin.id, permission, enabled);
+        if (result.error) setError(result.error);
+      } catch (err) {
+        setError(extractErrorMessage(err) ?? "Couldn't change the permission.");
+      } finally {
+        setBusyId(null);
+      }
+    });
+  };
+
   const handleResetPassword = (adminId: string) => {
     if (newPassword.length < 6) {
       setError("New password must be at least 6 characters.");
@@ -71,13 +87,14 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
       {error && <p className="text-sm text-sold">{error}</p>}
       {resetNotice && <p className="text-sm text-available">{resetNotice}</p>}
       <div className="overflow-x-auto rounded-2xl border border-card-border">
-        <table className="w-full min-w-180 text-left text-sm">
+        <table className="w-full min-w-220 text-left text-sm">
           <thead className="bg-card text-xs uppercase tracking-wide text-foreground-muted">
             <tr>
               <th scope="col" className="px-4 py-3">Email</th>
               <th scope="col" className="px-4 py-3">Handle</th>
               <th scope="col" className="px-4 py-3">Role</th>
               <th scope="col" className="px-4 py-3">Status</th>
+              <th scope="col" className="px-4 py-3">Permissions</th>
               <th scope="col" className="px-4 py-3">Created</th>
               <th scope="col" className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -100,6 +117,26 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                       <Badge tone={admin.active ? "available" : "sold"}>
                         {admin.active ? "Active" : "Inactive · store hidden"}
                       </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      {admin.role === "SUPER_ADMIN" ? (
+                        <span className="text-xs text-foreground-muted">Everything</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {PERMISSIONS.map((permission) => (
+                            <label key={permission} className="flex cursor-pointer items-center gap-2 text-sm" title={PERMISSION_LABELS[permission].hint}>
+                              <input
+                                type="checkbox"
+                                checked={admin.permissions.includes(permission)}
+                                disabled={busy}
+                                onChange={(e) => handlePermission(admin, permission, e.target.checked)}
+                                className="h-4 w-4 rounded border-card-border accent-gold"
+                              />
+                              {PERMISSION_LABELS[permission].label}
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-foreground-muted">
                       {new Date(admin.createdAt).toLocaleDateString()}
@@ -131,7 +168,7 @@ export function AdminsList({ admins }: { admins: AdminAccount[] }) {
                   </tr>
                   {isResetting && (
                     <tr className="border-t border-card-border bg-card">
-                      <td colSpan={6} className="px-4 py-3">
+                      <td colSpan={7} className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <PasswordInput
                             placeholder="New password (min 6 characters)"

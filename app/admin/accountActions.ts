@@ -6,6 +6,7 @@ import { createAuthServerClient } from "@/lib/supabase/authServer";
 import { roleFromMetadata, AdminRole } from "@/lib/adminAuth";
 import { revalidatePath } from "next/cache";
 import { isAllowedIn, normalizeEmail } from "@/lib/accessGate";
+import { Permission, PERMISSIONS, permissionsFromMetadata } from "@/lib/permissions";
 import { requireSuperAdmin, revalidateAdmin } from "./actionHelpers";
 
 export async function logout() {
@@ -28,6 +29,8 @@ export interface AdminAccount {
   handle: string | null;
   active: boolean;
   createdAt: number;
+  /** What has been ticked for this admin (a Super Admin always has all of them). */
+  permissions: Permission[];
 }
 
 export interface BuyerAccountSummary {
@@ -83,6 +86,7 @@ export async function listAdmins(): Promise<AdminAccount[]> {
       handle: handleByAdminId.has(u.id) ? `@${handleByAdminId.get(u.id)}` : null,
       active: !u.banned_until || new Date(u.banned_until) <= new Date(),
       createdAt: new Date(u.created_at).getTime(),
+      permissions: permissionsFromMetadata(u.app_metadata),
     }))
     .sort((a, b) => a.createdAt - b.createdAt);
 }
@@ -215,6 +219,54 @@ export async function deleteBuyer(userId: string): Promise<{ error?: string }> {
 
   const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
   if (deleteError) return { error: deleteError.message };
+  revalidatePath("/admin/manage");
+  return {};
+}
+
+
+/**
+ * Gives a regular admin a permission (such as the Live Tracker) or takes it away. Super Admins only. A Super Admin always has every
+ * permission, so there is nothing to change on one. Turning a permission off never deletes anything the admin made with it - their data
+ * stays, they just can't open it until it is ticked again. Returns { error } for expected refusals.
+ */
+export async function setAdminPermission(adminId: string, permission: Permission, enabled: boolean): Promise<{ error?: string }> {
+  await requireSuperAdmin();
+  if (!PERMISSIONS.includes(permission)) return { error: "Unknown permission." };
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.getUserById(adminId);
+  if (error || !data.user) return { error: "That account no longer exists." };
+  const role = roleFromMetadata(data.user.app_metadata);
+  if (role === null) return { error: "That is not an admin account." };
+  if (role === "SUPER_ADMIN") return { error: "A Super Admin always has every permission." };
+
+  const current = new Set(permissionsFromMetadata(data.user.app_metadata));
+  if (enabled) current.add(permission);
+  else current.delete(permission);
+  const { error: updateError } = await supabase.auth.admin.updateUserById(adminId, { app_metadata: { ...data.user.app_metadata, permissions: [...current] } });
+  if (updateError) return { error: updateError.message };
+  revalidateAdmin();
+  revalidatePath("/admin/manage");
+  return {};
+}
+
+/**
+ * Turns a customer's account into a regular Admin (never a Super Admin). Super Admins only. They keep the same email, password and
+ * marketplace account and sign in the same way; they get an admin dashboard with no extra permissions until one is ticked for them.
+ * Returns { error } for expected refusals.
+ */
+export async function promoteBuyerToAdmin(userId: string): Promise<{ error?: string }> {
+  await requireSuperAdmin();
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.getUserById(userId);
+  if (error || !data.user) return { error: "That account no longer exists." };
+  const user = data.user;
+  if (roleFromMetadata(user.app_metadata) !== null) return { error: "That account is already an admin." };
+  if (!isAllowedIn(user.app_metadata)) return { error: "That account is on hold. Release it first." };
+  if (!user.email) return { error: "That account has no email address." };
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(userId, { app_metadata: { ...user.app_metadata, role: "ADMIN", permissions: [] } });
+  if (updateError) return { error: updateError.message };
+  revalidateAdmin();
   revalidatePath("/admin/manage");
   return {};
 }

@@ -1,5 +1,6 @@
 import { OffersTable, OfferRowView } from "@/components/admin/OffersTable";
 import { seesAllStores } from "@/lib/adminView";
+import { loadAliasInfo } from "@/lib/buyerAliasData";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 
@@ -59,5 +60,6 @@ export default async function AdminOffersPage() {
     heldUntil: row.cards?.held_until ? new Date(row.cards.held_until).getTime() : null,
   }));
 
-  return <OffersTable offers={offers} />;
+  const aliases = await loadAliasInfo(admin.id, offers.map((o) => o.buyerHandle));
+  return <OffersTable offers={offers} aliases={aliases} />;
 }

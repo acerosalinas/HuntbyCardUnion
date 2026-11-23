@@ -1,5 +1,6 @@
 import { PendingPaymentsTable, PendingClaimView } from "@/components/admin/PendingPaymentsTable";
 import { seesAllStores } from "@/lib/adminView";
+import { loadAliasInfo } from "@/lib/buyerAliasData";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 import { loadClaimPlans } from "@/lib/claimInstallmentsData";
@@ -102,5 +103,6 @@ export default async function AdminPendingPaymentsPage() {
     }
   }
 
-  return <PendingPaymentsTable claims={claims} queueCounts={queueCounts} />;
+  const aliases = await loadAliasInfo(admin.id, claims.map((c) => c.buyerHandle));
+  return <PendingPaymentsTable claims={claims} queueCounts={queueCounts} aliases={aliases} />;
 }

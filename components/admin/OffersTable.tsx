@@ -1,4 +1,6 @@
 "use client";
+import { BuyerName } from "@/components/admin/BuyerName";
+import type { BuyerAliasInfo } from "@/lib/buyerAlias";
 
 import { useMemo, useState, useTransition } from "react";
 import { ImageOff, LayoutGrid, List } from "lucide-react";
@@ -59,7 +61,9 @@ function BuyerGroupSection({
   group,
   view,
   renderOffer,
+  aliases,
 }: {
+  aliases: Record<string, BuyerAliasInfo>;
   group: BuyerGroup;
   view: View;
   renderOffer: (offer: OfferRowView) => React.ReactNode;
@@ -68,7 +72,7 @@ function BuyerGroupSection({
     <div className="overflow-hidden rounded-2xl border border-card-border">
       <div className="flex flex-wrap items-center justify-between gap-2 bg-card px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-foreground">{group.buyerHandle}</span>
+          <BuyerName handle={group.buyerHandle} info={aliases[group.buyerHandle]} />
           <span className="text-xs text-foreground-muted">
             {group.offers.length} offer{group.offers.length === 1 ? "" : "s"}
           </span>
@@ -89,7 +93,7 @@ function BuyerGroupSection({
   );
 }
 
-export function OffersTable({ offers }: { offers: OfferRowView[] }) {
+export function OffersTable({ offers, aliases = {} }: { offers: OfferRowView[]; aliases?: Record<string, BuyerAliasInfo> }) {
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [counteringId, setCounteringId] = useState<string | null>(null);
@@ -324,6 +328,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
               <BuyerGroupSection
                 key={group.buyerHandle}
                 group={group}
+                aliases={aliases}
                 view={view}
                 renderOffer={view === "tiles" ? renderPendingTile : renderPendingRow}
               />
@@ -344,6 +349,7 @@ export function OffersTable({ offers }: { offers: OfferRowView[] }) {
               <BuyerGroupSection
                 key={group.buyerHandle}
                 group={group}
+                aliases={aliases}
                 view={view}
                 renderOffer={view === "tiles" ? renderAcceptedTile : renderAcceptedRow}
               />

@@ -1,5 +1,6 @@
 import { SalesLogTable, SoldClaimView } from "@/components/admin/SalesLogTable";
 import { seesAllStores } from "@/lib/adminView";
+import { loadAliasInfo } from "@/lib/buyerAliasData";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 
@@ -72,5 +73,6 @@ export default async function AdminLogsPage() {
     sellerName: row.cards?.admin_id ? (sellerNameByAdminId.get(row.cards.admin_id) ?? "Unnamed seller") : null,
   }));
 
-  return <SalesLogTable claims={claims} isSuperAdmin={isSuperAdmin} currentAdminId={admin.id} />;
+  const aliases = await loadAliasInfo(admin.id, claims.map((c) => c.buyerHandle));
+  return <SalesLogTable claims={claims} isSuperAdmin={isSuperAdmin} currentAdminId={admin.id} aliases={aliases} />;
 }

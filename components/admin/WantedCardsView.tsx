@@ -1,4 +1,6 @@
 "use client";
+import { BuyerName } from "@/components/admin/BuyerName";
+import type { BuyerAliasInfo } from "@/lib/buyerAlias";
 
 import { useMemo, useState, useTransition } from "react";
 import { CheckCircle2, ImageOff, Search, XCircle } from "lucide-react";
@@ -16,7 +18,7 @@ function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[] }) {
+export function WantedCardsView({ wanted: initialWanted, aliases = {} }: { wanted: WantedCard[]; aliases?: Record<string, BuyerAliasInfo> }) {
   const [wanted, setWanted] = useState(initialWanted);
   const [showResolved, setShowResolved] = useState(false);
   const [mode, setMode] = useViewMode();
@@ -101,7 +103,7 @@ export function WantedCardsView({ wanted: initialWanted }: { wanted: WantedCard[
                     {w.cardName}
                   </button>
                   <p className="text-xs text-foreground-muted">
-                    @{w.buyerHandle.replace(/^@/, "")} · {formatDate(w.createdAt)}
+                    <BuyerName handle={`@${w.buyerHandle.replace(/^@/, "")}`} info={aliases[w.buyerHandle]} className="text-foreground-muted" /> · {formatDate(w.createdAt)}
                   </p>
                   {budgetLabel(w.budgetType, w.budgetAmount) && <p className="mt-0.5 text-sm font-semibold text-gold-ink">Budget: {budgetLabel(w.budgetType, w.budgetAmount)}</p>}
                 </div>

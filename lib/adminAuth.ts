@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createAuthServerClient } from "@/lib/supabase/authServer";
+import { Permission, permissionsFromMetadata } from "@/lib/permissions";
 
 export type AdminRole = "ADMIN" | "SUPER_ADMIN";
 
@@ -8,6 +9,8 @@ export interface CurrentAdmin {
   id: string;
   email: string;
   role: AdminRole;
+  /** What a Super Admin ticked for this admin (see lib/permissions.ts). A Super Admin has every permission regardless of this list. */
+  permissions: Permission[];
 }
 
 /** Null for a buyer account (no admin role in app_metadata), not just an invalid value - see listAdmins()/listBuyers() in app/admin/*Actions.ts, which use this to tell the two apart. */
@@ -35,6 +38,7 @@ export const getCurrentAdmin = cache(async (): Promise<CurrentAdmin | null> => {
     id: user.id,
     email: user.email,
     role,
+    permissions: permissionsFromMetadata(user.app_metadata),
   };
 });
 

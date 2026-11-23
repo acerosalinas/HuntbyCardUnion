@@ -1,4 +1,6 @@
 "use client";
+import { BuyerName } from "@/components/admin/BuyerName";
+import type { BuyerAliasInfo } from "@/lib/buyerAlias";
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, CheckCheck, ImageOff, LayoutGrid, List, Users } from "lucide-react";
@@ -43,9 +45,12 @@ interface BuyerGroup {
 export function PendingPaymentsTable({
   claims,
   queueCounts,
+  aliases = {},
 }: {
   claims: PendingClaimView[];
   queueCounts: Record<string, number>;
+  /** This admin's own sub usernames, by buyer @handle (private to them). */
+  aliases?: Record<string, BuyerAliasInfo>;
 }) {
   const negotiatingCardIds = useNegotiatingCardIds();
   // Today in the Philippines, for reading installment plans (which date is due, which is overdue).
@@ -146,7 +151,7 @@ export function PendingPaymentsTable({
           <div key={group.buyerHandle} className="overflow-hidden rounded-2xl border border-card-border">
             <div className="flex flex-wrap items-center justify-between gap-2 bg-card px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-foreground">{group.buyerHandle}</span>
+                <BuyerName handle={group.buyerHandle} info={aliases[group.buyerHandle]} />
                 <span className="text-xs text-foreground-muted">
                   {group.claims.length} card{group.claims.length === 1 ? "" : "s"}
                 </span>

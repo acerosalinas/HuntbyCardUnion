@@ -1,5 +1,6 @@
 "use client";
 
+import { BuyerName } from "@/components/admin/BuyerName";
 import Link from "next/link";
 import { FormEvent, useMemo, useState, useTransition } from "react";
 import { ArrowLeft, CalendarClock, ClipboardCopy, Package, Trash2, Truck, Undo2, Wallet } from "lucide-react";
@@ -61,7 +62,7 @@ interface Props {
   /** How much of each card is already paid (payments made for a live settle that live first). */
   paidBySale: Record<string, number>;
   /** The marketplace account this customer is linked to (they can sign in and see their own orders), if any. */
-  linkedBuyer: { id: string; handle: string; fullName: string } | null;
+  linkedBuyer: { id: string; handle: string; fullName: string; alias: string | null } | null;
   /** This customer's open installment plans (requested or approved), one per card at most. */
   plans: TrackerPlan[];
   /** Their marketplace orders on this seller's cards (empty when the customer isn't linked to an account). */
@@ -79,7 +80,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [buyerQuery, setBuyerQuery] = useState("");
-  const [buyerResults, setBuyerResults] = useState<{ id: string; handle: string; fullName: string }[] | null>(null);
+  const [buyerResults, setBuyerResults] = useState<{ id: string; handle: string; fullName: string; alias: string | null }[] | null>(null);
   // Copied invoices leave the shipping fee out unless this is switched on.
   const [includeShipping, setIncludeShipping] = useState(false);
 
@@ -879,7 +880,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
         {linkedBuyer ? (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span>
-              Linked to <span className="font-semibold">@{linkedBuyer.handle.replace(/^@/, "")}</span> <span className="text-foreground-muted">({linkedBuyer.fullName})</span>
+              Linked to <BuyerName handle={`@${linkedBuyer.handle.replace(/^@/, "")}`} info={{ buyerId: linkedBuyer.id, alias: linkedBuyer.alias }} /> <span className="text-foreground-muted">({linkedBuyer.fullName})</span>
             </span>
             <Button
               variant="outline"
@@ -902,7 +903,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                 run(async () => setBuyerResults(await findBuyers(buyerQuery)));
               }}
             >
-              <Input value={buyerQuery} onChange={(e) => setBuyerQuery(e.target.value)} placeholder="Search their @handle" maxLength={40} />
+              <Input value={buyerQuery} onChange={(e) => setBuyerQuery(e.target.value)} placeholder="Search their @handle or your sub username" maxLength={40} />
               <Button type="submit" variant="outline" disabled={pending || buyerQuery.trim().length < 2}>
                 Search
               </Button>
@@ -914,6 +915,7 @@ export function CustomerDetail({ customer, totals, lives, sales, payments, shipm
                   <li key={b.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <span>
                       @{b.handle.replace(/^@/, "")} <span className="text-foreground-muted">({b.fullName})</span>
+                      {b.alias && <span className="ml-1.5 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-medium text-gold-ink">{b.alias}</span>}
                     </span>
                     <Button
                       variant="gold"

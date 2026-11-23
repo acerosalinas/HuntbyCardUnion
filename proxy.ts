@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { canUseTracker } from "@/lib/tracker/accessList";
+import { permissionsFromMetadata } from "@/lib/permissions";
 import { isAllowedIn } from "@/lib/accessGate";
 import { ADMIN_AUTH_COOKIE_NAME, BUYER_AUTH_COOKIE_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
@@ -112,8 +113,8 @@ export async function proxy(request: NextRequest) {
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
   }
-  // The tracker is private to specific accounts (see lib/tracker/accessList.ts), not every admin.
-  if ((pathname === "/tracker" || pathname.startsWith("/tracker/")) && !canUseTracker({ email: user.email, role })) {
+  // The tracker is for Super Admins and for admins given the Live Tracker permission (see lib/tracker/accessList.ts), not every admin.
+  if ((pathname === "/tracker" || pathname.startsWith("/tracker/")) && !canUseTracker({ email: user.email, role, permissions: permissionsFromMetadata(user.app_metadata) })) {
     return NextResponse.redirect(new URL("/admin", request.url));
   }
   if (

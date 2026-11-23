@@ -1,4 +1,6 @@
 "use client";
+import { BuyerName } from "@/components/admin/BuyerName";
+import type { BuyerAliasInfo } from "@/lib/buyerAlias";
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
@@ -25,7 +27,7 @@ export interface WishlistedItem {
 }
 
 /** Cards buyers have hearted. Answer one as Fulfilled (the buyer is told it's available and to message us) or Not fulfilled. */
-export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
+export function WishlistedCardsView({ items, aliases = {} }: { items: WishlistedItem[]; aliases?: Record<string, BuyerAliasInfo> }) {
   const [showResolved, setShowResolved] = useState(false);
   const [mode, setMode] = useViewMode();
   const [pending, startTransition] = useTransition();
@@ -99,7 +101,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">
-                    @{w.buyerHandle.replace(/^@/, "")} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
+                    <BuyerName handle={`@${w.buyerHandle.replace(/^@/, "")}`} info={aliases[w.buyerHandle]} className="text-foreground-muted" /> · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -149,7 +151,7 @@ export function WishlistedCardsView({ items }: { items: WishlistedItem[] }) {
                     {w.cardTitle}
                   </button>
                   <p className="text-xs text-foreground-muted">
-                    @{w.buyerHandle.replace(/^@/, "")} · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
+                    <BuyerName handle={`@${w.buyerHandle.replace(/^@/, "")}`} info={aliases[w.buyerHandle]} className="text-foreground-muted" /> · {w.createdAt.slice(0, 10)} · {formatCurrency(w.price)} · <span className="capitalize">{w.cardStatus.toLowerCase()}</span>
                   </p>
                   {w.status === "OPEN" ? (
                     <div className="mt-auto flex gap-1.5">
