@@ -5,6 +5,8 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTrackerAdmin } from "@/lib/tracker/auth";
 import { sellerFranchise } from "@/lib/sellerFranchise";
+import { afterOneSold, listingNote } from "@/lib/tracker/listingStock";
+import { revalidateAdmin } from "@/app/admin/actionHelpers";
 import { queryOnePieceCatalog } from "@/lib/onepieceCatalogQuery";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
 import { queryCatalog } from "@/lib/pokemonCatalogQuery";
@@ -88,7 +90,9 @@ export async function addSale(input: {
   ownerTag?: string | null;
   /** The catalog card the name was picked from, if it was. */
   catalogCardId?: string | null;
-}): Promise<{ customerId: string; newCustomer: boolean }> {
+  /** One of the seller's own marketplace listings of this card: take one off it, because the card was just sold here. */
+  takeFromListingId?: string | null;
+}): Promise<{ customerId: string; newCustomer: boolean; listingNote?: string }> {
   const admin = await requireTrackerAdmin();
   const v = parse(
     z.object({
@@ -99,6 +103,7 @@ export async function addSale(input: {
       forShipping: z.boolean(),
       ownerTag: z.string().trim().max(8).nullish(),
       catalogCardId: z.string().trim().max(60).nullish(),
+      takeFromListingId: z.string().uuid().nullish(),
     }),
     input,
   );
@@ -127,8 +132,32 @@ export async function addSale(input: {
     ...(v.catalogCardId ? { catalog_card_id: v.catalogCardId } : {}),
   });
   if (error) throw new Error(error.message);
+
+  // The card was sold in the live: optionally take one off the seller's own marketplace listing of it. The sale above is already saved,
+  // so this never fails the sale - if the listing can't be changed the seller is simply told why.
+  let note: string | undefined;
+  if (v.takeFromListingId) note = await takeOneOffListing(db, admin.id, v.takeFromListingId);
   refresh();
-  return { customerId: customer.id, newCustomer: customer.created };
+  return { customerId: customer.id, newCustomer: customer.created, ...(note ? { listingNote: note } : {}) };
+}
+
+/** One unit off the seller's own available listing, guarded so a buyer reserving it at the same moment can't be oversold. Returns the message to show. */
+async function takeOneOffListing(db: ReturnType<typeof createAdminClient>, adminId: string, cardId: string): Promise<string> {
+  const { data: card } = await db.from("cards").select("id, title, status, quantity_available, admin_id").eq("id", cardId).eq("admin_id", adminId).maybeSingle();
+  if (!card) return "Marketplace listing not changed: it no longer exists.";
+  const next = card.status === "AVAILABLE" ? afterOneSold(Number(card.quantity_available)) : null;
+  if (!next) return `Marketplace listing not changed: "${card.title}" has no stock left to take.`;
+  const { data: updated, error } = await db
+    .from("cards")
+    .update({ quantity_available: next.available, status: next.status })
+    .eq("id", card.id)
+    .eq("admin_id", adminId)
+    .eq("status", "AVAILABLE")
+    .eq("quantity_available", card.quantity_available)
+    .select("id");
+  if (error || !updated || updated.length === 0) return `Marketplace listing not changed: "${card.title}" was just updated by someone else - check it in Inventory.`;
+  revalidateAdmin();
+  return listingNote(card.title as string, next);
 }
 
 /** Cards matching what's typed in the card box (name, set or number), best matches first - from the franchise the seller sells (One Piece sellers get One Piece cards, English or Japanese). Never throws. */
@@ -232,12 +261,14 @@ export async function cardHistory(catalogCardId: string): Promise<CardInsight | 
   const admin = await requireTrackerAdmin();
   const id = parse(z.string().trim().min(1).max(60), catalogCardId);
   const db = createAdminClient();
-  const [sold, listings] = await Promise.all([
+  const [sold, listings, mineRes] = await Promise.all([
     db.from("tracker_sales").select("amount, created_at").eq("owner_id", admin.id).eq("catalog_card_id", id).order("created_at", { ascending: false }).limit(200),
     db.from("cards").select("price").eq("catalog_card_id", id).eq("status", "AVAILABLE").gt("quantity_available", 0).limit(200),
+    db.from("cards").select("id, title, price, quantity_available").eq("admin_id", admin.id).eq("catalog_card_id", id).eq("status", "AVAILABLE").gt("quantity_available", 0).order("price").limit(10),
   ]);
+  const mine = !mineRes.error && mineRes.data ? mineRes.data.map((r) => ({ id: r.id as string, title: r.title as string, price: Number(r.price), available: Number(r.quantity_available) })) : [];
   const sales = !sold.error && sold.data ? summarizeHistory(sold.data.map((r) => ({ amount: Number(r.amount), date: r.created_at as string }))) : null;
   const prices = !listings.error && listings.data ? listings.data.map((r) => Number(r.price)).filter((n) => n > 0) : [];
   const listed = prices.length > 0 ? { count: prices.length, lowest: Math.min(...prices) } : null;
-  return sales || listed ? { sales, listed } : null;
+  return sales || listed || mine.length > 0 ? { sales, listed, mine } : null;
 }

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { CopyBalanceButton } from "@/components/tracker/CopyBalanceButton";
+import { RemindAllButton } from "@/components/tracker/RemindAllButton";
 import { Input } from "@/components/ui/Input";
 import { cn, formatCurrency } from "@/lib/utils";
 import { CustomerTotals } from "@/lib/tracker/money";
@@ -68,6 +69,9 @@ export function CustomersView({ rows }: { rows: CustomerRow[] }) {
   return (
     <div className="space-y-4">
       <h1 className="sr-only">Customers and balances</h1>
+      <div className="flex justify-end">
+        <RemindAllButton />
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-2xl border border-card-border bg-card p-4">

@@ -41,7 +41,8 @@ export type NotificationType =
   | "tracker_proof_confirmed"
   | "tracker_proof_rejected"
   | "wishlist_added"
-  | "tracker_invoice_ready";
+  | "tracker_invoice_ready"
+  | "payment_reminder";
 
 export interface CardItem {
   id: string;

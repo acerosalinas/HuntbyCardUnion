@@ -212,3 +212,55 @@ export async function sendInvoiceReadyEmails(items: InvoiceReadyEmail[]): Promis
   }
   return sent;
 }
+
+export interface PaymentReminderEmail {
+  to: string;
+  name: string;
+  shopName: string;
+  total: number;
+  /** What the money is for, e.g. "3 cards from the lives (₱200) and 1 marketplace order (₱70)". */
+  summary: string;
+  /** Path inside the app where they pay, e.g. "/account/orders". */
+  link: string;
+}
+
+/**
+ * "You still have a payment waiting" emails, one per customer, through Resend's batch endpoint (up to 100 per request).
+ * Each customer gets their own email - addresses are never shown to each other. Never throws; returns how many were sent.
+ */
+export async function sendPaymentReminderEmails(items: PaymentReminderEmail[]): Promise<number> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) {
+    console.warn("RESEND_API_KEY/RESEND_FROM_EMAIL not configured - skipping payment reminder emails.");
+    return 0;
+  }
+  if (items.length === 0) return 0;
+
+  const resend = new Resend(apiKey);
+  const siteUrl = "https://cardunion.online";
+  const messages = items.map((i) => ({
+    from,
+    to: [i.to],
+    subject: `Payment reminder from ${i.shopName}`,
+    html: `
+      <p>Hi ${escapeHtml(i.name)},</p>
+      <p>This is a friendly reminder from <strong>${escapeHtml(i.shopName)}</strong>: you still have <strong>${formatCurrency(i.total)}</strong> waiting to be paid.</p>
+      <p>${escapeHtml(i.summary)}</p>
+      <p><a href="${siteUrl}${i.link}">Open the app</a> to see everything and send your payment. If you've already paid, thank you - just send your proof and we'll confirm it.</p>
+    `,
+  }));
+
+  let sent = 0;
+  for (let start = 0; start < messages.length; start += 100) {
+    const chunk = messages.slice(start, start + 100);
+    try {
+      const { error } = await resend.batch.send(chunk);
+      if (error) console.error(`Resend rejected the payment reminder emails (${error.name}): ${error.message}`);
+      else sent += chunk.length;
+    } catch (err) {
+      console.error("Failed to send payment reminder emails:", err);
+    }
+  }
+  return sent;
+}

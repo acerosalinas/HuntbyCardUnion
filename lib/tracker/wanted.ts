@@ -93,6 +93,8 @@ export interface CardInsight {
   sales: CardHistory | null;
   /** Cheapest available marketplace listing of the same card, and how many are listed. */
   listed: { count: number; lowest: number } | null;
+  /** The seller's OWN available listings of the same card, so a card sold in a live can be taken off the marketplace too. */
+  mine: { id: string; title: string; price: number; available: number }[];
 }
 
 /** Summary of what one catalog card sold for across the owner's lives (amounts newest-first). */

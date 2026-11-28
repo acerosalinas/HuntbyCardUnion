@@ -85,6 +85,8 @@ export function EntryView({ franchise, liveId, lives, customers, sales, totalsBy
   const [catalogId, setCatalogId] = useState<string | null>(null);
   // What the picked catalog card has sold for before (null = never / nothing picked).
   const [history, setHistory] = useState<CardInsight | null>(null);
+  // Which of the seller's own marketplace listings of the picked card to take one off ("" = none). Ticked for them when one matches.
+  const [takeFrom, setTakeFrom] = useState("");
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
 
@@ -126,7 +128,15 @@ export function EntryView({ franchise, liveId, lives, customers, sales, totalsBy
     // Sales history is kept for the Pokémon catalog only; a One Piece pick just fills in the name.
     setCatalogId(onePiece ? null : c.id);
     setHistory(null);
-    if (!onePiece) cardHistory(c.id).then(setHistory).catch(() => {});
+    setTakeFrom("");
+    if (!onePiece) {
+      cardHistory(c.id)
+        .then((h) => {
+          setHistory(h);
+          setTakeFrom(h?.mine[0]?.id ?? "");
+        })
+        .catch(() => {});
+    }
     amountRef.current?.focus();
   };
 
@@ -204,8 +214,9 @@ export function EntryView({ franchise, liveId, lives, customers, sales, totalsBy
     if (!cardName.trim()) return setError("Enter the card name.");
     if (amount.trim() === "" || !Number.isFinite(value) || value < 0) return setError("Enter a valid amount.");
     run(async () => {
-      const result = await addSale({ liveId, customerName, cardName, amount: value, forShipping, ownerTag, catalogCardId: catalogId });
-      setNotice(result.newCustomer ? `Added new customer ${customerName.trim()}.` : null);
+      const result = await addSale({ liveId, customerName, cardName, amount: value, forShipping, ownerTag, catalogCardId: catalogId, takeFromListingId: takeFrom || null });
+      setNotice([result.newCustomer ? `Added new customer ${customerName.trim()}.` : null, result.listingNote ?? null].filter(Boolean).join(" ") || null);
+      setTakeFrom("");
       setCardName("");
       setCatalogId(null);
       setHistory(null);
@@ -545,6 +556,41 @@ export function EntryView({ franchise, liveId, lives, customers, sales, totalsBy
                   )}
                   {history.listed && <> · on the marketplace from {formatCurrency(history.listed.lowest)}{history.listed.count > 1 ? ` (${history.listed.count} listed)` : ""}</>}
                 </p>
+              )}
+              {catalogId && history && history.mine.length > 0 && (
+                <div className="mt-2 space-y-1 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-sm">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={takeFrom !== ""}
+                      onChange={(e) => setTakeFrom(e.target.checked ? history.mine[0].id : "")}
+                      className="h-4 w-4 rounded border-card-border accent-gold"
+                    />
+                    <span>
+                      Also take 1 off my marketplace listing
+                      <span className="text-foreground-muted"> - marks it sold out if it is the last one</span>
+                    </span>
+                  </label>
+                  {takeFrom !== "" && history.mine.length > 1 && (
+                    <select
+                      value={takeFrom}
+                      onChange={(e) => setTakeFrom(e.target.value)}
+                      aria-label="Which of your listings to take one off"
+                      className="w-full rounded-md border border-card-border bg-background-elevated px-2 py-1.5 text-base outline-none focus:border-gold sm:text-xs"
+                    >
+                      {history.mine.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.title} - {formatCurrency(m.price)} - {m.available} in stock
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {takeFrom !== "" && history.mine.length === 1 && (
+                    <p className="text-xs text-foreground-muted">
+                      {history.mine[0].title} - {formatCurrency(history.mine[0].price)} - {history.mine[0].available} in stock
+                    </p>
+                  )}
+                </div>
               )}
             </div>
             <div>
