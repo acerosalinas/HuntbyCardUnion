@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { selectIn } from "@/lib/chunkedIn";
 import { requireTrackerAdminOrRedirect } from "@/lib/tracker/auth";
 import { ProofsView, ProofItem } from "@/components/tracker/ProofsView";
 import type { MarketProofItem } from "@/components/tracker/MarketProofCard";
@@ -7,6 +8,7 @@ import { loadTrackerData, parseOwnerLabels } from "@/lib/tracker/data";
 import { paymentsCoveringSales } from "@/lib/tracker/coverage";
 import { overlapText, proofOverlap } from "@/lib/tracker/proofWarnings";
 import { normalizeOwnerTag } from "@/lib/tracker/split";
+import { manilaDay } from "@/lib/tracker/proofDays";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +18,11 @@ export default async function TrackerProofsPage() {
   const admin = await requireTrackerAdminOrRedirect();
   const db = createAdminClient();
 
-  // Newest first; every PENDING one plus the recent history.
-  const { data: claims, error } = await db
-    .from("tracker_payment_claims")
-    .select("*")
-    .eq("owner_id", admin.id)
-    .order("created_at", { ascending: false })
-    .limit(150);
+  // Everything still waiting (however old, so nothing needing review is ever hidden), plus the newest 400 reviewed ones (recent week, then the archive).
+  const base = () => db.from("tracker_payment_claims").select("*").eq("owner_id", admin.id).order("created_at", { ascending: false });
+  const [waitingRes, historyRes] = await Promise.all([base().eq("status", "PENDING"), base().neq("status", "PENDING").limit(400)]);
+  const error = waitingRes.error ?? historyRes.error;
+  const claims = [...(waitingRes.data ?? []), ...(historyRes.data ?? [])].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at)));
   if (error) {
     if (MISSING.test(error.message)) {
       return (
@@ -39,20 +39,22 @@ export default async function TrackerProofsPage() {
   const customerIds = [...new Set(rows.map((c) => c.customer_id as string))];
   const buyerIds = [...new Set(rows.map((c) => c.buyer_id as string))];
 
-  const [settingsRes, cardRes, customerRes, buyerRes, urlRes] = await Promise.all([
+  // Every id list below is looked up in batches (selectIn): one request with hundreds of ids is refused, which used to leave every card unnamed.
+  const [settingsRes, cardData, customerData, buyerData, urlRes] = await Promise.all([
     db.from("tracker_settings").select("owner_labels").eq("owner_id", admin.id).maybeSingle(),
-    claimIds.length ? db.from("tracker_claim_cards").select("claim_id, sale_id, amount").in("claim_id", claimIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    customerIds.length ? db.from("tracker_customers").select("id, name").eq("owner_id", admin.id).in("id", customerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    buyerIds.length ? db.from("profiles").select("id, handle").in("id", buyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    selectIn<Record<string, unknown>>(claimIds, (b) => db.from("tracker_claim_cards").select("claim_id, sale_id, amount").in("claim_id", b)),
+    selectIn<Record<string, unknown>>(customerIds, (b) => db.from("tracker_customers").select("id, name").eq("owner_id", admin.id).in("id", b)),
+    selectIn<Record<string, unknown>>(buyerIds, (b) => db.from("profiles").select("id, handle").in("id", b)),
     rows.length ? db.storage.from("tracker-proofs").createSignedUrls(rows.map((c) => c.proof_path as string), 3600) : Promise.resolve({ data: [] as { path: string | null; signedUrl: string }[] }),
   ]);
+  const cardRes = { data: cardData };
+  const customerRes = { data: customerData };
+  const buyerRes = { data: buyerData };
 
   const saleIds = [...new Set((cardRes.data ?? []).map((r) => r.sale_id as string))];
-  const { data: sales } = saleIds.length
-    ? await db.from("tracker_sales").select("id, card_name, amount, live_id, owner_tag").eq("owner_id", admin.id).in("id", saleIds)
-    : { data: [] as Record<string, unknown>[] };
+  const sales = await selectIn<Record<string, unknown>>(saleIds, (b) => db.from("tracker_sales").select("id, card_name, amount, live_id, owner_tag").eq("owner_id", admin.id).in("id", b));
   const liveIds = [...new Set((sales ?? []).map((s) => s.live_id as string))];
-  const { data: lives } = liveIds.length ? await db.from("tracker_lives").select("id, title").eq("owner_id", admin.id).in("id", liveIds) : { data: [] as Record<string, unknown>[] };
+  const lives = await selectIn<Record<string, unknown>>(liveIds, (b) => db.from("tracker_lives").select("id, title").eq("owner_id", admin.id).in("id", b));
 
   const nameOf = new Map((customerRes.data ?? []).map((c) => [c.id as string, c.name as string]));
   const handleOf = new Map((buyerRes.data ?? []).map((b) => [b.id as string, b.handle as string]));
@@ -112,11 +114,13 @@ export default async function TrackerProofsPage() {
   // Marketplace payment screenshots from buyers (My Dibs), so one inbox covers both ledgers. One screenshot can cover several orders.
   const marketClaims = (await loadMarketplaceClaims(db, admin.id, null)).filter((c) => c.status === "PENDING" && c.proofPath);
   const marketBuyerIds = [...new Set(marketClaims.map((c) => c.buyerId))];
-  const [marketProfiles, marketCustomers, marketUrls] = await Promise.all([
-    marketBuyerIds.length ? db.from("profiles").select("id, handle").in("id", marketBuyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
-    marketBuyerIds.length ? db.from("tracker_customers").select("id, name, buyer_id").eq("owner_id", admin.id).in("buyer_id", marketBuyerIds) : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+  const [marketProfilesData, marketCustomersData, marketUrls] = await Promise.all([
+    selectIn<Record<string, unknown>>(marketBuyerIds, (b) => db.from("profiles").select("id, handle").in("id", b)),
+    selectIn<Record<string, unknown>>(marketBuyerIds, (b) => db.from("tracker_customers").select("id, name, buyer_id").eq("owner_id", admin.id).in("buyer_id", b)),
     marketClaims.length ? db.storage.from("order-proofs").createSignedUrls([...new Set(marketClaims.map((c) => c.proofPath as string))], 3600) : Promise.resolve({ data: [] as { path: string | null; signedUrl: string }[] }),
   ]);
+  const marketProfiles = { data: marketProfilesData };
+  const marketCustomers = { data: marketCustomersData };
   const marketHandle = new Map((marketProfiles.data ?? []).map((p) => [p.id as string, p.handle as string]));
   const marketCustomer = new Map((marketCustomers.data ?? []).map((c) => [c.buyer_id as string, { id: c.id as string, name: c.name as string }]));
   const marketUrl = new Map(((marketUrls.data ?? []) as { path: string | null; signedUrl: string }[]).map((u) => [u.path ?? "", u.signedUrl]));
@@ -138,5 +142,5 @@ export default async function TrackerProofsPage() {
     };
   });
 
-  return <ProofsView items={items} marketItems={marketItems} />;
+  return <ProofsView items={items} marketItems={marketItems} today={manilaDay(new Date().toISOString())} />;
 }

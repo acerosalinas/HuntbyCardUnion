@@ -1,6 +1,7 @@
 import { PendingPaymentsTable, PendingClaimView } from "@/components/admin/PendingPaymentsTable";
 import { seesAllStores } from "@/lib/adminView";
 import { loadAliasInfo } from "@/lib/buyerAliasData";
+import { selectIn } from "@/lib/chunkedIn";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/adminAuth";
 import { loadClaimPlans } from "@/lib/claimInstallmentsData";
@@ -93,12 +94,8 @@ export default async function AdminPendingPaymentsPage() {
   const queueCounts: Record<string, number> = {};
   const cardIds = [...new Set(claims.map((c) => c.cardId))];
   if (cardIds.length > 0) {
-    const { data: queueRows } = await supabase
-      .from("dibs_queue")
-      .select("card_id")
-      .in("card_id", cardIds)
-      .eq("status", "WAITING");
-    for (const row of queueRows ?? []) {
+    const queueRows = await selectIn<{ card_id: string }>(cardIds, (b) => supabase.from("dibs_queue").select("card_id").in("card_id", b).eq("status", "WAITING"));
+    for (const row of queueRows) {
       queueCounts[row.card_id] = (queueCounts[row.card_id] ?? 0) + 1;
     }
   }

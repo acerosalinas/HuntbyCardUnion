@@ -89,7 +89,7 @@ export function WishlistedCardsView({ items, aliases = {} }: { items: Wishlisted
                 >
                   {w.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- card photo from the image bucket
-                    <img src={w.images[0]} alt={w.cardTitle} className="h-full w-full object-cover" />
+                    <img src={w.images[0]} alt={w.cardTitle} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                       <ImageOff size={18} />
@@ -139,7 +139,7 @@ export function WishlistedCardsView({ items, aliases = {} }: { items: Wishlisted
                 >
                   {w.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element -- card photo from the image bucket
-                    <img src={w.images[0]} alt={w.cardTitle} className="h-full w-full object-cover" />
+                    <img src={w.images[0]} alt={w.cardTitle} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                       <ImageOff size={20} />

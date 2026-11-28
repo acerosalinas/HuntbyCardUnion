@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/Input";
 import { confirmClaim, rejectClaim } from "@/app/tracker/paymentActions";
 import { MarketProofCard, MarketProofItem } from "@/components/tracker/MarketProofCard";
 import { cn, extractErrorMessage, formatCurrency } from "@/lib/utils";
+import { dividerTitle, groupProofsByDay, isArchived, ARCHIVE_AFTER_DAYS } from "@/lib/tracker/proofArchive";
+import { manilaDay } from "@/lib/tracker/proofDays";
 
 export interface ProofItem {
   id: string;
@@ -49,19 +51,28 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Live Tracker proofs and marketplace payment screenshots in one inbox, newest first. */
-export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; marketItems?: MarketProofItem[] }) {
-  const [tab, setTab] = useState<"PENDING" | "DONE">("PENDING");
+type Tab = "PENDING" | "DONE" | "ARCHIVE";
+
+/**
+ * Live Tracker proofs and marketplace payment screenshots in one inbox, grouped under a divider for each day (newest day first).
+ * "To review" always shows everything waiting, however old. A reviewed proof stays in "Reviewed" for a week after it was sent, then moves to the Archive.
+ * `today` is the Philippine calendar day, worked out on the server so every viewer sees the same week.
+ */
+export function ProofsView({ items, marketItems = [], today }: { items: ProofItem[]; marketItems?: MarketProofItem[]; today: string }) {
+  const [tab, setTab] = useState<Tab>("PENDING");
+  const [visibleDays, setVisibleDays] = useState(14);
   const pending = items.filter((i) => i.status === "PENDING");
   const done = items.filter((i) => i.status !== "PENDING");
-  const shown = tab === "PENDING" ? pending : done;
+  const recent = done.filter((i) => !isArchived(manilaDay(i.createdAt), today));
+  const archived = done.filter((i) => isArchived(manilaDay(i.createdAt), today));
+  const shown = tab === "PENDING" ? pending : tab === "DONE" ? recent : archived;
   // Marketplace screenshots only exist while they wait for review: confirming or rejecting one takes it off the list.
   const shownMarket = tab === "PENDING" ? marketItems : [];
   const toReview = pending.length + marketItems.length;
-  const inbox = [
-    ...shown.map((item) => ({ at: item.createdAt, node: <ProofCard key={item.id} item={item} /> })),
-    ...shownMarket.map((item) => ({ at: item.uploadedAt, node: <MarketProofCard key={item.key} item={item} /> })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  const days = groupProofsByDay([
+    ...shown.map((item) => ({ at: item.createdAt, amount: item.cardsAmount + item.sfAmount, node: <ProofCard key={item.id} item={item} /> })),
+    ...shownMarket.map((item) => ({ at: item.uploadedAt, amount: item.total, node: <MarketProofCard key={item.key} item={item} /> })),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -70,13 +81,17 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
         {(
           [
             ["PENDING", "To review", toReview],
-            ["DONE", "Reviewed", done.length],
+            ["DONE", "Reviewed", recent.length],
+            ["ARCHIVE", "Archive", archived.length],
           ] as const
         ).map(([id, text, count]) => (
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => {
+              setTab(id);
+              setVisibleDays(14);
+            }}
             className={cn(
               "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
               tab === id ? "border-gold bg-gold/10" : "border-card-border text-foreground-muted hover:text-foreground",
@@ -87,12 +102,37 @@ export function ProofsView({ items, marketItems = [] }: { items: ProofItem[]; ma
         ))}
       </div>
 
-      {inbox.length === 0 ? (
+      {tab === "ARCHIVE" && archived.length > 0 && (
+        <p className="text-xs text-foreground-muted">Reviewed proofs sent more than {ARCHIVE_AFTER_DAYS} days ago. Nothing is deleted.</p>
+      )}
+
+      {days.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-card-border py-12 text-center text-sm text-foreground-muted">
-          {tab === "PENDING" ? "No payment proofs waiting for review." : "Nothing reviewed yet."}
+          {tab === "PENDING"
+            ? "No payment proofs waiting for review."
+            : tab === "DONE"
+              ? `Nothing reviewed in the last ${ARCHIVE_AFTER_DAYS} days.`
+              : "Nothing archived yet - proofs move here a week after they were sent."}
         </p>
       ) : (
-        inbox.map((entry) => entry.node)
+        days.slice(0, visibleDays).map((day) => (
+          <section key={day.day} aria-label={dividerTitle(day.day, today)} className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 rounded-xl border border-card-border bg-background-elevated px-3 py-2.5 text-sm">
+              <h2 className="font-semibold">{dividerTitle(day.day, today)}</h2>
+              <span className="text-xs text-foreground-muted">
+                {day.count} proof{day.count === 1 ? "" : "s"} · {formatCurrency(day.total)}
+              </span>
+            </div>
+            {day.entries.map((entry) => entry.node)}
+          </section>
+        ))
+      )}
+      {days.length > visibleDays && (
+        <div className="text-center">
+          <Button variant="outline" type="button" onClick={() => setVisibleDays((n) => n + 14)}>
+            Show older days ({days.length - visibleDays} more)
+          </Button>
+        </div>
       )}
     </div>
   );

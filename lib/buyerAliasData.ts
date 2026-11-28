@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { BuyerAliasInfo } from "@/lib/buyerAlias";
+import { selectIn } from "@/lib/chunkedIn";
 
 const MISSING = /buyer_aliases|schema cache|does not exist/i;
 
@@ -15,15 +16,19 @@ export async function loadAliasInfo(adminId: string, handles: string[]): Promise
   const db = createAdminClient();
   // Handles are stored with a leading @ on profiles, but some records keep them without it: look up both shapes, key the answer by what the caller has.
   const at = (h: string) => `@${h.replace(/^@+/, "")}`;
-  const { data: profiles } = await db.from("profiles").select("id, handle").in("handle", [...new Set(unique.map(at))]);
-  const idByAt = new Map((profiles ?? []).map((p) => [p.handle as string, p.id as string]));
+  const profiles = await selectIn<{ id: string; handle: string }>(unique.map(at), (batch) => db.from("profiles").select("id, handle").in("handle", batch));
+  const idByAt = new Map(profiles.map((p) => [p.handle, p.id]));
   const idByHandle = new Map(unique.flatMap((h) => (idByAt.has(at(h)) ? [[h, idByAt.get(at(h)) as string] as [string, string]] : [])));
   const ids = [...idByHandle.values()];
   let aliasById = new Map<string, string>();
   if (ids.length > 0) {
-    const { data, error } = await db.from("buyer_aliases").select("buyer_id, alias").eq("admin_id", adminId).in("buyer_id", ids);
-    if (error && !MISSING.test(error.message)) throw new Error(error.message);
-    aliasById = new Map((data ?? []).map((r) => [r.buyer_id as string, r.alias as string]));
+    try {
+      const rows = await selectIn<{ buyer_id: string; alias: string }>(ids, (batch) => db.from("buyer_aliases").select("buyer_id, alias").eq("admin_id", adminId).in("buyer_id", batch));
+      aliasById = new Map(rows.map((r) => [r.buyer_id, r.alias]));
+    } catch (err) {
+      // Quietly no labels until migration_buyer_aliases.sql has been run; anything else is a real problem.
+      if (!(err instanceof Error && MISSING.test(err.message))) throw err;
+    }
   }
   for (const h of unique) {
     const id = idByHandle.get(h) ?? null;

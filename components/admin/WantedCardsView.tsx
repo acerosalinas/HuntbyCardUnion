@@ -91,7 +91,7 @@ export function WantedCardsView({ wanted: initialWanted, aliases = {} }: { wante
                 >
                   {w.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- buyer-uploaded reference photo, not a local asset
-                    <img src={w.photoUrl} alt={w.cardName} className="h-full w-full object-cover" />
+                    <img src={w.photoUrl} alt={w.cardName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                       <ImageOff size={18} />
@@ -142,7 +142,7 @@ export function WantedCardsView({ wanted: initialWanted, aliases = {} }: { wante
                 >
                   {w.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- buyer-uploaded reference photo, not a local asset
-                    <img src={w.photoUrl} alt={w.cardName} className="h-full w-full object-cover" />
+                    <img src={w.photoUrl} alt={w.cardName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-foreground-muted">
                       <ImageOff size={20} />
